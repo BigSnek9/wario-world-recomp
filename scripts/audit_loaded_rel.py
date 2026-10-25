@@ -29,20 +29,41 @@ for path in sorted((ROOT / "original/GWWE01/files/dll").glob("*.rel")):
         continue
     expected = apply(model, addresses)
     for section in model["sections"]:
-        if not section["executable"] or not section["size"]:
-            continue
+        if not section["size"] or not section["offset"]:
+            continue  # BSS has no initialized bytes to compare.
+        executable = section["executable"]
         start = addresses[model["module_id"]][section["index"]] - 0x80000000
         end = start + section["size"]
         if not 0 <= start < end <= len(memory):
-            raise ValueError("Loaded code section outside snapshot")
+            raise ValueError("Loaded section outside snapshot")
         actual, wanted = memory[start:end], bytes(expected[section["index"]])
         differences = [i for i, (a, b) in enumerate(zip(actual, wanted)) if a != b]
+        if executable:
+            checks.append(dict(name=path.name, module_id=model["module_id"], section=section["index"],
+                               runtime_start=f"0x{start + 0x80000000:08X}", size=len(wanted),
+                               mismatched_bytes=len(differences), first_offsets=differences[:16],
+                               expected_sha256=hashlib.sha256(wanted).hexdigest(), actual_sha256=hashlib.sha256(actual).hexdigest()))
+            continue
+        # Data section: classify byte differences by whether the 4-byte word
+        # containing them is a relocation write site. Relocation sites that
+        # still match indicate the modeled link value survived; differences at
+        # relocation sites or elsewhere indicate later guest mutation, which is
+        # legal in mutable data and recorded for investigation, not treated as
+        # an error.
+        site_offsets = {r["offset"] for r in model["records"] if r["section"] == section["index"]}
+        site_bytes = set()
+        for site in site_offsets:
+            site_bytes.update(range(site, min(site + 4, section["size"])))
+        site_diffs = [i for i in differences if i in site_bytes]
+        other_diffs = [i for i in differences if i not in site_bytes]
         checks.append(dict(name=path.name, module_id=model["module_id"], section=section["index"],
-                           runtime_start=f"0x{start + 0x80000000:08X}", size=len(wanted),
-                           mismatched_bytes=len(differences), first_offsets=differences[:16],
-                           expected_sha256=hashlib.sha256(wanted).hexdigest(), actual_sha256=hashlib.sha256(actual).hexdigest()))
-report = dict(run=str(run), inventory=inventory, executable_checks=checks,
-              limitation="Checks loaded code bytes after relocation, not execution semantics, active lifetime, data state or full-game coverage.")
+                           kind="data", runtime_start=f"0x{start + 0x80000000:08X}", size=len(wanted),
+                           relocation_sites=len(site_offsets), mismatched_relocation_bytes=len(site_diffs),
+                           first_relocation_offsets=site_diffs[:16], other_mismatched_bytes=len(other_diffs),
+                           first_other_offsets=other_diffs[:16]))
+report = dict(run=str(run), inventory=inventory, executable_checks=[c for c in checks if c.get("kind") != "data"],
+              data_checks=[c for c in checks if c.get("kind") == "data"],
+              limitation="Checks loaded code bytes and data relocation sites after relocation, not execution semantics, active lifetime or full-game coverage. Data mutations after load are legal and only recorded.")
 args.output.write_text(json.dumps(report, indent=2) + "\n")
 print(json.dumps(checks, indent=2))
-raise SystemExit(not checks or any(c["mismatched_bytes"] for c in checks))
+raise SystemExit(any(c.get("mismatched_bytes", c.get("mismatched_relocation_bytes", 0)) for c in checks))

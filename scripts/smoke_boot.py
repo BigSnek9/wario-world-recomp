@@ -14,6 +14,7 @@ parser.add_argument("--graphics", default="Null")
 parser.add_argument("--lockstep", action="store_true")
 parser.add_argument("--lockstep-limit", type=int, default=10000, help="Native dispatch cutoff; zero checks new sites throughout the run")
 parser.add_argument("--capture", action="store_true", help="Ask the runtime to save a private diagnostic screenshot")
+parser.add_argument("--capture-cadence", type=float, help="Save a private diagnostic screenshot every N seconds (implies --capture)")
 parser.add_argument("--windowed", action="store_true", help="Open a temporary game window for a rendering check")
 parser.add_argument("--capture-at", type=float, help="Seconds after launch to request the screenshot")
 parser.add_argument("--menu-probe", action="store_true", help="Try Start/A menu inputs in the fresh private session")
@@ -92,6 +93,7 @@ if not args.windowed:
 samples = []
 forced_stop = False
 capture_requested = False
+captures_issued = 0
 probe_steps = [(900, "start"), (1020, "a"), (1260, "a"), (1500, "a"),
                (1740, "a"), (1980, "a"), (2220, "start"), (2460, "a"), (2700, "start")]
 if args.probe_file:
@@ -139,11 +141,18 @@ with (folder / "runner.log").open("w", encoding="utf-8") as log:
                 pending.write_text(f"command=pad_frames\nport=0\nframes={args.pad_hold}\n{button}=1\n", encoding="utf-8")
                 pending.replace(control / "commands" / f"200-pad-{probe_index}.txt")
                 probe_index += 1
-        if args.capture and not capture_requested and time.monotonic() - started >= (args.capture_at if args.capture_at is not None else args.seconds / 2):
-            pending = control / "capture.tmp"
-            pending.write_text("command=screenshot\npath=diagnostic.png\n", encoding="utf-8")
-            pending.replace(control / "commands/100-screenshot.txt")
-            capture_requested = True
+        capture_due = args.capture or args.capture_cadence is not None
+        if capture_due:
+            cadence_due = (args.capture_cadence is not None and
+                           time.monotonic() - started >= args.capture_cadence * (captures_issued + 1))
+            single_due = (args.capture_cadence is None and not capture_requested and
+                          time.monotonic() - started >= (args.capture_at if args.capture_at is not None else args.seconds / 2))
+            if cadence_due or single_due:
+                pending = control / "capture.tmp"
+                pending.write_text("command=screenshot\npath=diagnostic-%02d.png\n" % captures_issued, encoding="utf-8")
+                pending.replace(control / ("commands/100-screenshot-%02d.txt" % captures_issued))
+                captures_issued += 1
+                capture_requested = True
         if args.memory_at is not None and not memory_requested and time.monotonic() - started >= args.memory_at:
             commands = [
                 ("300-pause", "command=pause\n"),

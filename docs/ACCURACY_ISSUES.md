@@ -83,6 +83,16 @@ VerifyChunk learns a first runtime hash when the expected hash is zero; this is
 not independent validation of relocated code. Do not use zero-hash metadata as
 a shortcut to claim complete static coverage.
 
+Data-section update, 2026-10-25: audit_loaded_rel.py now also compares every
+initialized (non-BSS) data section of a linked module against the independent
+relocation model, classifying byte differences by whether the containing word is
+a relocation write site. For the observed linked WWUSTT snapshot, all 145 data
+relocation sites (sections 4, 5 and 7) still hold the modeled link values, and
+the single non-site difference is the vtable boundary marker word at section 7
+offset 0 changing 0xFFFFFFFE to 0xFFFFFFFF (guest mutation of mutable data).
+Remaining gap: this covers the one module observed linked in that snapshot at
+one point in time; unload/reload and the other modules need the same check.
+
 The initial lockstep run made 228 checks and reported 2 differences. After the
 detector correction, run private/runs/20261024T231317787136Z makes 228 checks,
 reports 0 differences, skips 16 fallback cases and 1 zero case, and has zero

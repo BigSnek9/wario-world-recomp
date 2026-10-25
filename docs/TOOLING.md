@@ -81,3 +81,15 @@ Additional fixes: reference interpreter FPCC field mask (256 regressions), expli
 JIT-entry accounting, and optional instruction-count-based shadow boundaries.
 build_instrumented.py creates a separate ignored diagnostic DLL. refresh_patches.py
 exports current source-only diffs, hashes and pinned checkout revisions.
+
+## Automation protocol status
+
+tools/automation_protocol.cpp serves pad injection (command=pad_frames) and
+screenshots, both confirmed working in private runs; pad presses reliably
+advance the title/menu flow. The status line's navigation_* fields are unwired
+stubs: the struct exists in automation_protocol.hpp and is printed by
+formatStatus, but no runtime code populates it from guest memory, so they read
+zero forever. Gameplay detection currently requires screenshots. Wiring these
+fields to real game state (after identifying the structures in Ghidra) is open
+work. smoke_boot.py --capture-cadence N saves numbered screenshots every N
+seconds for observing menu progression.
