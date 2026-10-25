@@ -194,3 +194,8 @@ sees, and instrument CmdDone/TransferComplete interrupt latency. Do not work
 around this by patching the game or fabricating save files.
 smoke_boot.py --memcard raw and scripts/classify_captures.py (pixel-nearest
 state classification of captures) were added for this investigation.
+Comparison note: the traced TransferByte/DMARead/DMAWrite logic in this fork
+matches upstream Dolphin master line-for-line in the relevant paths, so the
+defect is expected in the fork's EXI interrupt/timing integration (EXI_Channel,
+EXI.cpp UpdateInterrupts, CoreTiming pacing under the recomp runtime) or in a
+game-SDK timing assumption, not in the card command state machine.
