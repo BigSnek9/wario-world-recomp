@@ -1,0 +1,364 @@
+diff --git a/Externals/libspng/CMakeLists.txt b/Externals/libspng/CMakeLists.txt
+index 476125e..e249d19 100644
+--- a/Externals/libspng/CMakeLists.txt
++++ b/Externals/libspng/CMakeLists.txt
+@@ -10,3 +10,6 @@ add_subdirectory(libspng)
+ set(CMAKE_SKIP_INSTALL_RULES "${_PREV_CMAKE_SKIP_INSTALL_RULES}")
+ 
+ add_library(spng::spng ALIAS spng_static)
++if(MSVC)
++  target_compile_options(spng_static PRIVATE /wd4706)
++endif()
+diff --git a/GXRuntime/src/core/cpu_interpreter_float.c b/GXRuntime/src/core/cpu_interpreter_float.c
+index a73f961..57a175c 100644
+--- a/GXRuntime/src/core/cpu_interpreter_float.c
++++ b/GXRuntime/src/core/cpu_interpreter_float.c
+@@ -285,60 +285,25 @@ f64 force_25_bit(f64 value) {
+ 
+ bool ppc_fma(CPUState* cpu, f64 a, f64 c, f64 b, bool single,
+              bool subtract, bool negative, f64* output) {
+-    f64 addend = subtract ? -b : b;
+-    f64 result;
+-
+-    if (!single) {
+-        result = fma(a, c, addend);
+-    } else {
+-        f64 rounded_c = force_25_bit(c);
+-        result = fma(a, rounded_c, addend);
+-        u64 bits = f64_bits(result);
+-        if ((bits & 0x000000001FFFFFFFull) == 0x0000000010000000ull) {
+-            f64 a_prime = addend - result;
+-            f64 b_prime = result + a_prime;
+-            f64 error = fma(a, rounded_c, a_prime) + (addend - b_prime);
+-            if (error != 0.0) {
+-                if ((error > 0.0) == (result > 0.0)) bits++;
+-                else bits--;
+-                result = f64_value(bits);
+-            }
+-        }
+-        result = (f64)(f32)result;
+-    }
+-
+-    if (isnan(result)) {
+-        u32 invalid = 0;
+-        if (is_snan(a) || is_snan(b) || is_snan(c))
+-            invalid |= 0x01000000u;
+-
+-        clear_fifr(cpu);
+-        if (isnan(a)) {
+-            result = f64_value(f64_bits(a) | 0x0008000000000000ull);
+-        } else if (isnan(b)) {
+-            result = f64_value(f64_bits(b) | 0x0008000000000000ull);
+-        } else if (isnan(c)) {
+-            result = f64_value(f64_bits(c) | 0x0008000000000000ull);
+-        } else {
+-            bool invalid_multiply = (a == 0.0 && isinf(c)) ||
+-                                    (isinf(a) && c == 0.0);
+-            invalid |= invalid_multiply ? 0x00100000u : 0x00800000u;
+-            result = f64_value(0x7FF8000000000000ull);
+-        }
+-
+-        if (invalid) {
+-            set_fp_exception(cpu, invalid);
+-            if (cpu->fpscr & 0x80u)
+-                return false;
++    /* Match the opcode helper: preserve pre-rounding information and NI mode. */
++    FPRes product = ni_madd_msub(cpu, a, c, b, subtract, single);
++    if (fp_invalid_gated(cpu, &product))
++        return false;
++    if (single) {
++        f32 rounded = force_single(cpu, product.value);
++        f32 result = (negative && !isnan(rounded)) ? -rounded : rounded;
++        if (!subtract && !negative) {
++            cpu->fpscr = (cpu->fpscr & ~(FPSCR_FI_BIT | FPSCR_FR_BIT)) |
++                         ((product.value != (f64)rounded) ? FPSCR_FI_BIT : 0u);
+         }
+-    } else if (isinf(a) || isinf(b) || isinf(c)) {
+-        clear_fifr(cpu);
++        set_fprf(cpu, classify_f32(result));
++        *output = (f64)result;
++    } else {
++        f64 rounded = force_double(cpu, product.value);
++        f64 result = (negative && !isnan(rounded)) ? -rounded : rounded;
++        set_fprf(cpu, classify_f64(result));
++        *output = result;
+     }
+-
+-    if (negative && !isnan(result))
+-        result = -result;
+-    set_fprf(cpu, single ? classify_f32((f32)result) : classify_f64(result));
+-    *output = result;
+     return true;
+ }
+ 
+diff --git a/Source/Core/Common/Assembler/GekkoIRGen.cpp b/Source/Core/Common/Assembler/GekkoIRGen.cpp
+index f7f62d3..496f000 100644
+--- a/Source/Core/Common/Assembler/GekkoIRGen.cpp
++++ b/Source/Core/Common/Assembler/GekkoIRGen.cpp
+@@ -538,7 +538,7 @@ void GekkoIRPlugin::AddSymbolResolve(std::string_view sym, bool absolute)
+   };
+ 
+   m_fixup_stack.emplace(
+-      [this, sym, absolute, source_address, err_on_fail = std::move(err_on_fail)] mutable {
++      [this, sym, absolute, source_address, err_on_fail = std::move(err_on_fail)]() mutable {
+         auto label_it = m_labels.find(sym);
+         if (label_it != m_labels.end())
+         {
+@@ -575,7 +575,7 @@ void GekkoIRPlugin::AddNumLabelSymResolve(std::string_view sym, u32 num)
+   // Searching forward only
+   size_t search_start_idx = static_cast<size_t>(m_numlabs.size());
+   m_fixup_stack.emplace(
+-      [this, num, source_address, search_start_idx, err_on_fail = std::move(err_on_fail)] mutable {
++      [this, num, source_address, search_start_idx, err_on_fail = std::move(err_on_fail)]() mutable {
+         for (size_t i = search_start_idx; i < m_numlabs.size(); i++)
+         {
+           if (num == m_numlabs[i].first)
+diff --git a/Source/Core/Common/FileSearch.cpp b/Source/Core/Common/FileSearch.cpp
+index 9aed337..3f6beb6 100644
+--- a/Source/Core/Common/FileSearch.cpp
++++ b/Source/Core/Common/FileSearch.cpp
+@@ -13,7 +13,7 @@
+ 
+ #ifdef _WIN32
+ #include <windows.h>
+-#elifdef ANDROID
++#elif defined(ANDROID)
+ #include "jni/AndroidCommon/AndroidCommon.h"
+ #endif
+ 
+diff --git a/Source/Core/Core/HW/DVD/AMMediaboardSocket.cpp b/Source/Core/Core/HW/DVD/AMMediaboardSocket.cpp
+index ca7d206..49998c3 100644
+--- a/Source/Core/Core/HW/DVD/AMMediaboardSocket.cpp
++++ b/Source/Core/Core/HW/DVD/AMMediaboardSocket.cpp
+@@ -92,7 +92,7 @@ static GuestSocket GetAvailableGuestSocket()
+   // For some unknown reasons, the fd was:
+   //  - shared between a client (connect) and a server (accept) socket.
+   //  - closed but still used by the other in an invalid state.
+-  u32 count = std::size(s_sockets);
++  u32 count = static_cast<u32>(std::size(s_sockets));
+   while (count--)
+   {
+     const u32 i = s_next_valid_fd;
+@@ -428,7 +428,7 @@ void AMMBCommandSelect(u32 parameter_offset)
+   const u32 timeout_offset = s_media_buffer_32[parameter_offset + 4];
+ 
+   // Games sometimes send 256 (the bit size of GuestFdSet).
+-  nfds = std::min<u32>(nfds, std::size(s_sockets));
++  nfds = std::min<u32>(nfds, static_cast<u32>(std::size(s_sockets)));
+ 
+   std::chrono::milliseconds timeout{-1};
+   if (timeout_offset != 0)
+diff --git a/Source/Core/Core/PowerPC/Interpreter/Interpreter_FloatCompare.cpp b/Source/Core/Core/PowerPC/Interpreter/Interpreter_FloatCompare.cpp
+index a44792a..d2136d4 100644
+--- a/Source/Core/Core/PowerPC/Interpreter/Interpreter_FloatCompare.cpp
++++ b/Source/Core/Core/PowerPC/Interpreter/Interpreter_FloatCompare.cpp
+@@ -49,7 +49,7 @@ void Interpreter::Helper_FloatCompareOrdered(PowerPC::PowerPCState& ppc_state,
+   const u32 compare_value = static_cast<u32>(compare_result);
+ 
+   // Clear and set the FPCC bits accordingly.
+-  ppc_state.fpscr.FPRF = (ppc_state.fpscr.FPRF & ~FPCC_MASK) | compare_value;
++  ppc_state.fpscr.FPRF = (ppc_state.fpscr.FPRF & ~(FPCC_MASK >> FPRF_SHIFT)) | compare_value;
+ 
+   ppc_state.cr.SetField(inst.CRFD, compare_value);
+ }
+@@ -84,7 +84,7 @@ void Interpreter::Helper_FloatCompareUnordered(PowerPC::PowerPCState& ppc_state,
+   const u32 compare_value = static_cast<u32>(compare_result);
+ 
+   // Clear and set the FPCC bits accordingly.
+-  ppc_state.fpscr.FPRF = (ppc_state.fpscr.FPRF & ~FPCC_MASK) | compare_value;
++  ppc_state.fpscr.FPRF = (ppc_state.fpscr.FPRF & ~(FPCC_MASK >> FPRF_SHIFT)) | compare_value;
+ 
+   ppc_state.cr.SetField(inst.CRFD, compare_value);
+ }
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
+index e3581cc..1cc3d8c 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
+@@ -226,6 +226,12 @@ void StaticRecompCore::Shutdown()
+                  m_native_dispatches, m_fallback_steps, m_native_exceptions,
+                  m_hook_fallback_instructions, m_failed_chunks, m_verifications,
+                  m_reverify_events);
++  std::fprintf(stderr, "[wario-jit] fallback_entries=%llu distinct_entry_pcs=%zu\n",
++               static_cast<unsigned long long>(m_jit_fallback_entries),
++               m_jit_fallback_sites.size());
++  for (const auto& [pc, count] : m_jit_fallback_sites)
++    std::fprintf(stderr, "[wario-jit] pc=%08x entries=%llu\n", pc,
++                 static_cast<unsigned long long>(count));
+   m_lockstep_verifier.reset();
+   m_block_cache.Shutdown();
+   m_module = nullptr;
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
+index d084fea..bfe6dd3 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
+@@ -171,6 +171,8 @@ private:
+ 
+   u64 m_native_dispatches = 0;
+   u64 m_fallback_steps = 0;
++  u64 m_jit_fallback_entries = 0;
++  std::unordered_map<u32, u64> m_jit_fallback_sites;
+   u64 m_native_exceptions = 0;
+   u64 m_hook_fallback_instructions = 0;
+   u64 m_timebase_cycle_remainder = 0;
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
+index 7b3d845..6ac6b8c 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
+@@ -13,6 +13,8 @@
+ #include "Common/Logging/Log.h"
+ 
+ #include <cstdio>
++#include <cstdlib>
++#include <unordered_set>
+ 
+ namespace
+ {
+@@ -367,6 +369,13 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+   auto* core = static_cast<StaticRecompCore*>(cpu->external_user_data);
+   cia = core->TranslateRelAddress(cia);
+   ++core->m_hook_fallback_instructions;
++  static const bool trace_helpers = std::getenv("WARIO_RECOMP_TRACE_HOOK_FALLBACK") != nullptr;
++  if (trace_helpers) {
++    static std::unordered_set<u64> seen;
++    const u64 key = (static_cast<u64>(cia) << 32) | raw;
++    if (seen.insert(key).second)
++      std::fprintf(stderr, "[wario-helper] pc=%08x raw=%08x\n", cia, raw);
++  }
+ 
+   // Lockstep: a block that fell back to the interpreter for an unmodeled
+   // instruction (DMA mtspr, cache op, ...) performed side effects not captured
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
+index d91ec2d..65f6840 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
+@@ -249,6 +249,9 @@ void StaticRecompCore::Run()
+         }
+         else if (m_fallback_jit)
+         {
++          ++m_jit_fallback_entries;
++          if (m_collect_dispatch_samples)
++            ++m_jit_fallback_sites[ppc.pc];
+           m_fallback_jit->Run();
+         }
+         else
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.cpp
+index 2bed07c..3045f48 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.cpp
+@@ -65,6 +65,9 @@ void StaticRecompLockstepVerifier::Init()
+     return;
+   }
+ 
++  m_instruction_journal = reinterpret_cast<InstructionJournalFn>(
++      m_core.m_library.GetSymbolAddress("wario_instruction_journal"));
++  std::fprintf(stderr, "[lockstep] exact_instruction_count=%d\n", m_instruction_journal != nullptr);
+   m_lockstep = true;
+   if (const char* s = std::getenv("STATICRECOMP_LOCKSTEP_START"))
+     m_ls_start = std::strtoull(s, nullptr, 0);
+@@ -126,6 +129,7 @@ bool StaticRecompLockstepVerifier::LockstepWindowOpen() const
+ 
+ void StaticRecompLockstepVerifier::Prepare(const CPUState& guest)
+ {
++  if (m_instruction_journal) m_instruction_journal(1);
+   m_ls_entry = guest.pc;
+   m_ls_snapshot = guest;
+   m_journal.Clear();
+@@ -142,6 +146,7 @@ void StaticRecompLockstepVerifier::Prepare(const CPUState& guest)
+ 
+ void StaticRecompLockstepVerifier::Verify(const CPUState& guest)
+ {
++  m_native_instruction_count = m_instruction_journal ? m_instruction_journal(0) : 0;
+   m_ls_journaling = false;
+   m_set_mem_journal(nullptr, nullptr);
+   StaticRecompLockstep::g_ram_write_journal = nullptr;
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.h b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.h
+index fb54480..22bc752 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.h
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.h
+@@ -162,6 +162,9 @@ private:
+   u32 m_ls_trace_pc = 0;  // STATICRECOMP_LOCKSTEP_TRACE: per-instr shadow dump for one entry PC
+   u32 m_ls_repeat_pc = 0;
+ 
++  using InstructionJournalFn = u64 (*)(int);
++  InstructionJournalFn m_instruction_journal = nullptr;
++  u64 m_native_instruction_count = 0;
+   u32 m_ls_entry = 0;
+   CPUState m_ls_snapshot{};
+ 
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep_Check.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep_Check.cpp
+index 9c486ef..d84e8b8 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep_Check.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep_Check.cpp
+@@ -21,12 +21,13 @@ namespace
+ {
+ constexpr s64 LS_UNDERCHARGE_GRACE = 1200;
+ 
+-bool LsIsLoopHeader(const u8* ram, u32 ram_size, u32 end_pc)
++bool LsEndCanRepeat(const u8* ram, u32 ram_size, u32 entry_pc, u32 end_pc)
+ {
+   constexpr u32 kBase = 0x80000000u;
+   if (end_pc < kBase)
+     return false;
+   const u32 start_off = end_pc - kBase;
++  const u32 loop_floor = entry_pc < end_pc ? entry_pc : end_pc;
+   constexpr u32 kWindowInsns = 2048;
+   for (u32 i = 0; i < kWindowInsns; ++i)
+   {
+@@ -36,12 +37,13 @@ bool LsIsLoopHeader(const u8* ram, u32 ram_size, u32 end_pc)
+     const u32 insn = Common::swap32(&ram[off]);
+     const u32 opcd = insn >> 26;
+     const u32 addr = end_pc + i * 4u;
+-    if (addr <= end_pc)
++    if (addr <= end_pc || (insn & 1u) != 0u)
+       continue;
+     if (opcd == 16u && (insn & 0x2u) == 0u)  // bc: B-form, 14-bit signed BD, AA=0
+     {
+       const s32 bd = static_cast<s32>(static_cast<s16>(insn & 0xFFFCu));
+-      if (addr + static_cast<u32>(bd) == end_pc)
++      const u32 target = addr + static_cast<u32>(bd);
++      if (target >= loop_floor && target <= end_pc)
+         return true;
+     }
+     else if (opcd == 18u && (insn & 0x2u) == 0u)  // b: I-form, 24-bit signed LI, AA=0
+@@ -49,7 +51,8 @@ bool LsIsLoopHeader(const u8* ram, u32 ram_size, u32 end_pc)
+       s32 li = static_cast<s32>(insn & 0x03FFFFFCu);
+       if (li & 0x02000000)
+         li |= static_cast<s32>(0xFC000000u);
+-      if (addr + static_cast<u32>(li) == end_pc)
++      const u32 target = addr + static_cast<u32>(li);
++      if (target >= loop_floor && target <= end_pc)
+         return true;
+     }
+   }
+@@ -162,7 +165,7 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
+   }
+   int steps = 0;
+   s64 interp_cycles = 0;
+-  const bool end_is_loop_header = LsIsLoopHeader(ram, ram_size, end_pc);
++  const bool end_is_loop_header = LsEndCanRepeat(ram, ram_size, entry_pc, end_pc);
+   while (steps < m_ls_step_cap)
+   {
+     const u32 before = ppc.pc;
+@@ -177,6 +180,12 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
+                    steps, before, ppc.gpr[3], ppc.gpr[4], ppc.gpr[5], ppc.gpr[13], ppc.msr.Hex,
+                    ppc.GetXER().Hex, ppc.cr.Get(), ppc.spr[SPR_LR], ppc.spr[SPR_CTR]);
+     }
++    if (m_instruction_journal)
++    {
++      if (static_cast<u64>(steps) >= m_native_instruction_count) break;
++      if (ppc.Exceptions != 0) break;
++      continue;
++    }
+     if (ppc.pc == end_pc)
+     {
+       // A native dispatch can fall through into a loop body and return at its
+@@ -212,7 +221,8 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
+   StaticRecompLockstep::g_vmem_write_journal_user = nullptr;
+   StaticRecompLockstep::g_tb_override_active = false;
+ 
+-  const bool reached = (ppc.pc == end_pc && ppc.Exceptions == 0);
++  const bool reached = (ppc.pc == end_pc && ppc.Exceptions == 0 &&
++      (!m_instruction_journal || static_cast<u64>(steps) == m_native_instruction_count));
+   const bool cap_hit = !reached && ppc.Exceptions == 0 && steps >= m_ls_step_cap;
+   if (cap_hit)
+     ++m_ls_cap_hits;

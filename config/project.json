@@ -1,0 +1,24 @@
+{
+  "disc_id": "GWWE01",
+  "revision": 0,
+  "iso_sha256": "37b1d6d8c1d8e5629941c6418aba64d05184837544cd2839ab83b19664239007",
+  "dol_sha256": "3550d57e1d76bbac4265158360294a5b9d3a0c1157eee88fd4b7e8591af2d49e",
+  "cpu": "gekko",
+  "semantics": "exact",
+  "backend": "c",
+  "framerate_patches": [],
+  "rel_sha256": {
+    "files/dll/WWUSED.rel": "0a10379f843812fb8a937f895eea038b1f505143cedd51a0ab8396706d779464",
+    "files/dll/WWUSOP.rel": "692bfc30dd77b75383ddcabbe817ba386f13a73520c4dde11ac66def627fa16d",
+    "files/dll/WWUSPF.rel": "9884a45cede2ebe2fcd898b53296600c65844f360da43febf6cfeb80aa2c709b",
+    "files/dll/WWUSS1.rel": "76266544b099ae7d64000f9fa33511f7794b90953672fce8d5410e744a069ab0",
+    "files/dll/WWUSS2.rel": "8c057c4152ba898c64c2e593453e3ec06ca883e9efb1280da02c6570843c0d7b",
+    "files/dll/WWUSS4.rel": "54461cda093b655ee2429f72c0586783662785f7a124d11ef45740b1bdd1d30e",
+    "files/dll/WWUSS5.rel": "e984068fdc8942c936b402e45cca66935b7fe3236105b080236c1d08c7d25c8b",
+    "files/dll/WWUSTT.rel": "5b51ee19389ec1ccfc52c58042e79c2918d875c84c92a3a372695c891eac2e4b"
+  },
+  "upstream": {
+    "DolRecomp": {"url": "https://github.com/ExpansionPak/DolRecomp.git", "commit": "02e27aca1c408cfcb2a4079a3a5b5ab3ae39d340"},
+    "ModernGekko": {"url": "https://github.com/ExpansionPak/ModernGekko.git", "commit": "a2e4e2b026a68d4848f20ebf16f0e0ddeb573957"}
+  }
+}

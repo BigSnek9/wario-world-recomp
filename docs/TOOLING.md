@@ -1,0 +1,83 @@
+# Tool review and route
+
+## Provided packages
+
+| Package | Finding | Use here |
+| --- | --- | --- |
+| Ghidra MCP | Source bridge/plugin; requires an actual Ghidra installation and setup | Suitable for later PowerPC analysis once Ghidra/loader capability is verified; no connected server exists in this chat |
+| IDA MCP | Requires IDA 9.4+, idalib and Python | No suitable IDA installation found in checked locations; do not install paid tooling without consent |
+| REA | Analysis orchestration; Windows Ghidra P0 is limited to approved x86-64 PE targets | Its documented Windows admission does not fit Gekko DOL; do not claim support based on its generic name |
+| ILSpy | .NET decompiler | Wario World is native PowerPC, so it does not decompile the game |
+
+The packages are sources, not complete installed reverse-engineering environments.
+No global agent/MCP configuration was changed. Read the actual package README
+and AGENTS.md before modifying those repositories.
+
+## Existing usable tools
+
+- dtk 1.8.4, commit a0c455e46cab58e1d2e0885623f85089ff0499db, found in an
+  adjacent existing recomp project. Used read-only on original game inputs.
+  On Windows, its VFS DOL paths need a relative path from the disc extraction
+  directory; an absolute F: path was misparsed. Disc extraction accepted it.
+- Python 3.12.6 for independent standard-library format/hash audits.
+- MSVC 19.39.33521, CMake 4.3.3, Ninja; LLVM 23.1.3 present.
+- Existing Dolphin for future isolated reference captures (not launched yet).
+- Java 21 present; Ghidra itself not found in checked project/program locations.
+
+## Chosen implementation route
+
+DolRecomp portable C backend + ModernGekko/Dolphin-derived hardware runtime.
+This reuses a hardware model rather than rewriting GX/audio/device timing.
+Exact FP mode is selected; no fast-math or FPS patches are authorized for baseline.
+The optimized DolRecomp LLVM backend requires LLVM 19/20; installed LLVM 23
+does not satisfy it, so it is disabled. This does not prevent the C backend.
+
+Source pins are in config/project.json. ModernGekko has its own separately pinned
+DolRecomp in vendor/dolphin/DolRecomp (71ce7f97419b1bb1ba9a9596c41507f6629e0fb0).
+Do not mix its ABI/runtime with standalone output without checking compatibility.
+The port builder currently recompiles only the main DOL. Automatically loading
+the disc's REL data in the runtime is not equivalent to compiling the REL code.
+Full Wario REL integration is a required game-specific milestone.
+
+## Local fixes
+
+scripts/apply_tool_fixes.py applies explicit, idempotent changes to pinned sources:
+
+- Empty REL target sections contribute zero base plus addend, matching original
+  OSLink behavior. Synthetic regression checks nonzero addend on an empty section.
+  Patch bounds checks remain enforced for actual write locations.
+- Create the runtime output directory before copying the recompiler. Otherwise
+  CMake's copy can create a regular file called Release before executables link.
+- Disable MSVC warning C4706 only for the vendored PNG target, whose intentional
+  assignment expression was failing under its warnings-as-errors setting.
+- Use explicit empty lambda parameter lists and #elif defined for compatibility
+  with installed MSVC, plus explicit casts for the fixed-size socket table.
+- Fix Windows _spawnv test quoting; the extraction test now passes in this path.
+- Correct the lockstep detector for a continuation address inside a local loop;
+  regression uses the actual detector and eight synthetic control-flow cases.
+- Queue title updates on the host thread to avoid a Windows shutdown deadlock.
+
+Upstream source patches are tool fixes, not game patches. Keep original inputs
+unchanged and preserve diffs/provenance. Do not suppress relocation errors or
+pretend rejected/omitted modules are successfully translated.
+
+Portable Ghidra 12.1.3 and GameCubeLoader 1.3.1 were approved on 2026-10-25.
+These are for deeper analysis, not required to run the current C build. No
+system-wide installation or global agent registration is implied by that approval.
+
+Installed under third_party/ghidra/ghidra_12.1.3_PUBLIC. Verified archives:
+
+- ghidra_12.1.3_PUBLIC_20260817.zip: SHA-256
+  93a5d11a9ad510622acaaf908c556a7b9b764d338e78a7567f3689bf5081fd54.
+- Loader release 1.3.1 asset identifies its build as 1.3.0-921504c for Ghidra 12.1:
+  SHA-256 9892f28fc1e7f19bb3fcec7cfb4ad2ab7504503b571d93de8b142a6f7bec8ed0.
+
+The supplied connector builds as GhidraMCP 7.0.0 with Gradle 9.7.1 and Java 21.
+ghidra_local.py binds loopback and redirects child APPDATA/LOCALAPPDATA privately.
+import_ghidra.py disables symbol-map autoload to avoid the loader's GUI prompt.
+Main import/decompilation succeed despite a nonfatal CodeWarrior-demangler error.
+
+Additional fixes: reference interpreter FPCC field mask (256 regressions), explicit
+JIT-entry accounting, and optional instruction-count-based shadow boundaries.
+build_instrumented.py creates a separate ignored diagnostic DLL. refresh_patches.py
+exports current source-only diffs, hashes and pinned checkout revisions.

@@ -1,0 +1,119 @@
+diff --git a/src/frontend/container/rel.c b/src/frontend/container/rel.c
+index 1df039a..4be6a8d 100644
+--- a/src/frontend/container/rel.c
++++ b/src/frontend/container/rel.c
+@@ -114,6 +114,10 @@ static int section_address_at(const RELFile* rel, u32 section_index,
+     }
+ 
+     const RELSection* section = &rel->sections[section_index];
++    if (section->size == 0 && section->offset == 0) {
++        *out = offset; /* OSLink leaves empty section addresses at zero. */
++        return 1;
++    }
+     if (section->size == 0 || offset > section->size) {
+         fprintf(stderr,
+                 "error: REL relocation references section %u outside its range\n",
+diff --git a/tests/test_disc_extract.c b/tests/test_disc_extract.c
+index 86c22fa..7f3948f 100644
+--- a/tests/test_disc_extract.c
++++ b/tests/test_disc_extract.c
+@@ -167,13 +167,42 @@ static int read_file(const char* path, char* out, size_t out_size) {
+     return ok;
+ }
+ 
++#ifdef _WIN32
++static char* quote_spawn_arg(const char* arg) {
++    size_t len = strlen(arg), w = 0, slashes = 0;
++    char* out = (char*)malloc(len * 2 + 3);
++    if (!out) return NULL;
++    out[w++] = '"';
++    for (size_t i = 0; ; ++i) {
++        char c = arg[i];
++        if (c == '\\') { ++slashes; continue; }
++        size_t n = (c == '"' || c == '\0') ? slashes * 2 : slashes;
++        while (n--) out[w++] = '\\';
++        slashes = 0;
++        if (c == '\0') break;
++        if (c == '"') out[w++] = '\\';
++        out[w++] = c;
++    }
++    out[w++] = '"';
++    out[w] = '\0';
++    return out;
++}
++#endif
++
+ static int run_extract_native(const char* extractor, const char* image,
+                               const char* out_dir) {
+ #ifdef _WIN32
+-    const char* args[] = {
+-        extractor, "extract", "--native-only", image, out_dir, NULL
+-    };
+-    return _spawnv(_P_WAIT, extractor, args) == 0;
++    char* qexe = quote_spawn_arg(extractor);
++    char* qimage = quote_spawn_arg(image);
++    char* qout = quote_spawn_arg(out_dir);
++    if (!qexe || !qimage || !qout) {
++        free(qexe); free(qimage); free(qout);
++        return 0;
++    }
++    const char* args[] = {qexe, "extract", "--native-only", qimage, qout, NULL};
++    int ok = _spawnv(_P_WAIT, extractor, args) == 0;
++    free(qexe); free(qimage); free(qout);
++    return ok;
+ #else
+     char* qexe = quote_arg(extractor);
+     char* qimage = quote_arg(image);
+@@ -206,10 +235,16 @@ static int run_extract_native(const char* extractor, const char* image,
+ 
+ static int run_info(const char* extractor, const char* image) {
+ #ifdef _WIN32
+-    const char* args[] = {
+-        extractor, "extract", "--info", image, NULL
+-    };
+-    return _spawnv(_P_WAIT, extractor, args) == 0;
++    char* qexe = quote_spawn_arg(extractor);
++    char* qimage = quote_spawn_arg(image);
++    if (!qexe || !qimage) {
++        free(qexe); free(qimage);
++        return 0;
++    }
++    const char* args[] = {qexe, "extract", "--info", qimage, NULL};
++    int ok = _spawnv(_P_WAIT, extractor, args) == 0;
++    free(qexe); free(qimage);
++    return ok;
+ #else
+     char* qexe = quote_arg(extractor);
+     char* qimage = quote_arg(image);
+diff --git a/tests/test_rel.c b/tests/test_rel.c
+index 114c339..556c95f 100644
+--- a/tests/test_rel.c
++++ b/tests/test_rel.c
+@@ -110,6 +110,19 @@ static int test_self_relocation(void) {
+     return 1;
+ }
+ 
++static int test_empty_section_addend(void) {
++    const char* path = "test_empty_section.rel";
++    CHECK(write_sample_rel(path, 1, R_PPC_ADDR32, 0, 0x1B78u, 8),
++          "failed to write empty-section sample");
++    RELFile rel;
++    CHECK(rel_load(&rel, path, 0x80500000u), "empty-section addend rejected");
++    CHECK(read_be32(rel.sections[1].data) == 0x1B78u,
++          "empty section must contribute zero to the relocation");
++    rel_free(&rel);
++    remove(path);
++    return 1;
++}
++
+ static int test_dol_rel24_relocation(void) {
+     const char* path = "test_dol_rel24.rel";
+     CHECK(write_sample_rel(path, 0, R_PPC_REL24, 0, 0x80003100u, 8),
+@@ -265,6 +278,7 @@ static int test_bss_uses_fix_size(void) {
+ int main(void) {
+     int ok = 1;
+     ok &= test_self_relocation();
++    ok &= test_empty_section_addend();
+     ok &= test_dol_rel24_relocation();
+     ok &= test_addr16_relocation_uses_halfword_offset();
+     ok &= test_external_import_rejected();

@@ -1,0 +1,26 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1cbef59..298538b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -622,6 +622,8 @@ if(MODERNGEKKO_ENABLE_DOLPHIN_RUNTIME)
+     # directory, and dolrecomp comes from add_subdirectory. A custom target is
+     # always considered out of date, and copy_if_different makes that cheap.
+     add_custom_target(moderngekko-port-recompiler ALL
++        COMMAND ${CMAKE_COMMAND} -E make_directory
++                "$<TARGET_FILE_DIR:moderngekko-port>"
+         COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                 "$<TARGET_FILE:dolrecomp>"
+                 "$<TARGET_FILE_DIR:moderngekko-port>"
+diff --git a/src/runtime/dolphin_runtime.cpp b/src/runtime/dolphin_runtime.cpp
+index f9b5405..9d07133 100644
+--- a/src/runtime/dolphin_runtime.cpp
++++ b/src/runtime/dolphin_runtime.cpp
+@@ -807,7 +807,7 @@ RuntimeRunResult Runtime::Run() {
+   if (!m_impl->config.headless && m_impl->config.show_fps_in_title) {
+     title_thread = std::jthread([](std::stop_token stop_token) {
+       while (!stop_token.stop_requested()) {
+-        Host_UpdateTitle({});
++        Core::QueueHostJob([](Core::System&) { Host_UpdateTitle({}); });
+         for (int i = 0; i < 10 && !stop_token.stop_requested(); ++i)
+           std::this_thread::sleep_for(std::chrono::milliseconds(100));
+       }

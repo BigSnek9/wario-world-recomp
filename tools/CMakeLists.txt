@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.16)
+project(wario_diagnostics CXX)
+add_executable(capture_stack capture_stack.cpp)
+target_compile_features(capture_stack PRIVATE cxx_std_17)
+target_compile_definitions(capture_stack PRIVATE _WIN32_WINNT=0x0A00)
+target_link_libraries(capture_stack PRIVATE dbghelp)

@@ -1,0 +1,47 @@
+diff --git a/src/frontend/container/rel.c b/src/frontend/container/rel.c
+index 1df039a..4be6a8d 100644
+--- a/src/frontend/container/rel.c
++++ b/src/frontend/container/rel.c
+@@ -114,6 +114,10 @@ static int section_address_at(const RELFile* rel, u32 section_index,
+     }
+ 
+     const RELSection* section = &rel->sections[section_index];
++    if (section->size == 0 && section->offset == 0) {
++        *out = offset; /* OSLink leaves empty section addresses at zero. */
++        return 1;
++    }
+     if (section->size == 0 || offset > section->size) {
+         fprintf(stderr,
+                 "error: REL relocation references section %u outside its range\n",
+diff --git a/tests/test_rel.c b/tests/test_rel.c
+index 114c339..556c95f 100644
+--- a/tests/test_rel.c
++++ b/tests/test_rel.c
+@@ -110,6 +110,19 @@ static int test_self_relocation(void) {
+     return 1;
+ }
+ 
++static int test_empty_section_addend(void) {
++    const char* path = "test_empty_section.rel";
++    CHECK(write_sample_rel(path, 1, R_PPC_ADDR32, 0, 0x1B78u, 8),
++          "failed to write empty-section sample");
++    RELFile rel;
++    CHECK(rel_load(&rel, path, 0x80500000u), "empty-section addend rejected");
++    CHECK(read_be32(rel.sections[1].data) == 0x1B78u,
++          "empty section must contribute zero to the relocation");
++    rel_free(&rel);
++    remove(path);
++    return 1;
++}
++
+ static int test_dol_rel24_relocation(void) {
+     const char* path = "test_dol_rel24.rel";
+     CHECK(write_sample_rel(path, 0, R_PPC_REL24, 0, 0x80003100u, 8),
+@@ -265,6 +278,7 @@ static int test_bss_uses_fix_size(void) {
+ int main(void) {
+     int ok = 1;
+     ok &= test_self_relocation();
++    ok &= test_empty_section_addend();
+     ok &= test_dol_rel24_relocation();
+     ok &= test_addr16_relocation_uses_halfword_offset();
+     ok &= test_external_import_rejected();

@@ -1,0 +1,26 @@
+{
+  "DolRecomp": {
+    "path": "third_party/DolRecomp",
+    "commit": "02e27aca1c408cfcb2a4079a3a5b5ab3ae39d340",
+    "patch_sha256": "04a299cb4057b8f0796c97240ff1f385d9d9bdb641a8da4bf900d07619c3c775",
+    "bytes": 4305
+  },
+  "ModernGekko": {
+    "path": "third_party/ModernGekko",
+    "commit": "a2e4e2b026a68d4848f20ebf16f0e0ddeb573957",
+    "patch_sha256": "bd7ddaf24386e024bdf908a58b5ca27ad87dfd5458bc5de057ee20a1d4477d46",
+    "bytes": 1328
+  },
+  "RecompCore": {
+    "path": "third_party/ModernGekko/vendor/dolphin",
+    "commit": "cf8ceb81b47d6172164cd0572f57aa7624719f33",
+    "patch_sha256": "6e23e5f85910d36358b7cac08afbed90ce9fb2235a4a39fa75bfd3c23c6f5d7f",
+    "bytes": 16304
+  },
+  "Bundled-DolRecomp": {
+    "path": "third_party/ModernGekko/vendor/dolphin/DolRecomp",
+    "commit": "71ce7f97419b1bb1ba9a9596c41507f6629e0fb0",
+    "patch_sha256": "1a1001c3d53d7a69283edc50e550f5fbcedb3bed0a2281648c1cc237771f2b0a",
+    "bytes": 1838
+  }
+}

@@ -1,0 +1,19 @@
+object: sys/main.dol
+hash: a377b5a14d46f4056ad20292f796545e839b76f8
+modules:
+- object: files/dll/WWUSS1.rel
+  hash: c03d3f9f29e44e168bf10cd9fed25cbfb5be6e7d
+- object: files/dll/WWUSS2.rel
+  hash: e6e4af72ca95c180d925be1b8ce115ae5b63b42e
+- object: files/dll/WWUSS4.rel
+  hash: 1173df1c6fd7f463a1492a179066b5fd0da2c682
+- object: files/dll/WWUSS5.rel
+  hash: ee6748a34ba56623ac0e86e04226c73053a63ce0
+- object: files/dll/WWUSOP.rel
+  hash: a1a523b04ebad38e7d0486a4f1570e1b54c249d4
+- object: files/dll/WWUSED.rel
+  hash: b5152f3ba1c8d03f85764fdccebc4875ae0c0c11
+- object: files/dll/WWUSPF.rel
+  hash: 9fcd830db1af8c0259a29f97df2b683e76fb3e6b
+- object: files/dll/WWUSTT.rel
+  hash: dc144bc2519951ee0a4b9e42ebdde7701d6bbcee
