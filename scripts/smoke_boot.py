@@ -30,6 +30,7 @@ parser.add_argument("--vectors", action="store_true", help="Use the separate exp
 parser.add_argument("--lockstep-trace", type=lambda v: int(v,0), help="Trace one shadow entry PC privately")
 parser.add_argument("--trace-checks", action="store_true", help="Trace verifier check boundaries privately")
 parser.add_argument("--probe-file", type=Path, help="JSON list of [guest-frame-callback, button] pairs")
+parser.add_argument("--memcard", choices=("folder", "raw"), help="Slot A device override; raw uses a .raw card image instead of a GCI folder")
 parser.add_argument("--stack-at", type=float, help="Capture CPU/graphics stacks from this diagnostic child only")
 args = parser.parse_args()
 if not 1 <= args.seconds <= 180:
@@ -70,6 +71,14 @@ user_directory.mkdir()
     "[Video]\nresolution=640x528\nbackend=" + (args.graphics if args.graphics in ("Vulkan", "OpenGL") else "Vulkan") +
     "\nfullscreen=false\nshow_fps_in_title=true\n[Input]\n[Netplay]\n"
     "nickname=Player\naddress=127.0.0.1\nport=2626\nbuffer=auto\n", encoding="utf-8")
+if args.memcard == "raw":
+    # The core reads user/Config/Dolphin.ini (F_DOLPHINCONFIG_IDX is
+    # D_CONFIG_IDX + DOLPHIN_CONFIG). EXIDeviceType::MemoryCard (1) selects the
+    # raw card image device instead of the default GCI folder card.
+    config_directory = user_directory / "Config"
+    config_directory.mkdir(exist_ok=True)
+    (config_directory / "Dolphin.ini").write_text(
+        chr(91) + "Core" + chr(93) + "\nSlotA = 1\n", encoding="utf-8")
 environment = os.environ.copy()
 environment["MODERNGEKKO_STATICRECOMP"] = "0" if args.reference else "1"
 environment["STATICRECOMP_DISPATCH_SAMPLES"] = "1"

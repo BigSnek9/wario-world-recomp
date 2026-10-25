@@ -14,8 +14,8 @@
   "RecompCore": {
     "path": "third_party/ModernGekko/vendor/dolphin",
     "commit": "cf8ceb81b47d6172164cd0572f57aa7624719f33",
-    "patch_sha256": "6e23e5f85910d36358b7cac08afbed90ce9fb2235a4a39fa75bfd3c23c6f5d7f",
-    "bytes": 16304
+    "patch_sha256": "bb3458eb6988470dfbcfb399511f8e67dda473667924923de2f7192acfe8fdc1",
+    "bytes": 24728
   },
   "Bundled-DolRecomp": {
     "path": "third_party/ModernGekko/vendor/dolphin/DolRecomp",

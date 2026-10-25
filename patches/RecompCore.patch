@@ -148,6 +148,49 @@ index ca7d206..49998c3 100644
  
    std::chrono::milliseconds timeout{-1};
    if (timeout_offset != 0)
+diff --git a/Source/Core/Core/HW/EXI/EXI.cpp b/Source/Core/Core/HW/EXI/EXI.cpp
+index ba3e88f..613c03a 100644
+--- a/Source/Core/Core/HW/EXI/EXI.cpp
++++ b/Source/Core/Core/HW/EXI/EXI.cpp
+@@ -63,6 +63,8 @@ void ExpansionInterfaceManager::AddMemoryCard(Slot slot)
+     memorycard_device = Config::Get(Config::GetInfoForEXIDevice(slot));
+   }
+ 
++  NOTICE_LOG_FMT(COMMON, "[wario-exi] slot {} memory card device enum {}",
++                 static_cast<int>(slot), static_cast<int>(memorycard_device));
+   m_channels[SlotToEXIChannel(slot)]->AddDevice(memorycard_device, SlotToEXIDevice(slot));
+ }
+ 
+diff --git a/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp b/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp
+index 35cad68..043c4c1 100644
+--- a/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp
++++ b/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp
+@@ -256,6 +256,7 @@ void CEXIMemoryCard::CmdDone()
+   m_status &= ~MC_STATUS_BUSY;
+ 
+   m_interrupt_set = true;
++  std::fprintf(stderr, "[wario-mc] cmd_done status=%02x\n", m_status);
+   m_system.GetExpansionInterface().UpdateInterrupts();
+ }
+ 
+@@ -282,6 +283,9 @@ void CEXIMemoryCard::SetCS(int cs)
+   }
+   else
+   {
++    std::fprintf(stderr, "[wario-mc] cs_end cmd=%02x pos=%u addr=%06x\n",
++                 static_cast<unsigned>(m_command), static_cast<unsigned>(m_position),
++                 static_cast<unsigned>(m_address));
+     switch (m_command)
+     {
+     case Command::SectorErase:
+@@ -342,6 +346,7 @@ void CEXIMemoryCard::TransferByte(u8& byte)
+   if (m_position == 0)
+   {
+     m_command = static_cast<Command>(byte);  // first byte is command
++    std::fprintf(stderr, "[wario-mc] cmd %02x\n", static_cast<unsigned>(byte));
+     byte = 0xFF;                             // would be tristate, but we don't care.
+ 
+     switch (m_command)  // This seems silly, do we really need it?
 diff --git a/Source/Core/Core/PowerPC/Interpreter/Interpreter_FloatCompare.cpp b/Source/Core/Core/PowerPC/Interpreter/Interpreter_FloatCompare.cpp
 index a44792a..d2136d4 100644
 --- a/Source/Core/Core/PowerPC/Interpreter/Interpreter_FloatCompare.cpp
@@ -171,7 +214,7 @@ index a44792a..d2136d4 100644
    ppc_state.cr.SetField(inst.CRFD, compare_value);
  }
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
-index e3581cc..1cc3d8c 100644
+index e3581cc..d573d55 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
 @@ -226,6 +226,12 @@ void StaticRecompCore::Shutdown()
@@ -187,14 +230,33 @@ index e3581cc..1cc3d8c 100644
    m_lockstep_verifier.reset();
    m_block_cache.Shutdown();
    m_module = nullptr;
+@@ -305,6 +311,13 @@ void StaticRecompCore::LoadModule()
+   m_module = desc;
+   m_module_active = (desc != nullptr);
+   m_has_rel_modules = desc->num_rel_modules != 0;
++  m_runtime_rel_pc = m_library.GetSymbolAddress("wario_runtime_pc_module") != nullptr;
++  if (m_runtime_rel_pc) {
++    m_rel_symbol = reinterpret_cast<RelSymbolFn>(m_library.GetSymbolAddress("wario_rel_symbol"));
++    m_rel_expected_hash = reinterpret_cast<RelExpectedHashFn>(m_library.GetSymbolAddress("wario_expected_chunk_hash"));
++    if (!m_rel_symbol || !m_rel_expected_hash) { m_module_active = false; return reject("incomplete Wario REL hooks"); }
++    std::fprintf(stderr, "[wario-rel] runtime PCs and independent relocation hashes enabled\n");
++  }
+   m_chunk_state.assign(desc->num_chunk_ranges, CHUNK_UNVERIFIED);
+   m_chunk_host_call_state.assign(desc->num_chunk_ranges, 0);
+   m_effective_chunk_hashes.assign(desc->chunk_hashes,
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
-index d084fea..bfe6dd3 100644
+index d084fea..19223f1 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
-@@ -171,6 +171,8 @@ private:
+@@ -171,6 +171,13 @@ private:
  
    u64 m_native_dispatches = 0;
    u64 m_fallback_steps = 0;
++  using RelSymbolFn = u32 (*)(CPUState*, u32, u32, u32);
++  using RelExpectedHashFn = u64 (*)(CPUState*, u32, u32);
++  RelSymbolFn m_rel_symbol = nullptr;
++  RelExpectedHashFn m_rel_expected_hash = nullptr;
++  bool m_runtime_rel_pc = false;
 +  u64 m_jit_fallback_entries = 0;
 +  std::unordered_map<u32, u64> m_jit_fallback_sites;
    u64 m_native_exceptions = 0;
@@ -228,9 +290,18 @@ index 7b3d845..6ac6b8c 100644
    // Lockstep: a block that fell back to the interpreter for an unmodeled
    // instruction (DMA mtspr, cache op, ...) performed side effects not captured
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
-index d91ec2d..65f6840 100644
+index d91ec2d..1085c13 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
+@@ -154,7 +154,7 @@ void StaticRecompCore::Run()
+           u32 linked_dispatch_address = runtime_dispatch_address;
+           if (m_has_rel_modules)
+             ResolveNativeAddress(runtime_dispatch_address, &linked_dispatch_address, nullptr);
+-          m_guest.pc = linked_dispatch_address;
++          if (!m_runtime_rel_pc) m_guest.pc = linked_dispatch_address;
+           m_module->dispatch(&m_guest, linked_dispatch_address);
+           if (m_has_rel_modules)
+             m_guest.pc = TranslateRelAddress(m_guest.pc);
 @@ -249,6 +249,9 @@ void StaticRecompCore::Run()
          }
          else if (m_fallback_jit)
@@ -241,8 +312,88 @@ index d91ec2d..65f6840 100644
            m_fallback_jit->Run();
          }
          else
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_SMC.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_SMC.cpp
+index 491c57e..28fd320 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_SMC.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_SMC.cpp
+@@ -24,6 +24,16 @@ void StaticRecompCore::RefreshRelSections()
+     return;
+ 
+   std::vector<ActiveRelSection> discovered;
++  if (m_runtime_rel_pc) {
++    for (u32 mi=0; mi<m_module->num_rel_modules; ++mi) {
++      const auto& module = m_module->rel_modules[mi];
++      for (u32 si=0; si<module.num_sections; ++si) {
++        const auto& section = module.sections[si];
++        const u32 runtime = m_rel_symbol(&m_guest, module.module_id, section.section_index, 0);
++        if (runtime) discovered.push_back({module.module_id, section.section_index, section.linked_start, runtime, section.size});
++      }
++    }
++  } else
+   for (u32 module_index = 0; module_index < m_module->num_rel_modules; ++module_index)
+   {
+     const StaticRecompRelModule& module = m_module->rel_modules[module_index];
+@@ -118,8 +128,18 @@ bool StaticRecompCore::ResolveNativeAddress(u32 runtime_address, u32* linked_add
+     }
+     return false;
+   };
+-  if (resolve_active())
++  if (resolve_active()) {
++    if (m_runtime_rel_pc) { RefreshRelSections(); return resolve_active(); }
+     return true;
++  }
++  if (m_runtime_rel_pc && runtime_address < 0x80000000u) {
++    bool covered = false;
++    for (u32 i=0; i<m_module->num_code_ranges; ++i) {
++      const auto& range=m_module->code_ranges[i];
++      if (runtime_address >= range.start && runtime_address < range.end) { covered=true; break; }
++    }
++    if (!covered) return false;
++  }
+   const int direct_index = GetAddressLookupIndex(runtime_address);
+   if (direct_index >= 0 && direct_index < static_cast<int>(m_chunk_lookup_table.size()))
+   {
+@@ -147,12 +167,14 @@ bool StaticRecompCore::ResolveRuntimeAddress(u32 linked_address, u32* runtime_ad
+       return true;
+     }
+   }
+-  *runtime_address = linked_address;
++  *runtime_address = m_runtime_rel_pc && linked_address < m_guest.ram_size ?
++      linked_address | 0x80000000u : linked_address;
+   return true;
+ }
+ 
+ u32 StaticRecompCore::TranslateRelAddress(u32 linked_address)
+ {
++  if (m_runtime_rel_pc) return linked_address; // Actual architectural addresses already.
+   u32 runtime_address = linked_address;
+   ResolveRuntimeAddress(linked_address, &runtime_address);
+   return runtime_address;
+@@ -160,6 +182,7 @@ u32 StaticRecompCore::TranslateRelAddress(u32 linked_address)
+ 
+ int StaticRecompCore::GetAddressLookupIndex(u32 address) const
+ {
++  if (m_runtime_rel_pc && address < m_lookup_ram_size) return static_cast<int>(address >> 2);
+   if (address >= 0x80000000u && address < 0x80000000u + m_lookup_ram_size)
+     return static_cast<int>((address - 0x80000000u) >> 2);
+   if (address >= 0x90000000u && address < 0x90000000u + m_lookup_exram_size)
+@@ -308,6 +331,14 @@ void StaticRecompCore::VerifyChunk(u32 index)
+     hash *= 0x100000001B3ull;
+   }
+ 
++  if (m_runtime_rel_pc && m_chunk_rel_sections[index] >= 0) {
++    m_effective_chunk_hashes[index] = m_rel_expected_hash(&m_guest, chunk.start, chunk.end);
++    if (!m_effective_chunk_hashes[index]) {
++      m_chunk_state[index] = CHUNK_FAILED; ++m_failed_chunks;
++      std::fprintf(stderr, "[wario-rel] independent expected hash unavailable for %08x\n", chunk.start);
++      return;
++    }
++  }
+   if (m_effective_chunk_hashes[index] == 0)
+     m_effective_chunk_hashes[index] = hash;
+ 
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.cpp
-index 2bed07c..3045f48 100644
+index 2bed07c..2404ee1 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.cpp
 @@ -65,6 +65,9 @@ void StaticRecompLockstepVerifier::Init()
@@ -271,6 +422,17 @@ index 2bed07c..3045f48 100644
    m_ls_journaling = false;
    m_set_mem_journal(nullptr, nullptr);
    StaticRecompLockstep::g_ram_write_journal = nullptr;
+@@ -151,7 +156,10 @@ void StaticRecompLockstepVerifier::Verify(const CPUState& guest)
+   StaticRecompLockstep::g_vmem_write_journal = nullptr;
+   StaticRecompLockstep::g_vmem_write_journal_user = nullptr;
+   m_ls_checked.insert(m_ls_entry);
++  static const bool trace_checks = std::getenv("WARIO_LS_CHECK_TRACE") != nullptr;
++  if (trace_checks) { std::fprintf(stderr, "[wario-check] BEGIN entry=%08x end=%08x instructions=%llu helper=%d\n", m_ls_entry, guest.pc, static_cast<unsigned long long>(m_native_instruction_count), m_ls_fallback_seen); std::fflush(stderr); }
+   LockstepCheck(m_ls_entry, guest.pc, m_ls_snapshot);
++  if (trace_checks) { std::fprintf(stderr, "[wario-check] END entry=%08x\n", m_ls_entry); std::fflush(stderr); }
+ }
+ 
+ }  // namespace StaticRecompLockstep
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.h b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.h
 index fb54480..22bc752 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.h
@@ -286,7 +448,7 @@ index fb54480..22bc752 100644
    CPUState m_ls_snapshot{};
  
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep_Check.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep_Check.cpp
-index 9c486ef..d84e8b8 100644
+index 9c486ef..d76d1b5 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep_Check.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep_Check.cpp
 @@ -21,12 +21,13 @@ namespace
@@ -330,7 +492,17 @@ index 9c486ef..d84e8b8 100644
          return true;
      }
    }
-@@ -162,7 +165,7 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
+@@ -71,6 +74,9 @@ void StaticRecompLockstepVerifier::LoadEntryRegsToPPC(const CPUState& s)
+ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const CPUState& entry_state)
+ {
+   ++m_ls_checks;
++  if (m_ls_trace_pc != 0 && entry_pc == m_ls_trace_pc)
++    std::fprintf(stderr, "[ls-trace] BEGIN entry=%08x end=%08x instructions=%llu entry_msr=%08x native_msr=%08x\n",
++                 entry_pc, end_pc, static_cast<unsigned long long>(m_native_instruction_count), entry_state.msr, m_core.m_guest.msr);
+ 
+   if (m_ls_fallback_seen)
+   {
+@@ -162,7 +168,7 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
    }
    int steps = 0;
    s64 interp_cycles = 0;
@@ -339,7 +511,7 @@ index 9c486ef..d84e8b8 100644
    while (steps < m_ls_step_cap)
    {
      const u32 before = ppc.pc;
-@@ -177,6 +180,12 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
+@@ -177,6 +183,12 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
                     steps, before, ppc.gpr[3], ppc.gpr[4], ppc.gpr[5], ppc.gpr[13], ppc.msr.Hex,
                     ppc.GetXER().Hex, ppc.cr.Get(), ppc.spr[SPR_LR], ppc.spr[SPR_CTR]);
      }
@@ -352,7 +524,7 @@ index 9c486ef..d84e8b8 100644
      if (ppc.pc == end_pc)
      {
        // A native dispatch can fall through into a loop body and return at its
-@@ -212,7 +221,8 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
+@@ -212,7 +224,8 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
    StaticRecompLockstep::g_vmem_write_journal_user = nullptr;
    StaticRecompLockstep::g_tb_override_active = false;
  

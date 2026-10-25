@@ -132,3 +132,60 @@ No game-derived code or original input was patched to hide a difference.
 The standalone DolRecomp CPU library differs from GXRuntime; its own tests are
 not an independent oracle for these status flags. The runtime repair applies
 to the actual GXRuntime used by native DLLs. Keep separate tool/runtime evidence.
+
+## A009 - Memory card writes fail; menu path to gameplay blocked
+
+Automated probes reach the file-select hall but data creation always fails, so
+gameplay (and with it runtime execution of REL modules 1-7) cannot be reached
+through the menus yet.
+
+Observed flow (private runs 20261025T125052430561Z through 20261025T134738164027Z,
+clean full-port DLL, fresh user folder each run, input via pad_frames automation):
+- title -> Start -> file-select hall renders correctly;
+- banner "There are no data files for this game on the Memory Card in Slot A.";
+- A opens "Create a file ... ?" (Yes default); Yes runs the creation animation,
+  fails, and returns to the banner;
+- after idle the hall shows "The game cannot be saved. Continue anyway?";
+  the file screen times out to the title screen if left unanswered;
+- the menu state cycles autonomously roughly every 30 seconds.
+
+Configurations tested: default GCI folder card (user/GC/USA/Card A, empty, no
+.gci ever written) and raw card (user/Config/Dolphin.ini [Core] SlotA=1; a
+16 MiB MemoryCardA.USA.raw appears only at shutdown, never during play). Both
+fail identically, so the failure is not folder-versus-raw specific. No memcard
+error is logged. In reference Dolphin, first-boot creation on an empty card is
+expected to succeed; no reference emulator is installed on this machine, so the
+comparison is pending.
+
+Suspect: runtime memory-card/EXI emulation defect, not the static recomp CPU.
+Decisive comparison, run 20261025T135447110723Z: the identical probe under
+--reference (same runtime, original-code JIT CPU) fails the same way with the
+same menu cycle, so the divergence exists with the runtime's own interpreter
+too. Next step is EXI-level tracing of the format/write transaction in the
+runtime (compare against Dolphin's EXI_DeviceMemoryCard behavior), not CPU
+verification. The newly added [wario-exi] device-enum log (RecompCore.patch)
+confirms which device is configured. Do not work around this by patching the
+game or fabricating save files. smoke_boot.py --memcard raw and
+scripts/classify_captures.py (pixel-nearest state classification of captures)
+were added for this investigation.
+
+EXI protocol trace, 2026-10-25 (runs 20261025T135849225189Z,
+20261025T140209772128Z, instrumented [wario-mc] fprintf in
+EXI_DeviceMemoryCard.cpp, also captured in RecompCore.patch):
+- mount sequence per attempt: 00 NintendoID, 89 ReadID, 83 ReadStatus,
+  81 ClearStatus, then many 52 ReadArray transactions;
+- 320 ReadArray commands in 90 s, every one ending at position 9 (command +
+  4 address bytes + 4 IMM data bytes; the block data itself moves over EXI
+  DMA, which this trace does not yet cover);
+- read addresses step 0x200 across 0x5000-0x7600 (directory/BAT sector
+  scan), about four passes per address, returning empty-card 0xFF data;
+- across the whole 90 s session, including three "Create a file? Yes"
+  attempts, there are ZERO SectorErase/PageProgram/ChipErase commands: the
+  game gives up before issuing any write.
+Interpretation: EXI byte-level transport works (commands and responses flow),
+the card reports as present, but the game decides the card is unusable during
+or after its directory scan. Candidates for the next session: trace DMARead
+contents (are the DMA-transferred bytes correct for the addressed sectors?),
+compare the returned NintendoID/ReadID values against what the SDK expects
+for the image size, and check whether the EXI DMA path for the memcard
+channel is functional at all in this runtime.
