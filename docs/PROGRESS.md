@@ -190,3 +190,34 @@ frame_count=0 and required bounded termination; the shadow-check stall on the
 physical FP-unavailable vector entry remains unresolved. The default and clean
 full builds do not include the vector experiment.
 
+## 2026-10-25 (evening) - Data-section audit, gameplay-path investigation
+
+### Data relocation parity (A007 update)
+
+audit_loaded_rel.py now compares initialized data sections of a linked module
+against the independent relocation model. For the captured WWUSTT snapshot all
+145 data relocation sites match the modeled link values; the only non-site
+difference is the vtable boundary marker word (0xFFFFFFFE -> 0xFFFFFFFF, legal
+guest mutation). BSS remains out of scope by construction.
+
+### Gameplay path blocked by memory-card failure (A009)
+
+Automated pad probes drive the menus correctly: title -> file-select hall
+renders, dialogs advance. Data creation fails on both the default GCI folder
+card and the raw card (new smoke_boot.py --memcard raw writes
+user/Config/Dolphin.ini SlotA=1). EXI instrumentation ([wario-mc] fprintf in
+EXI_DeviceMemoryCard.cpp, in RecompCore.patch) shows correct mount sequences,
+correctly formatted empty-card content (header checksum, empty dir, valid BAT),
+and zero write commands - the game's SDK declines to write. The identical
+failure occurs under --reference (runtime JIT), so this is a runtime EXI/
+memcard emulation issue, not a static recomp CPU issue. Runtime classification
+helper scripts/classify_captures.py identifies menu states from captures.
+Full details in ACCURACY_ISSUES.md A009 with next-step candidates.
+
+### Tools
+
+smoke_boot.py: --capture-cadence N (numbered screenshots), --full, --memcard,
+--full --lockstep guard. classify_captures.py added. rel_timing_candidates.py
+added (see TIMING.md T004). audit_loaded_rel.py data-section checks. Runtime
+source has a [wario-exi]/[wario-mc] diagnostic fprintf set (in patches).
+

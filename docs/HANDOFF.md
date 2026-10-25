@@ -72,9 +72,13 @@ scripts/rel_timing_candidates.py extends the timing inventory to all RELs:
 mediated by main.dol's retrace wait; the future FPS uncap centers there.
 
 Remaining after this checkpoint: gameplay-driven execution/verification of the
-seven non-title RELs, data/BSS relocation parity (A007), the unresolved vector
-experiment stall (kept out of default builds), and full-gameplay/audio/pixel
-validation against a reference. No game code was patched for any of this.
+seven non-title RELs - currently blocked by A009 (memory-card writes fail in
+the runtime, so the menu path cannot reach gameplay; EXI trace shows a correctly
+formatted empty card and zero write attempts; the failure also reproduces under
+the runtime JIT, ruling out the recomp CPU), data/BSS relocation parity (A007
+now verified for the observed title snapshot), the unresolved vector experiment
+stall (kept out of default builds), and full-gameplay/audio/pixel validation
+against a reference. No game code was patched for any of this.
 
 ## Critical next steps
 

@@ -169,23 +169,28 @@ game or fabricating save files. smoke_boot.py --memcard raw and
 scripts/classify_captures.py (pixel-nearest state classification of captures)
 were added for this investigation.
 
-EXI protocol trace, 2026-10-25 (runs 20261025T135849225189Z,
-20261025T140209772128Z, instrumented [wario-mc] fprintf in
-EXI_DeviceMemoryCard.cpp, also captured in RecompCore.patch):
+EXI protocol trace, 2026-10-25 (runs 20261025T135849225189Z through
+20261025T140624367224Z, instrumented [wario-mc] fprintf in
+EXI_DeviceMemoryCard.cpp, captured in RecompCore.patch):
 - mount sequence per attempt: 00 NintendoID, 89 ReadID, 83 ReadStatus,
-  81 ClearStatus, then many 52 ReadArray transactions;
-- 320 ReadArray commands in 90 s, every one ending at position 9 (command +
-  4 address bytes + 4 IMM data bytes; the block data itself moves over EXI
-  DMA, which this trace does not yet cover);
-- read addresses step 0x200 across 0x5000-0x7600 (directory/BAT sector
-  scan), about four passes per address, returning empty-card 0xFF data;
-- across the whole 90 s session, including three "Create a file? Yes"
-  attempts, there are ZERO SectorErase/PageProgram/ChipErase commands: the
-  game gives up before issuing any write.
-Interpretation: EXI byte-level transport works (commands and responses flow),
-the card reports as present, but the game decides the card is unusable during
-or after its directory scan. Candidates for the next session: trace DMARead
-contents (are the DMA-transferred bytes correct for the addressed sectors?),
-compare the returned NintendoID/ReadID values against what the SDK expects
-for the image size, and check whether the EXI DMA path for the memcard
-channel is functional at all in this runtime.
+  81 ClearStatus, then ReadArray + EXI DMA sector reads;
+- the game DMA-reads the full system area 0x0000-0x9FFF in 512-byte sectors,
+  four passes, 320 reads per 90 s session;
+- returned content is a CORRECTLY formatted empty card: valid header checksum
+  (38c0f979) at 0x0000, directory blocks (0x2000/0x4000) with the expected
+  all-FF free entries, BAT blocks (0x6000/0x8000) with checksum 07ff/e803 and
+  zeroed map. The card ID response carries size_mbits (0x80 for 128 Mbit),
+  matching upstream Dolphin behavior;
+- across the whole session, including three "Create a file? Yes" attempts,
+  there are ZERO SectorErase/PageProgram/ChipErase commands: the game's SDK
+  declines to write on a card whose readable content is valid.
+Interpretation: EXI transport, DMA and card formatting all look correct; the
+failure is in whatever the game's SDK checks after/around reading - candidates:
+EXI command-completion interrupt latency (CmdDoneLater 5000 cycles vs SDK
+timeouts), the 2-byte ReadID/NintendoID values, or a subtle field in the
+formatted header (flash ID, encoding, size fields). Next session: log the full
+tail bytes of each directory/BAT DMA read to verify the checksums the game
+sees, and instrument CmdDone/TransferComplete interrupt latency. Do not work
+around this by patching the game or fabricating save files.
+smoke_boot.py --memcard raw and scripts/classify_captures.py (pixel-nearest
+state classification of captures) were added for this investigation.
