@@ -14,6 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--vectors", action="store_true", help="Include verified physical SDK exception/vector paths")
 parser.add_argument("--clean", action="store_true", help="Emit the uninstrumented main-plus-REL port DLL without instruction-count instrumentation")
+parser.add_argument("--clang", action="store_true",
+                    help="Compile with LLVM clang-cl + Ninja into build/module-<variant>-clang/ (same /O2 /fp:strict flags; "
+                         "~1.75x faster generated code than MSVC in measured gameplay)")
+parser.add_argument("--clang-cl", default="C:/Program Files/LLVM/bin/clang-cl.exe")
 args = parser.parse_args()
 if args.vectors and args.clean:
     variant = "full-vectors"
@@ -204,11 +208,37 @@ if not vectors:
     cmake = cmake.replace(' "${GENERATED_DIR}/vectors/*/chunks/*.c"', '')
     cmake = cmake.replace(' "${GENERATED_DIR}/vector_bridge_*.c"', '')
 (template / "CMakeLists.txt").write_text(cmake)
-build = ROOT / "build" / ("module-" + variant)
-command = ["cmake", "-S", template, "-B", build, "-G", "Visual Studio 17 2022", "-A", "x64", "-DGAME_ID=GWWE01",
-           "-DGENERATED_DIR=" + str(destination), "-DGXRUNTIME_DIR=" + str(upstream / "GXRuntime"),
-           "-DCHASSIS_ABI_DIR=" + str(upstream / "Source/Core/Core/PowerPC/StaticRecomp")]
+def vcvars64():
+    for edition in (sorted(Path("C:/Program Files (x86)/Microsoft Visual Studio/2022").glob("*")) +
+                    sorted(Path("C:/Program Files/Microsoft Visual Studio/2022").glob("*"))):
+        candidate = edition / "VC/Auxiliary/Build/vcvars64.bat"
+        if candidate.is_file():
+            return candidate
+    raise SystemExit("vcvars64.bat not found; --clang needs the MSVC x64 environment for headers/libs")
+
+
+common = ["-DGAME_ID=GWWE01", "-DGENERATED_DIR=" + str(destination), "-DGXRUNTIME_DIR=" + str(upstream / "GXRuntime"),
+          "-DCHASSIS_ABI_DIR=" + str(upstream / "Source/Core/Core/PowerPC/StaticRecomp")]
 print("Bundle instruction sites:", sites, "REL chunks:", len(new_chunks), flush=True)
+if args.clang:
+    build = ROOT / "build" / ("module-" + variant + "-clang")
+    clang = Path(args.clang_cl)
+    if not clang.is_file():
+        raise SystemExit(f"clang-cl not found at {clang}")
+    linker = clang.with_name("lld-link.exe")
+    configure = subprocess.list2cmdline(["cmake", "-S", str(template), "-B", str(build), "-G", "Ninja",
+        "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_C_COMPILER=" + clang.as_posix(), "-DCMAKE_CXX_COMPILER=" + clang.as_posix(),
+        "-DCMAKE_LINKER=" + linker.as_posix(), "-DRECOMPCORE_MODULE_ENABLE_IPO=OFF", *common])
+    compile_ = subprocess.list2cmdline(["cmake", "--build", str(build), "--parallel", "8"])
+    script = build.parent / (build.name + "-build.cmd")
+    script.write_text(f'@echo off\r\ncall "{vcvars64()}" >nul 2>nul || exit /b 1\r\n'
+                      f'{configure} || exit /b 1\r\n{compile_}\r\n')
+    with (ROOT / f"reports/build-rel-bundle-{variant}-clang.log").open("w") as log:
+        subprocess.run(["cmd", "/c", str(script)], check=True, stdout=log, stderr=subprocess.STDOUT)
+    print(build / "gGWWE01_recomp.dll")
+    raise SystemExit(0)
+build = ROOT / "build" / ("module-" + variant)
+command = ["cmake", "-S", template, "-B", build, "-G", "Visual Studio 17 2022", "-A", "x64", *common]
 with (ROOT / f"reports/build-rel-bundle-{variant}.log").open("w") as log:
     subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT)
     subprocess.run(["cmake", "--build", build, "--config", "Release", "--parallel", "1", "--", "/nr:false"], check=True, stdout=log, stderr=subprocess.STDOUT)

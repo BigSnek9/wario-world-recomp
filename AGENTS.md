@@ -17,7 +17,10 @@ game-derived generated code, native game modules, saves or captures.
 Keep those under ignored directories. Use scripts/check_public_tree.py before staging.
 Never force-add ignored files. Public scripts must accept a user-supplied disc.
 Do not silently substitute an interpreter/JIT and call it a complete static recomp.
-No subagents are authorized by this file.
+Subagents were authorized by the user in chat on 2026-10-26 ("you may use subagents");
+the user wants mostly autonomous work and only essential questions.
+The master brief is ../READ ME AGENTS.txt; its docs layout lives under docs/progress,
+docs/engine, docs/modding and docs/research (start at docs/progress/CURRENT_STATUS.md).
 
 Run all tests hidden and muted; the user explicitly requested no visible or audible testing on 2026-10-26. Do not launch standalone GUI Dolphin for tests; use headless runtime logging/captures saved privately.
 

@@ -1,0 +1,9 @@
+{
+  "edges": [
+    {"from": "F-0001 main loop", "to": "F-0002 retrace wait", "kind": "calls", "confidence": "confirmed"},
+    {"from": "F-0010 camera init", "to": "HC-0001..HC-0006", "kind": "reads constants", "confidence": "confirmed"},
+    {"from": "F-0011 2D projection", "to": "HC-0007", "kind": "reads constant", "confidence": "confirmed"},
+    {"from": "widescreen mod", "to": ["HC-0001", "HC-0007", "WS-003 sites", "host AspectRatio"], "kind": "must change together", "confidence": "probable"},
+    {"from": "FPS unlock", "to": ["F-0002", "T006", "T007", "F-0003"], "kind": "depends on", "confidence": "probable"}
+  ]
+}

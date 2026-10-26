@@ -1,0 +1,283 @@
+{
+ "schema": "id, module, address, name (temporary unless noted), role, systems, callers, callees, globals, confidence, evidence, source",
+ "game": "GWWE01 rev0",
+ "notes": "Names are dtk fn_<addr> labels or inferred SDK names; never invented. Generated C for a guest function is func_<ADDR> in generated/**/chunks (private).",
+ "functions": [
+  {
+   "id": "F-0001",
+   "module": "main.dol",
+   "address": "0x8002FC00",
+   "name": "main (inferred)",
+   "role": "main loop; updates then waits for retrace",
+   "systems": [
+    "architecture",
+    "timing"
+   ],
+   "callers": [],
+   "callees": [
+    "0x801A87C4"
+   ],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/TIMING.md T001",
+   "source": "chunk_0001_text1_8002FC00.c"
+  },
+  {
+   "id": "F-0002",
+   "module": "main.dol",
+   "address": "0x801A87C4",
+   "name": "VIWaitForRetrace (inferred)",
+   "role": "sleep until VI counter 0x801FE00C changes",
+   "systems": [
+    "timing"
+   ],
+   "callers": [
+    "0x8002FD2C"
+   ],
+   "callees": [
+    "0x801A3EBC"
+   ],
+   "globals": [
+    "0x801FE00C",
+    "0x801FE014"
+   ],
+   "confidence": "probable",
+   "evidence": "docs/TIMING.md T001",
+   "source": ""
+  },
+  {
+   "id": "F-0003",
+   "module": "main.dol",
+   "address": "0x8004AA14",
+   "name": "fn_8004AA14",
+   "role": "controller setup; SISetSamplingRate(0)",
+   "systems": [
+    "input",
+    "timing"
+   ],
+   "callers": [],
+   "callees": [
+    "0x801A7C68"
+   ],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/TIMING.md T002",
+   "source": ""
+  },
+  {
+   "id": "F-0004",
+   "module": "main.dol",
+   "address": "0x801A4158",
+   "name": "OSGetTime (signature)",
+   "role": "guest time base",
+   "systems": [
+    "timing"
+   ],
+   "callers": [],
+   "callees": [],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/TIMING.md T003",
+   "source": ""
+  },
+  {
+   "id": "F-0005",
+   "module": "main.dol",
+   "address": "0x80041B30",
+   "name": "fn_80041B30",
+   "role": "framebuffer index toggle (0x801FDA14)",
+   "systems": [
+    "rendering",
+    "timing"
+   ],
+   "callers": [],
+   "callees": [],
+   "globals": [
+    "0x801FDA14"
+   ],
+   "confidence": "probable",
+   "evidence": "docs/TIMING.md T005",
+   "source": ""
+  },
+  {
+   "id": "F-0006",
+   "module": "main.dol",
+   "address": "0x80042280",
+   "name": "fn_80042280",
+   "role": "GX draw-done callback",
+   "systems": [
+    "rendering"
+   ],
+   "callers": [],
+   "callees": [],
+   "globals": [],
+   "confidence": "probable",
+   "evidence": "docs/TIMING.md T005",
+   "source": ""
+  },
+  {
+   "id": "F-0007",
+   "module": "main.dol",
+   "address": "0x800302CC",
+   "name": "fn_800302CC",
+   "role": "scene/module transition: OSLink then REL prolog",
+   "systems": [
+    "architecture",
+    "loading"
+   ],
+   "callers": [],
+   "callees": [
+    "0x801A0B40"
+   ],
+   "globals": [
+    "0x801FD914",
+    "0x801FD924",
+    "0x801FD95C",
+    "0x801FD960"
+   ],
+   "confidence": "confirmed",
+   "evidence": "docs/HANDOFF.md module transition",
+   "source": ""
+  },
+  {
+   "id": "F-0008",
+   "module": "main.dol",
+   "address": "0x800304AC",
+   "name": "fn_800304AC",
+   "role": "module teardown: REL epilog, OSUnlink, free BSS",
+   "systems": [
+    "architecture",
+    "loading",
+    "memory"
+   ],
+   "callers": [],
+   "callees": [
+    "0x801A0FD4"
+   ],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/HANDOFF.md",
+   "source": ""
+  },
+  {
+   "id": "F-0009",
+   "module": "main.dol",
+   "address": "0x8015BF2C",
+   "name": "fn_8015BF2C",
+   "role": "observed Greenhorn Forest stage update entry (main, not a REL)",
+   "systems": [
+    "gameplay"
+   ],
+   "callers": [],
+   "callees": [],
+   "globals": [],
+   "confidence": "probable",
+   "evidence": "docs/START_HERE.md",
+   "source": ""
+  },
+  {
+   "id": "F-0010",
+   "module": "main.dol",
+   "address": "0x80068250",
+   "name": "fn_80068250",
+   "role": "camera/view init; writes aspect/FOV/near/far defaults",
+   "systems": [
+    "camera",
+    "widescreen",
+    "culling"
+   ],
+   "callers": [
+    "0x8006B29C",
+    "0x8006C118"
+   ],
+   "callees": [
+    "0x800375D0",
+    "0x80068050"
+   ],
+   "globals": [
+    "0x801FDB20",
+    "0x801FDA00"
+   ],
+   "confidence": "probable",
+   "evidence": "docs/engine/CAMERA.md CAM-001",
+   "source": ""
+  },
+  {
+   "id": "F-0011",
+   "module": "main.dol",
+   "address": "0x8006F7CC",
+   "name": "fn_8006F7CC",
+   "role": "2D projection setup using half-width 320",
+   "systems": [
+    "ui",
+    "widescreen"
+   ],
+   "callers": [
+    "0x8007DF18"
+   ],
+   "callees": [],
+   "globals": [
+    "0x801FE6CC"
+   ],
+   "confidence": "probable",
+   "evidence": "docs/engine/WIDESCREEN.md WS-002",
+   "source": ""
+  },
+  {
+   "id": "F-0012",
+   "module": "main.dol",
+   "address": "0x8007BEAC",
+   "name": "fn_8007BEAC",
+   "role": "calls two 320-centred layout helpers; HUD draw candidate",
+   "systems": [
+    "ui"
+   ],
+   "callers": [],
+   "callees": [
+    "0x8007F7A4",
+    "0x8007EBF0"
+   ],
+   "globals": [],
+   "confidence": "speculative",
+   "evidence": "docs/engine/WIDESCREEN.md WS-003",
+   "source": ""
+  },
+  {
+   "id": "F-0013",
+   "module": "main.dol",
+   "address": "0x80062F3C",
+   "name": "fn_80062F3C",
+   "role": "text/glyph layout group (computed half-widths)",
+   "systems": [
+    "ui"
+   ],
+   "callers": [],
+   "callees": [
+    "0x80063154",
+    "0x800632DC",
+    "0x8006348C"
+   ],
+   "globals": [],
+   "confidence": "speculative",
+   "evidence": "docs/engine/WIDESCREEN.md WS-003",
+   "source": ""
+  }
+ ],
+ "globals": [
+  {
+   "id": "G-0001",
+   "module": "main.dol",
+   "address": "0x801FDA00",
+   "name": "lbl_801FDA00",
+   "role": "pointer to the player (Wario) actor object; object+0x14/+0x18/+0x1C = world position x,y(up),z (f32)",
+   "confidence": "probable",
+   "evidence": "In-run MEM1 snapshots (private/runs/20261026T165304735180Z-f5082ae1): pointer 0x801FDA00 -> 0x804AF400 in Greenhorn Forest; +0x14 vec3 moved (-111.8,10.6,-36.6) -> (-270.6,11.4,-85.1) during a 2 s forward walk and +28 in x during a right walk with near-constant y. The camera init fn_80068250 calls this object's vtable slot +8 with camera block +0x94 (likely 'get position/target').",
+   "systems": [
+    "gameplay",
+    "camera",
+    "physics"
+   ],
+   "notes": "Heap address varies per load; always go through the pointer. Second walk moved only ~6 units (likely blocked) - recheck with more samples."
+  }
+ ]
+}

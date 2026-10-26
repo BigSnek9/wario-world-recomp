@@ -21,7 +21,7 @@ parser.add_argument("--capture-cadence", type=float, help="Save a private diagno
 parser.add_argument("--windowed", action="store_true", help="Open a temporary game window for a rendering check")
 parser.add_argument("--capture-at", type=float, help="Seconds after launch to request the screenshot")
 parser.add_argument("--menu-probe", action="store_true", help="Try Start/A menu inputs in the fresh private session")
-parser.add_argument("--memory-at", type=float, help="Pause briefly and save private MEM1 evidence at the given second")
+parser.add_argument("--memory-at", type=float, action="append", help="Pause briefly and save private MEM1 evidence at the given second (repeatable; later snapshots are numbered). With --load-state, seconds count from the settled state load")
 parser.add_argument("--trace-helpers", action="store_true", help="Log first-seen instruction helper sites for classification")
 parser.add_argument("--reference", action="store_true", help="Use the same runtime's original-code JIT for diagnostic comparison; not hardware reference")
 parser.add_argument("--pad-hold", type=int, default=2, help="Guest frame callbacks to hold each probe button")
@@ -34,6 +34,11 @@ parser.add_argument("--lockstep-trace", type=lambda v: int(v,0), help="Trace one
 parser.add_argument("--trace-checks", action="store_true", help="Trace verifier check boundaries privately")
 parser.add_argument("--probe-file", type=Path, help="JSON list of [guest-frame-callback, button] pairs")
 parser.add_argument("--memcard", choices=("folder", "raw"), help="Slot A device override; raw uses a .raw card image instead of a GCI folder")
+parser.add_argument("--module", type=Path, help="Use this game module DLL instead of the --full/--vectors selection (e.g. a compiler experiment)")
+parser.add_argument("--dolphin-setting", action="append", default=[], metavar="SECTION.KEY=VALUE",
+                    help="Override a Dolphin.ini setting in this run's private user folder (repeatable)")
+parser.add_argument("--profile-at", type=float, help="Start a read-only sampling profile of busy threads at this second")
+parser.add_argument("--profile-ms", type=int, default=10000, help="Sampling profile duration in milliseconds")
 parser.add_argument("--stack-at", type=float, help="Capture CPU/graphics stacks from this diagnostic child only")
 parser.add_argument("--runtime-root", type=Path, help="Read existing runtime/game elsewhere; keep new diagnostics beside this script")
 parser.add_argument("--runner", type=Path, help="Use a separately built workspace diagnostic runtime")
@@ -78,6 +83,10 @@ if args.vectors:
     module = runtime_root / ("build/module-full-vectors/Release/gGWWE01_recomp.dll" if args.full else "build/module-rel-bundle-vectors/Release/gGWWE01_recomp.dll")
     if not module.is_file():
         raise SystemExit("Run scripts/build_rel_bundle.py --vectors first")
+if args.module:
+    module = args.module.resolve()
+    if not module.is_file():
+        raise SystemExit(f"Module not found: {module}")
 folder = ROOT / "private/runs" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "-" + uuid4().hex[:8])
 control = folder / "control"
 (control / "commands").mkdir(parents=True)
@@ -111,6 +120,25 @@ if args.dump_audio:
         settings.add_section("DSP")
     settings.set("DSP", "DumpAudio", "True")
     settings.set("DSP", "DumpAudioSilent", "True")
+    with ini.open("w", encoding="utf-8") as output:
+        settings.write(output)
+
+if args.dolphin_setting:
+    config_directory = user_directory / "Config"
+    config_directory.mkdir(exist_ok=True)
+    ini = config_directory / "Dolphin.ini"
+    settings = configparser.ConfigParser(interpolation=None, strict=False)
+    settings.optionxform = str
+    if ini.exists():
+        settings.read(ini, encoding="utf-8")
+    for override in args.dolphin_setting:
+        key, _, value = override.partition("=")
+        section, _, name = key.partition(".")
+        if not (section and name and _):
+            parser.error("--dolphin-setting expects SECTION.KEY=VALUE")
+        if not settings.has_section(section):
+            settings.add_section(section)
+        settings.set(section, name, value)
     with ini.open("w", encoding="utf-8") as output:
         settings.write(output)
 
@@ -159,8 +187,10 @@ state_load_observed_at = None
 state_load_requested = False
 state_load_complete = not bool(args.load_state)
 probe_frame_origin = 0
-memory_requested = False
+memory_requested = 0
+load_settled_at = None
 stack_requested = False
+profiler = None
 started = time.monotonic()
 print("Diagnostic output:", folder, flush=True)
 with (folder / "runner.log").open("w", encoding="utf-8") as log:
@@ -174,11 +204,17 @@ with (folder / "runner.log").open("w", encoding="utf-8") as log:
                 stack_requested = True
                 try:
                     with (folder / "stacks.txt").open("w") as stack_log:
-                        subprocess.run([str(ROOT / "build/diagnostic-tools/capture_stack.exe"),str(process.pid),str(runner)],
+                        subprocess.run([str(ROOT / "build/diagnostic-tools/Release/capture_stack.exe"),str(process.pid),str(runner)],
                                        stdout=stack_log,stderr=subprocess.STDOUT,timeout=15,
                                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
                 except (OSError, subprocess.TimeoutExpired) as error:
                     print("Stack diagnostic failed:",error,flush=True)
+            if args.profile_at is not None and profiler is None and time.monotonic() - started >= args.profile_at:
+                profile_log = (folder / "profile.txt").open("w")
+                profiler = subprocess.Popen([str(ROOT / "build/diagnostic-tools/Release/sample_profile.exe"), str(process.pid), str(runner),
+                                             str(args.profile_ms), str(folder / "profile.csv")],
+                                            stdout=profile_log, stderr=subprocess.STDOUT,
+                                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
             status = control / "status.txt"
             if status.is_file():
                 try:
@@ -201,6 +237,7 @@ with (folder / "runner.log").open("w", encoding="utf-8") as log:
                     # post-load callback/status before interpreting relative steps.
                     if current.get("last_command") == "050-load-state.txt" and time.monotonic() - state_load_observed_at >= 0.5:
                         state_load_complete = True
+                        load_settled_at = time.monotonic()
                         probe_frame_origin = int(current.get("frame_count", "0"))
             if state_load_complete and args.save_state_at is not None and not state_saved and time.monotonic() - started >= args.save_state_at:
                 pending = control / "save-state.tmp"
@@ -230,20 +267,29 @@ with (folder / "runner.log").open("w", encoding="utf-8") as log:
                     pending.replace(control / ("commands/100-screenshot-%02d.txt" % captures_issued))
                     captures_issued += 1
                     capture_requested = True
-            if state_load_complete and args.memory_at is not None and not memory_requested and time.monotonic() - started >= args.memory_at:
+            memory_times = sorted(args.memory_at or [])
+            if state_load_complete and memory_requested < len(memory_times) and time.monotonic() - (load_settled_at or started) >= memory_times[memory_requested]:
+                suffix = "" if memory_requested == 0 else "-%d" % memory_requested
                 commands = [
-                    ("300-pause", "command=pause\n"),
-                    ("301-mem1-low", "command=read_memory\naddress=0x80000000\nsize=0x1000000\npath=mem1-low.bin\n"),
-                    ("302-mem1-high", "command=read_memory\naddress=0x81000000\nsize=0x800000\npath=mem1-high.bin\n"),
-                    ("303-resume", "command=resume\n"),
+                    ("300-pause" + suffix, "command=pause\n"),
+                    ("301-mem1-low" + suffix, "command=read_memory\naddress=0x80000000\nsize=0x1000000\npath=mem1-low%s.bin\n" % suffix),
+                    ("302-mem1-high" + suffix, "command=read_memory\naddress=0x81000000\nsize=0x800000\npath=mem1-high%s.bin\n" % suffix),
+                    ("303-resume" + suffix, "command=resume\n"),
                 ]
                 for name, text in commands:
                     pending = control / (name + ".tmp")
                     pending.write_text(text, encoding="utf-8")
                     pending.replace(control / "commands" / (name + ".txt"))
-                memory_requested = True
+                memory_requested += 1
             time.sleep(0.2)
     finally:
+        if profiler is not None:
+            # Symbolization needs the live child, so let the profiler finish first.
+            try:
+                profiler.wait(timeout=args.profile_ms / 1000 + 60)
+            except subprocess.TimeoutExpired:
+                profiler.terminate()
+            profile_log.close()
         if process.poll() is None:
             pending = control / "stop.tmp"
             pending.write_text("command=stop\n", encoding="utf-8")
@@ -255,7 +301,7 @@ with (folder / "runner.log").open("w", encoding="utf-8") as log:
                 process.terminate()
                 process.wait(timeout=5)
 
-report = dict(dump_audio=args.dump_audio, load_state=str(args.load_state) if args.load_state else None, state_load_complete=state_load_complete, probe_frame_origin=probe_frame_origin, seed_user=str(args.seed_user) if args.seed_user else None, module=str(module), runner=str(runner), full=args.full, graphics=args.graphics, lockstep=args.lockstep,
+report = dict(dolphin_settings=args.dolphin_setting, dump_audio=args.dump_audio, load_state=str(args.load_state) if args.load_state else None, state_load_complete=state_load_complete, probe_frame_origin=probe_frame_origin, seed_user=str(args.seed_user) if args.seed_user else None, module=str(module), runner=str(runner), full=args.full, graphics=args.graphics, lockstep=args.lockstep,
               reference=args.reference, pad_hold=args.pad_hold, lockstep_limit=args.lockstep_limit,
               instrumented=args.instrumented,
               rel_bundle=args.rel_bundle,
