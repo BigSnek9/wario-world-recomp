@@ -8,8 +8,8 @@
   "ModernGekko": {
     "path": "third_party/ModernGekko",
     "commit": "a2e4e2b026a68d4848f20ebf16f0e0ddeb573957",
-    "patch_sha256": "4f4267750cafc932963ee9af5b5530422c08cf93d3765bcc9b6ac8890f34e18e",
-    "bytes": 4704
+    "patch_sha256": "c5d3dc2ae74b3c36388620ebbb1b555aa7e89efba70895e8d90aa430eb821423",
+    "bytes": 4983
   },
   "RecompCore": {
     "path": "third_party/ModernGekko/vendor/dolphin",

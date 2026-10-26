@@ -187,6 +187,8 @@ def main():
     fix_diagnostic_coverage(runtime)
     import tool_fix_mod_dispatch
     tool_fix_mod_dispatch.apply(replace, runtime)
+    import tool_fix_texture_dump
+    tool_fix_texture_dump.apply(replace, runtime)
     # Its bundled compiler is a separate pin; only fix code with a matching preimage.
     nested = runtime / "vendor/dolphin/DolRecomp"
     if "section->size == 0 || offset > section->size" in (nested / "src/frontend/container/rel.c").read_text():

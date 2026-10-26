@@ -12,7 +12,7 @@ index 1cbef59..298538b 100644
                  "$<TARGET_FILE:dolrecomp>"
                  "$<TARGET_FILE_DIR:moderngekko-port>"
 diff --git a/src/runtime/dolphin_runtime.cpp b/src/runtime/dolphin_runtime.cpp
-index f9b5405..aa428d7 100644
+index f9b5405..dad493c 100644
 --- a/src/runtime/dolphin_runtime.cpp
 +++ b/src/runtime/dolphin_runtime.cpp
 @@ -3,6 +3,7 @@
@@ -23,8 +23,13 @@ index f9b5405..aa428d7 100644
  #include "Common/StringUtil.h"
  #include "Core/Boot/Boot.h"
  #include "Core/Boot/BootManager.h"
-@@ -615,7 +616,22 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+@@ -613,9 +614,27 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+     impl->ui_initialized = true;
+   }
    Config::SetBase(Config::MAIN_FULLSCREEN, impl->config.fullscreen);
++  // UICommon::Init forces texture dumping off each start; allow an explicit opt-in.
++  if (const char *dump = std::getenv("MODERNGEKKO_DUMP_TEXTURES"); dump && *dump == '1')
++    Config::SetBaseOrCurrent(Config::GFX_DUMP_TEXTURES, true);
  
    if (impl->config.headless)
 -    impl->platform = Platform::CreateHeadlessPlatform();
@@ -47,7 +52,7 @@ index f9b5405..aa428d7 100644
  #ifdef _WIN32
    else
      impl->platform = Platform::CreateWin32Platform();
-@@ -700,11 +716,15 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+@@ -700,11 +719,15 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
      recomp_source = StaticRecompModuleSource::Attached(
          reinterpret_cast<const StaticRecompModuleDesc *>(
              impl->config.module.descriptor));
@@ -68,7 +73,7 @@ index f9b5405..aa428d7 100644
    jit.SetStaticRecompModuleSource(std::move(recomp_source));
  
    s_runtime_active = true;
-@@ -807,7 +827,7 @@ RuntimeRunResult Runtime::Run() {
+@@ -807,7 +830,7 @@ RuntimeRunResult Runtime::Run() {
    if (!m_impl->config.headless && m_impl->config.show_fps_in_title) {
      title_thread = std::jthread([](std::stop_token stop_token) {
        while (!stop_token.stop_requested()) {

@@ -56,3 +56,22 @@ PLAY. It does the same setup as Play-WarioWorld.cmd (controls if missing, 4:3 /
 native baseline) and uses private/playtest-user, so saves are kept. "Open last
 log" shows private/playtest-last.log after a crash. Choices are remembered in
 private/launcher.json.
+
+## Texture dump and HD textures (2026-10-26)
+
+- Tick **Texture dump mode** and play normally. Every texture the game uses is
+  saved once. When you close the game the launcher sorts the new ones into
+  `Wario World/Texture Dump/<area>/` (area = the stage archive loaded just before
+  the texture first appeared: Title, Hub, Shared, World/Stage folders, ...).
+  `manifest.csv` and `README.txt` in that folder list every file. Repeat sessions
+  only add new textures. Dumping writes PNGs during play, so expect small hitches.
+- Upscale with names unchanged, put the results anywhere under
+  `Recomp/private/playtest-user/Load/Textures/GWWE01/` ("Open HD texture folder"),
+  and tick **Use HD textures**.
+- Coverage = what you have seen; there is no static extractor yet (the disc's
+  .RSC archives are a proprietary format).
+- Verified headlessly: boot to hub dumped 204 textures sorted into Title (125),
+  Hub (75), Shared/UNIV (4); a red/blue-swapped 2x title logo placed in a
+  subfolder of the HD folder replaced the original on the title screen.
+- Runtime detail: Dolphin forces DumpTextures off at every start, so the
+  launcher sets MODERNGEKKO_DUMP_TEXTURES=1 (scripts/tool_fix_texture_dump.py).

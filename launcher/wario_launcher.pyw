@@ -4,6 +4,11 @@ Does what Play-WarioWorld.cmd does - installs default controls if missing,
 reapplies the 4:3 / native 1x presentation baseline, then starts the runner
 with the human playtest profile (private/playtest-user, saves preserved) - but
 from a window with a build choice, a fullscreen toggle and log access.
+
+Texture tools (scripts/texture_tools.py): "Texture dump mode" saves every
+texture the game uses while you play and, when the game closes, sorts the new
+ones into "Wario World/Texture Dump/<area>/". "Use HD textures" loads
+replacements from private/playtest-user/Load/Textures/GWWE01/ (any subfolders).
 """
 import configparser
 import json
@@ -25,7 +30,10 @@ BUILDS = {
     "clang": ("Fast build (Clang, recommended)", ROOT / "build/module-full-vectors-clang/gGWWE01_recomp.dll"),
     "msvc": ("Original build (MSVC, fallback)", ROOT / "build/module-full-vectors/Release/gGWWE01_recomp.dll"),
 }
+TEXTURE_OUT = ROOT.parent / "Texture Dump"
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+sys.path.insert(0, str(ROOT / "scripts"))
+import texture_tools  # noqa: E402
 
 
 def python_console():
@@ -76,6 +84,11 @@ class Launcher(tk.Tk):
 
         self.fullscreen = tk.BooleanVar(value=settings.get("fullscreen", False))
         tk.Checkbutton(frame, text="Fullscreen", variable=self.fullscreen).pack(anchor="w", pady=(8, 0))
+        self.dump = tk.BooleanVar(value=settings.get("dump_textures", False))
+        tk.Checkbutton(frame, text="Texture dump mode (saves textures as you play; a bit slower)",
+                       variable=self.dump).pack(anchor="w")
+        self.hd = tk.BooleanVar(value=settings.get("hd_textures", False))
+        tk.Checkbutton(frame, text="Use HD textures", variable=self.hd).pack(anchor="w")
 
         self.play = tk.Button(frame, text="PLAY", width=28, height=2, command=self.start)
         self.play.pack(pady=(12, 4))
@@ -83,6 +96,12 @@ class Launcher(tk.Tk):
         row.pack(fill="x")
         tk.Button(row, text="Open last log", command=self.open_log).pack(side="left", expand=True, fill="x")
         tk.Button(row, text="Controls help", command=self.controls).pack(side="left", expand=True, fill="x")
+        row2 = tk.Frame(frame)
+        row2.pack(fill="x")
+        tk.Button(row2, text="Open texture dump", command=lambda: self.open_folder(TEXTURE_OUT)).pack(
+            side="left", expand=True, fill="x")
+        tk.Button(row2, text="Open HD texture folder",
+                  command=lambda: self.open_folder(texture_tools.hd_folder(USER))).pack(side="left", expand=True, fill="x")
 
         self.status = tk.StringVar(value="Ready.")
         tk.Label(frame, textvariable=self.status, anchor="w", justify="left", wraplength=320).pack(fill="x", pady=(10, 0))
@@ -97,11 +116,13 @@ class Launcher(tk.Tk):
             if not path.exists():
                 messagebox.showerror("Missing file", f"The {what} is missing:\n{path}")
                 return
-        save_settings({"build": self.build.get(), "fullscreen": self.fullscreen.get()})
+        save_settings({"build": self.build.get(), "fullscreen": self.fullscreen.get(),
+                       "dump_textures": self.dump.get(), "hd_textures": self.hd.get()})
         self.play.configure(state="disabled", text="Starting...")
-        threading.Thread(target=self.run, args=(module, self.fullscreen.get()), daemon=True).start()
+        threading.Thread(target=self.run, args=(module, self.fullscreen.get(), self.dump.get(), self.hd.get()),
+                         daemon=True).start()
 
-    def run(self, module, fullscreen):
+    def run(self, module, fullscreen, dump, hd):
         try:
             USER.mkdir(parents=True, exist_ok=True)
             python = python_console()
@@ -120,8 +141,14 @@ class Launcher(tk.Tk):
             with (USER / "config.ini").open("w", encoding="utf-8") as stream:
                 config.write(stream)
 
+            texture_tools.set_dump_mode(USER, dump)
+            texture_tools.set_hd_mode(USER, hd)
             environment = dict(os.environ, MODERNGEKKO_STATICRECOMP="1")
             environment.pop("STATICRECOMP_LOCKSTEP", None)
+            environment.pop("MODERNGEKKO_DUMP_TEXTURES", None)
+            if dump:
+                environment["MODERNGEKKO_DUMP_TEXTURES"] = "1"
+                session_start = texture_tools.start_session(USER)
             self.set_status(f"Running ({module.parent.name})... close the game window to return here.")
             self.after(0, self.play.configure, {"text": "Game running"})
             with LOG.open("w", encoding="utf-8") as log:
@@ -132,8 +159,14 @@ class Launcher(tk.Tk):
                     creationflags=NO_WINDOW)
                 code = self.process.wait()
             self.process = None
-            self.set_status("Game closed normally." if code == 0 else
-                            f"Game exited with code {code}. Use 'Open last log' and send it to Claude.")
+            message = ("Game closed normally." if code == 0 else
+                       f"Game exited with code {code}. Use 'Open last log' and send it to Claude.")
+            if dump:
+                self.set_status(message + "\nSorting dumped textures...")
+                moved, duplicates = texture_tools.organize(USER, TEXTURE_OUT, session_start)
+                total = sum(1 for _ in TEXTURE_OUT.rglob("*.png"))
+                message += f"\nTextures: {moved} new this session, {total} total in 'Texture Dump'."
+            self.set_status(message)
         except subprocess.CalledProcessError as error:
             output = (error.stdout or b"").decode(errors="replace") + (error.stderr or b"").decode(errors="replace")
             self.set_status("Setup step failed:\n" + output[-600:])
@@ -141,6 +174,10 @@ class Launcher(tk.Tk):
             self.set_status(f"Launch failed: {error}")
         finally:
             self.after(0, self.play.configure, {"state": "normal", "text": "PLAY"})
+
+    def open_folder(self, folder):
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        os.startfile(folder)
 
     def open_log(self):
         if LOG.is_file():
