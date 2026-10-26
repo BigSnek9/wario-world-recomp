@@ -227,7 +227,8 @@ class Launcher(tk.Tk):
         settings = self.current_settings()
         save_settings(settings)
         self.play.configure(state="disabled", text="Starting...")
-        threading.Thread(target=self.run, args=(module, settings), daemon=True).start()
+        self.run_thread = threading.Thread(target=self.run, args=(module, settings), daemon=True)
+        self.run_thread.start()
 
     def run(self, module, settings):
         try:
@@ -372,10 +373,34 @@ class Launcher(tk.Tk):
 
     def close(self):
         if self.process and self.process.poll() is None:
-            if not messagebox.askyesno("Game running", "The game is still running. Close the launcher anyway?\n"
-                                                        "(The game keeps running.)"):
+            if not messagebox.askyesno("Game running", "The game is still running.\n\n"
+                                                        "Closing the launcher will also close the game.\n"
+                                                        "Close both?"):
                 return
+            self.stop_game()
+            # Let the session tracker finish (save-history copy, logs) before exiting.
+            if getattr(self, "run_thread", None):
+                self.run_thread.join(timeout=10)
         self.destroy()
+
+    def stop_game(self):
+        """Ask the runner to stop cleanly (saves/logs flush), then force it if needed."""
+        process = self.process
+        try:
+            commands = CONTROL / "commands"
+            commands.mkdir(parents=True, exist_ok=True)
+            pending = CONTROL / "stop.tmp"
+            pending.write_text("command=stop\n", encoding="utf-8")
+            pending.replace(commands / f"{int(time.time() * 1000):016d}-999-stop.txt")
+            process.wait(timeout=10)
+        except Exception:
+            pass
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
