@@ -23,7 +23,9 @@ IDs here are stable. Older accuracy items A001-A019 live in ../ACCURACY_ISSUES.m
   half of stage 2 with "zero issues". Session log: clean shutdown, fallback=0,
   JIT entries 0, smc_failed=0, ~347 s of guest time (168.8G cycles).
 
-## KI-002 Frozen water (A017) - not reproduced; not seen in the 2026-10-26 evening playtest
+## KI-002 Frozen water (A017) - CLOSED: not a bug
+
+- Human side-by-side with Dolphin 2606a (2026-10-26): that water does not animate in Dolphin either.
 
 - Human report: frozen water in Greenhorn Forest (played at 3x / Auto aspect).
 - Hidden test at the first river + waterfall (checkpoint
@@ -44,3 +46,16 @@ IDs here are stable. Older accuracy items A001-A019 live in ../ACCURACY_ISSUES.m
 - smoke_boot.py screenshot requests issued during a long `pad_frames` hold are
   marked processed but no PNG is written. Use captures between holds or idle
   checkpoints. Not a game bug.
+
+## KI-005 Brighter image than the human's Dolphin - display pipeline, open
+
+- Human screenshots (hub, file select): recomp looks brighter/lower contrast than
+  Dolphin 2606a. The human's Dolphin config: D3D12 with GFX Enhancements
+  HDROutput=True (AppData/Roaming/Dolphin Emulator/Config/GFX.ini); recomp
+  presents SDR via OpenGL, which Windows shows at its SDR-content brightness.
+- Recomp renders the same frame on OpenGL and Vulkan (file-select capture mean
+  luma 107.8 vs 107.7), so the game image itself is backend-independent.
+- Launcher now offers OpenGL SDR / Vulkan SDR / Vulkan HDR output. Pending:
+  human compares with Dolphin HDR off vs recomp SDR, or Dolphin HDR on vs recomp
+  Vulkan HDR. If they still differ like-for-like, investigate EFB->XFB copy gamma
+  (GXSetDispCopyGamma) and VI output between this fork and Dolphin 2606a.

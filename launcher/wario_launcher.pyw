@@ -87,6 +87,12 @@ class Launcher(tk.Tk):
         self.dump = tk.BooleanVar(value=settings.get("dump_textures", False))
         tk.Checkbutton(frame, text="Texture dump mode (saves textures as you play; a bit slower)",
                        variable=self.dump).pack(anchor="w")
+        tk.Label(frame, text="Display:").pack(anchor="w", pady=(8, 0))
+        self.display = tk.StringVar(value=settings.get("display", "opengl"))
+        tk.Radiobutton(frame, text="OpenGL, SDR (default)", variable=self.display, value="opengl").pack(anchor="w")
+        tk.Radiobutton(frame, text="Vulkan, SDR", variable=self.display, value="vulkan").pack(anchor="w")
+        tk.Radiobutton(frame, text="Vulkan, HDR output (matches Dolphin with HDR on)", variable=self.display,
+                       value="vulkan-hdr").pack(anchor="w")
         self.hd = tk.BooleanVar(value=settings.get("hd_textures", False))
         tk.Checkbutton(frame, text="Use HD textures", variable=self.hd).pack(anchor="w")
 
@@ -117,12 +123,14 @@ class Launcher(tk.Tk):
                 messagebox.showerror("Missing file", f"The {what} is missing:\n{path}")
                 return
         save_settings({"build": self.build.get(), "fullscreen": self.fullscreen.get(),
-                       "dump_textures": self.dump.get(), "hd_textures": self.hd.get()})
+                       "dump_textures": self.dump.get(), "hd_textures": self.hd.get(),
+                       "display": self.display.get()})
         self.play.configure(state="disabled", text="Starting...")
-        threading.Thread(target=self.run, args=(module, self.fullscreen.get(), self.dump.get(), self.hd.get()),
+        threading.Thread(target=self.run, args=(module, self.fullscreen.get(), self.dump.get(), self.hd.get(),
+                                                         self.display.get()),
                          daemon=True).start()
 
-    def run(self, module, fullscreen, dump, hd):
+    def run(self, module, fullscreen, dump, hd, display):
         try:
             USER.mkdir(parents=True, exist_ok=True)
             python = python_console()
@@ -143,6 +151,10 @@ class Launcher(tk.Tk):
 
             texture_tools.set_dump_mode(USER, dump)
             texture_tools.set_hd_mode(USER, hd)
+            # Same rendered image on every backend; HDR changes how it reaches an HDR display.
+            texture_tools._set(USER / "Config/GFX.ini",
+                               {"Enhancements": {"HDROutput": "True" if display == "vulkan-hdr" else "False"}})
+            backend = "OpenGL" if display == "opengl" else "Vulkan"
             environment = dict(os.environ, MODERNGEKKO_STATICRECOMP="1")
             environment.pop("STATICRECOMP_LOCKSTEP", None)
             environment.pop("MODERNGEKKO_DUMP_TEXTURES", None)
@@ -154,7 +166,7 @@ class Launcher(tk.Tk):
             with LOG.open("w", encoding="utf-8") as log:
                 self.process = subprocess.Popen(
                     [str(RUNNER), "--game", str(GAME), "--module", str(module), "--user-dir", str(USER),
-                     "--graphics", "OpenGL", "--no-mods", "--title", "Wario World Recomp - Test Build"],
+                     "--graphics", backend, "--no-mods", "--title", "Wario World Recomp - Test Build"],
                     cwd=RUNNER.parent, stdout=log, stderr=subprocess.STDOUT, env=environment,
                     creationflags=NO_WINDOW)
                 code = self.process.wait()
