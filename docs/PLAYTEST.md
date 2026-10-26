@@ -93,3 +93,13 @@ Extractor result (2026-10-26): 1,701 textures in ~5 s, folders per area
 program), manifest.csv + README.txt. Text drawn from the font at run time
 (e.g. "Please choose a file") is not a disc texture; the font sheets themselves
 are extracted (I4 format).
+
+## Playthrough telemetry (2026-10-26)
+
+launcher/play_tracker.py runs while the game is open (all private):
+private/play-sessions/<UTC>/stages.csv (archive loads), perf.csv (speed/fps per
+second with current area), states/<time>_<archive>.sav (one automatic savestate
+~25 s after each new area per session; hidden-test checkpoints), and
+private/save-history/<time>_*.gci (copy of the memory card save when it
+changed). Verified headless: title/hub archives logged, 78 perf rows, two
+checkpoints (~26 MB each), checkpoint reloads in smoke_boot.

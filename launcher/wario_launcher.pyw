@@ -42,6 +42,8 @@ EXTRACTOR = ROOT / "scripts/extract_textures.py"
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 sys.path.insert(0, str(ROOT / "scripts"))
 import texture_tools  # noqa: E402
+sys.path.insert(0, str(ROOT / "launcher"))
+from play_tracker import PlayTracker  # noqa: E402
 
 
 def python_console():
@@ -200,7 +202,10 @@ class Launcher(tk.Tk):
             environment = dict(os.environ, MODERNGEKKO_STATICRECOMP="1")
             for name in ("STATICRECOMP_LOCKSTEP", "MODERNGEKKO_DUMP_TEXTURES"):
                 environment.pop(name, None)
-            self.set_status(f"Running ({module.parent.name})... close the game window to return here.")
+            tracker = PlayTracker(ROOT, USER, CONTROL)
+            tracker.start()
+            self.set_status(f"Running ({module.parent.name})... close the game window to return here.\n"
+                            "Recording stage checkpoints and performance for Claude.")
             self.after(0, self.play.configure, {"text": "Game running"})
             with LOG.open("w", encoding="utf-8") as log:
                 self.process = subprocess.Popen(
@@ -211,6 +216,7 @@ class Launcher(tk.Tk):
                     creationflags=NO_WINDOW)
                 code = self.process.wait()
             self.process = None
+            tracker.stop()
             self.set_status("Game closed normally." if code == 0 else
                             f"Game exited with code {code}. Use 'Open last log' and send it to Claude.")
         except subprocess.CalledProcessError as error:

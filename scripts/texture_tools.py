@@ -88,6 +88,15 @@ def set_dump_mode(user_dir, enabled):
     (user_dir / "Logs").mkdir(parents=True, exist_ok=True)
 
 
+def set_disc_log(user_dir, enabled):
+    """Disc file monitor log only (Logs/dolphin.log), without texture dumping."""
+    user_dir = Path(user_dir)
+    on = "True" if enabled else "False"
+    _set(user_dir / "Config/Logger.ini", {"Logs": {"FileMon": on},
+                                           "Options": {"WriteToFile": on, "Verbosity": "3"}})
+    (user_dir / "Logs").mkdir(parents=True, exist_ok=True)
+
+
 def set_hd_mode(user_dir, enabled):
     _set(Path(user_dir) / "Config/GFX.ini",
          {"Settings": {"HiresTextures": "True" if enabled else "False", "CacheHiresTextures": "False"}})
@@ -102,7 +111,7 @@ def start_session(user_dir):
     log = Path(user_dir) / "Logs/dolphin.log"
     try:
         log.unlink()
-    except FileNotFoundError:
+    except OSError:  # missing, or held open by a running game (lines are filtered by time anyway)
         pass
     return time.time()
 
