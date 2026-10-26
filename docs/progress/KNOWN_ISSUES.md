@@ -2,7 +2,7 @@
 
 IDs here are stable. Older accuracy items A001-A019 live in ../ACCURACY_ISSUES.md.
 
-## KI-001 Host slowdowns (A018) - mitigated, awaiting human retest
+## KI-001 Host slowdowns (A018) - resolved per human playtest 2026-10-26
 
 - Human report: slowdowns in Greenhorn Forest, including when breaking boxes.
 - Hidden evidence (2026-10-26): host speed falls to ~0.53-0.57x for 1-2 s
@@ -19,8 +19,11 @@ IDs here are stable. Older accuracy items A001-A019 live in ../ACCURACY_ISSUES.m
   gameplay idle 23% -> ~43%), host_call only wired when mods are loaded,
   allocation-free REL revalidation. Boot dip 0.53x -> ~0.88x. Needs the human to
   replay Greenhorn Forest with Play-WarioWorld.cmd.
+- Human playtest 2026-10-26 ~18:20 (launcher, clang build, fullscreen): played
+  half of stage 2 with "zero issues". Session log: clean shutdown, fallback=0,
+  JIT entries 0, smc_failed=0, ~347 s of guest time (168.8G cycles).
 
-## KI-002 Frozen water (A017) - not reproduced
+## KI-002 Frozen water (A017) - not reproduced; not seen in the 2026-10-26 evening playtest
 
 - Human report: frozen water in Greenhorn Forest (played at 3x / Auto aspect).
 - Hidden test at the first river + waterfall (checkpoint

@@ -17,7 +17,8 @@ are under private/runs/ (private). Summaries: `python scripts/run_summary.py <ru
 | Combat / enemy defeat | human only | user report |
 | Stage clear | human only (stage 1) | user report |
 | Save after progression, reboot, Continue | pass via human save file loading | above |
-| Greenhorn Ruins, boss, worlds 2-4, ending | untested | |
+| Stage 2 (first half) | human: no issues (2026-10-26 evening, clang build, fullscreen) | private/playtest-last.log |
+| Rest of stage 2, boss, worlds 2-4, ending | untested | |
 | REL modules 1-4, 6 executed | untested | |
 | Audio equivalence | one idle capture only | docs/HANDOFF.md |
 | Long-session stability | untested | |

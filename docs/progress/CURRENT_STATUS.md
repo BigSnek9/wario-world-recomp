@@ -5,16 +5,17 @@ Read this first, then NEXT_ACTIONS.md, KNOWN_ISSUES.md, ../START_HERE.md.
 ## Works (evidence in TEST_RESULTS.md)
 
 - Boot, title, new save, hub, World 1 entry, Greenhorn Forest movement.
-- Human: Xbox controller, stage one cleared and saved.
+- Human: Xbox controller, stage one cleared and saved; half of stage 2 played
+  with no issues via launcher/wario_launcher.pyw (2026-10-26 evening).
 - Loading the human's progressed save (copy) from the file menu reaches the hub.
 - Water animates at the first Greenhorn river in hidden tests.
 
 ## Broken / open
 
-- KI-001 slowdowns: mitigated (clang module + runtime dispatch fixes; idle
-  headroom ~2x, boot dip 0.53x -> ~0.9x). Lockstep-validated. Human retest pending.
+- KI-001 slowdowns: resolved per human (half of stage 2 with zero issues on the
+  launcher's clang build). Lockstep-validated.
 - KI-002 frozen water: not reproduced at 1x; location unknown.
-- Greenhorn Ruins, bosses, worlds 2-4, ending: untested.
+- Second half of stage 2, World 1 boss, worlds 2-4, ending: untested.
 
 ## Latest builds
 
