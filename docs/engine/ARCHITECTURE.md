@@ -17,3 +17,28 @@ small data sections 4-7). So REL1 is linked and executed during Greenhorn
 Forest gameplay, correcting the earlier note that stage one does not exercise
 REL1. Evidence: private/runs/20261026T165304735180Z-f5082ae1 snapshots 1-3.
 What triggers the link (area streaming? enemy set?) is not yet known.
+
+## Main loop per frame (main, 0x8002FC98..0x8002FD58) - confirmed static, runtime-checked
+
+Scene object pointer: `[0x801FD910]` (Greenhorn: 0x804AF4E0; its vtable 0x80A33C54
+lies in WWUSS1's data section, so the stage scene class is defined in REL1 and
+overrides slot +0x50 with REL1 code at 0x809F5A8C; other slots are base-class
+methods in main). Flags `[0x801FD930]` (0x3 in gameplay): bit 0 keeps the outer
+scene loop alive, bit 1 keeps the per-frame loop alive, bit 2 selects the
+alternate update.
+
+1. `fn_800302CC` scene/module transition (F-0007), `fn_80041B00`, `fn_80041B30`
+   framebuffer toggle (T005).
+2. `fn_8004ABA0([0x801FDA90])` - pad/input manager update (probable; the same
+   object's +0xE0 holds button bits, see T009).
+3. If flag bit 2: scene vtbl+0x44 (base fn_80031244 -> [0x801FD9D4] vtbl+0x0C,
+   fn_80037498). Else: vtbl+0x48 (fn_80031294 -> [0x801FD9D4] vtbl+0x10,
+   fn_800374F0), vtbl+0x4C (fn_800312E4, large update: fn_8003432C, fn_80034374,
+   fn_800353B0, fn_80035710 ...), vtbl+0x50 (stage-specific; REL1 in Greenhorn).
+4. vtbl+0x58 (fn_80031708: frame counter + reset handling, T009).
+5. `fn_800589A8` worker tick (T008).
+6. vtbl+0x54 (fn_80031688 -> [0x801FD9D4] vtbl+0x18; probably draw/flush).
+7. `fn_801A87C4` wait for VI retrace (T001).
+
+Roles of +0x48/+0x4C/+0x50/+0x54 as update vs draw are probable, not confirmed.
+`[0x801FD9D4]` is a second manager object called in each phase (unknown role).

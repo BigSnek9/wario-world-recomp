@@ -451,6 +451,66 @@
    "confidence": "confirmed",
    "evidence": "docs/TIMING.md T008",
    "source": ""
+  },
+  {
+   "id": "F-0024",
+   "module": "main.dol",
+   "address": "0x80031708",
+   "name": "fn_80031708",
+   "role": "scene vtbl+0x58: global frame counter 0x801FD934, reset button and B+X+Start soft reset (T009)",
+   "systems": [
+    "timing",
+    "input",
+    "architecture"
+   ],
+   "callers": [
+    "main"
+   ],
+   "callees": [],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/TIMING.md T009; docs/engine/ARCHITECTURE.md main loop",
+   "source": ""
+  },
+  {
+   "id": "F-0025",
+   "module": "main.dol",
+   "address": "0x801A20CC",
+   "name": "OSGetResetButtonState (identified)",
+   "role": "reads PI reset switch 0xCC003000",
+   "systems": [
+    "timing",
+    "input",
+    "architecture"
+   ],
+   "callers": [
+    "main"
+   ],
+   "callees": [],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/TIMING.md T009; docs/engine/ARCHITECTURE.md main loop",
+   "source": ""
+  },
+  {
+   "id": "F-0026",
+   "module": "main.dol",
+   "address": "0x8004ABA0",
+   "name": "fn_8004ABA0",
+   "role": "per-frame update of [0x801FDA90] (pad/input manager, probable)",
+   "systems": [
+    "timing",
+    "input",
+    "architecture"
+   ],
+   "callers": [
+    "main"
+   ],
+   "callees": [],
+   "globals": [],
+   "confidence": "probable",
+   "evidence": "docs/TIMING.md T009; docs/engine/ARCHITECTURE.md main loop",
+   "source": ""
   }
  ],
  "globals": [
@@ -483,6 +543,62 @@
     "culling"
    ],
    "notes": "Heap object; read through pointer"
+  },
+  {
+   "id": "G-0003",
+   "module": "main.dol",
+   "address": "0x801FD910",
+   "name": "lbl_801FD910",
+   "role": "active scene object pointer; vtable slots +0x44..+0x58 are the per-frame phases",
+   "confidence": "confirmed",
+   "evidence": "docs/engine/ARCHITECTURE.md main loop; docs/TIMING.md T009",
+   "systems": [
+    "architecture",
+    "timing"
+   ],
+   "notes": ""
+  },
+  {
+   "id": "G-0004",
+   "module": "main.dol",
+   "address": "0x801FD930",
+   "name": "lbl_801FD930",
+   "role": "main-loop flags: bit0 scene loop, bit1 frame loop, bit2 alternate update",
+   "confidence": "confirmed",
+   "evidence": "docs/engine/ARCHITECTURE.md main loop; docs/TIMING.md T009",
+   "systems": [
+    "architecture",
+    "timing"
+   ],
+   "notes": ""
+  },
+  {
+   "id": "G-0005",
+   "module": "main.dol",
+   "address": "0x801FD934",
+   "name": "lbl_801FD934",
+   "role": "global frame counter (+1 per main-loop frame)",
+   "confidence": "confirmed",
+   "evidence": "docs/engine/ARCHITECTURE.md main loop; docs/TIMING.md T009",
+   "systems": [
+    "architecture",
+    "timing"
+   ],
+   "notes": ""
+  },
+  {
+   "id": "G-0006",
+   "module": "main.dol",
+   "address": "0x801FDA90",
+   "name": "lbl_801FDA90",
+   "role": "pad/input manager object (probable); +0xE0 held buttons (probable)",
+   "confidence": "probable",
+   "evidence": "docs/engine/ARCHITECTURE.md main loop; docs/TIMING.md T009",
+   "systems": [
+    "architecture",
+    "timing"
+   ],
+   "notes": ""
   }
  ]
 }

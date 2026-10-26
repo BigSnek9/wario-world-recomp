@@ -216,3 +216,19 @@ worker does (streaming, audio, loading?) is not yet known - identify the
 [0x801FDAEC] handlers before any uncap.
 Confidence: confirmed for the counters and message flow; roles of the worker
 and handlers unknown.
+
+## T009 - Global frame counter and frame-counted soft reset (2026-10-26)
+
+Location: main.dol fn_80031708 = scene vtable slot +0x58 (base class), called
+once per main-loop frame. fn_801A20CC identified as OSGetResetButtonState
+(reads PI 0xCC003000 reset-switch bit under OSDisableInterrupts/__OSGetSystemTime).
+Behaviour: increments 0x801FD934 every frame (global frame counter). Tracks
+reset-button hold in halfword 0x801FD94C. A state machine in 0x801FD94E with
+counter 0x801FD950 watches held buttons `[0x801FDA90]+0xE0 & 0x1600`
+(Start|X|B, the standard GameCube soft-reset combo): needs >10 consecutive
+frames, then a 30-frame countdown, before calling fn_800306C4 (reset path).
+Implication: the soft-reset hold times are frame counts (~0.17 s and 0.5 s at
+59.94 Hz); an uncapped loop would shorten them unless kept on the simulation
+tick. 0x801FD934 is a convenient frame clock for tests.
+Confidence: confirmed for counters/thresholds/mask; fn_800306C4 = reset is
+probable; pad +0xE0 = held buttons is probable.

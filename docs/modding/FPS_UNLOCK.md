@@ -32,4 +32,5 @@ same treatment (not yet located).
 | T002 | controller sampling | SI sampling rate tied to video |
 | T006/T007 | title/opening modules | fixed-step per update, no delta time |
 | T008 | message-loop worker | one tick message per main-loop frame (0x801FDAE4/E8) |
+| T009 | soft reset / frame counter | B+X+Start needs >10 frames + 30-frame countdown; 0x801FD934 +1/frame |
 | CAM-004 | camera | projection/view rebuilt per camera update (interpolation hook) |
