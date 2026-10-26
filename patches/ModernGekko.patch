@@ -12,7 +12,7 @@ index 1cbef59..298538b 100644
                  "$<TARGET_FILE:dolrecomp>"
                  "$<TARGET_FILE_DIR:moderngekko-port>"
 diff --git a/src/runtime/dolphin_runtime.cpp b/src/runtime/dolphin_runtime.cpp
-index f9b5405..dad493c 100644
+index f9b5405..6b87eb1 100644
 --- a/src/runtime/dolphin_runtime.cpp
 +++ b/src/runtime/dolphin_runtime.cpp
 @@ -3,6 +3,7 @@
@@ -23,7 +23,27 @@ index f9b5405..dad493c 100644
  #include "Common/StringUtil.h"
  #include "Core/Boot/Boot.h"
  #include "Core/Boot/BootManager.h"
-@@ -613,9 +614,27 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+@@ -346,6 +347,10 @@ std::optional<RuntimeError> ApplyAutomationCommand(Runtime& runtime,
+   case automation::CommandType::Stop:
+     runtime.RequestStop();
+     break;
++  case automation::CommandType::SetVolume:
++    Config::SetBaseOrCurrent(Config::MAIN_AUDIO_VOLUME, command.volume);
++    AudioCommon::UpdateSoundStream(system);
++    break;
+   }
+   MarkAutomationCommand(state, command.source_name);
+   return {};
+@@ -368,6 +373,8 @@ bool AutomationCommandNeedsReadyCore(automation::CommandType type)
+   case automation::CommandType::ClearPad:
+   case automation::CommandType::Stop:
+     return false;
++  case automation::CommandType::SetVolume:
++    return true;
+   }
+   return true;
+ }
+@@ -613,9 +620,27 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
      impl->ui_initialized = true;
    }
    Config::SetBase(Config::MAIN_FULLSCREEN, impl->config.fullscreen);
@@ -52,7 +72,7 @@ index f9b5405..dad493c 100644
  #ifdef _WIN32
    else
      impl->platform = Platform::CreateWin32Platform();
-@@ -700,11 +719,15 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+@@ -700,11 +725,15 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
      recomp_source = StaticRecompModuleSource::Attached(
          reinterpret_cast<const StaticRecompModuleDesc *>(
              impl->config.module.descriptor));
@@ -73,7 +93,7 @@ index f9b5405..dad493c 100644
    jit.SetStaticRecompModuleSource(std::move(recomp_source));
  
    s_runtime_active = true;
-@@ -807,7 +830,7 @@ RuntimeRunResult Runtime::Run() {
+@@ -807,7 +836,7 @@ RuntimeRunResult Runtime::Run() {
    if (!m_impl->config.headless && m_impl->config.show_fps_in_title) {
      title_thread = std::jthread([](std::stop_token stop_token) {
        while (!stop_token.stop_requested()) {
@@ -107,3 +127,61 @@ index 4b2345f..6b03850 100644
    if (m_impl->patches.contains(address) || m_impl->hooks.contains(address))
      return true;
    return std::ranges::any_of(m_impl->pending_returns,
+diff --git a/tools/automation_protocol.cpp b/tools/automation_protocol.cpp
+index 25f4167..c3afbf5 100644
+--- a/tools/automation_protocol.cpp
++++ b/tools/automation_protocol.cpp
+@@ -175,6 +175,8 @@ std::optional<CommandType> ParseCommandType(std::string_view value)
+     return CommandType::WriteMemory;
+   if (text == "stop")
+     return CommandType::Stop;
++  if (text == "set_volume")
++    return CommandType::SetVolume;
+   return std::nullopt;
+ }
+ 
+@@ -503,6 +505,24 @@ bool ParseCommandFile(const std::filesystem::path& path, Command* command, std::
+   case CommandType::Resume:
+   case CommandType::Stop:
+     break;
++  case CommandType::SetVolume:
++  {
++    const auto volume_it = values.find("volume");
++    int volume = -1;
++    if (volume_it != values.end())
++    {
++      const std::string text = Trim(volume_it->second);
++      std::from_chars(text.data(), text.data() + text.size(), volume);
++    }
++    if (volume < 0 || volume > 100)
++    {
++      if (error)
++        *error = "set_volume requires volume=0..100";
++      return false;
++    }
++    parsed.volume = volume;
++    break;
++  }
+   }
+ 
+   *command = std::move(parsed);
+diff --git a/tools/automation_protocol.hpp b/tools/automation_protocol.hpp
+index 2396f01..25f22a4 100644
+--- a/tools/automation_protocol.hpp
++++ b/tools/automation_protocol.hpp
+@@ -24,6 +24,7 @@ enum class CommandType
+   ReadMemory,
+   WriteMemory,
+   Stop,
++  SetVolume,
+ };
+ 
+ struct PadState
+@@ -42,6 +43,7 @@ struct Command
+   std::uint32_t address = 0;
+   std::uint32_t size = 0;
+   std::uint32_t frames = 0;
++  int volume = 100;
+   std::vector<std::uint8_t> data;
+ };
+ 

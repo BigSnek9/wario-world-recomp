@@ -75,3 +75,15 @@ private/launcher.json.
   subfolder of the HD folder replaced the original on the title screen.
 - Runtime detail: Dolphin forces DumpTextures off at every start, so the
   launcher sets MODERNGEKKO_DUMP_TEXTURES=1 (scripts/tool_fix_texture_dump.py).
+
+## Launcher update (2026-10-26 evening)
+
+- Play-time texture dump mode removed at the user's request; replaced by
+  **Extract all textures** (reads every texture straight from the extracted disc
+  archives into `Wario World/Extracted Textures/<area>/`, names compatible with
+  the HD loader; scripts/extract_textures.py).
+- **Volume slider** changes volume live: the runner gets
+  `--automation-dir private/launcher-control` and the slider writes
+  `command=set_volume volume=N` files (scripts/tool_fix_volume_command.py).
+  Verified headless: valid values applied and persisted, 250 rejected.
+- **Display**: OpenGL SDR / Vulkan SDR / Vulkan HDR output (KI-005).
