@@ -37,3 +37,11 @@ python scripts/run_summary.py private/runs/<run>
 
 Water checkpoint: private/runs/20261026T162519351895Z-ac6873d6 (control/checkpoint.savestate + user/).
 Progressed-save seed: private/seeds/progress-save (copy of the human's GCI).
+
+## Regression suite
+
+`python scripts/regression_suite.py` (~7 min, hidden/muted; `--quick` ~3 min):
+boot -> save load -> hub, Greenhorn walk+punch speed, river water animation,
+and two lockstep routes. Last run 2026-10-26 17:39 UTC: ALL PASS
+(reports/regression-20261026T173902Z.json). Run it after every runtime or
+module change.
