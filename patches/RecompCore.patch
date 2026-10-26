@@ -235,16 +235,17 @@ index a44792a..d2136d4 100644
    ppc_state.cr.SetField(inst.CRFD, compare_value);
  }
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
-index e3581cc..cd2d082 100644
+index e3581cc..ddae99d 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
-@@ -202,11 +202,13 @@ void StaticRecompCore::Shutdown()
+@@ -202,13 +202,17 @@ void StaticRecompCore::Shutdown()
  {
    g_static_recomp_core = nullptr;
    std::fprintf(stderr,
 -               "[staticrecomp] shutdown: native=%llu fallback=%llu native_exc=%llu hook_fb=%llu "
+-               "smc_failed=%u verifications=%llu reverify_events=%llu bursts=%llu cycles=%llu\n",
 +               "[staticrecomp] shutdown: native=%llu fallback=%llu native_exc=%llu hook_fb=%llu hook_cache=%llu hook_interp=%llu "
-                "smc_failed=%u verifications=%llu reverify_events=%llu bursts=%llu cycles=%llu\n",
++               "smc_failed=%u verifications=%llu reverify_events=%llu bursts=%llu cycles=%llu hook_spr=%llu spr_check_mismatches=%llu\n",
                 (unsigned long long)m_native_dispatches, (unsigned long long)m_fallback_steps,
                 (unsigned long long)m_native_exceptions,
 -               (unsigned long long)m_hook_fallback_instructions, m_failed_chunks,
@@ -252,9 +253,14 @@ index e3581cc..cd2d082 100644
 +               (unsigned long long)m_hook_cache_fastpath_instructions,
 +               (unsigned long long)m_hook_interpreter_instructions, m_failed_chunks,
                 (unsigned long long)m_verifications, (unsigned long long)m_reverify_events,
-                (unsigned long long)m_bursts, (unsigned long long)m_charged_cycles);
+-               (unsigned long long)m_bursts, (unsigned long long)m_charged_cycles);
++               (unsigned long long)m_bursts, (unsigned long long)m_charged_cycles,
++               (unsigned long long)m_hook_native_spr_instructions,
++               (unsigned long long)m_spr_check_mismatches);
    std::vector<std::pair<u32, u64>> dispatch_samples(m_dispatch_samples.begin(),
-@@ -226,6 +228,12 @@ void StaticRecompCore::Shutdown()
+                                                     m_dispatch_samples.end());
+   std::sort(dispatch_samples.begin(), dispatch_samples.end(),
+@@ -226,6 +230,12 @@ void StaticRecompCore::Shutdown()
                   m_native_dispatches, m_fallback_steps, m_native_exceptions,
                   m_hook_fallback_instructions, m_failed_chunks, m_verifications,
                   m_reverify_events);
@@ -267,7 +273,7 @@ index e3581cc..cd2d082 100644
    m_lockstep_verifier.reset();
    m_block_cache.Shutdown();
    m_module = nullptr;
-@@ -305,6 +313,13 @@ void StaticRecompCore::LoadModule()
+@@ -305,6 +315,13 @@ void StaticRecompCore::LoadModule()
    m_module = desc;
    m_module_active = (desc != nullptr);
    m_has_rel_modules = desc->num_rel_modules != 0;
@@ -281,7 +287,7 @@ index e3581cc..cd2d082 100644
    m_chunk_state.assign(desc->num_chunk_ranges, CHUNK_UNVERIFIED);
    m_chunk_host_call_state.assign(desc->num_chunk_ranges, 0);
    m_effective_chunk_hashes.assign(desc->chunk_hashes,
-@@ -355,6 +370,7 @@ void StaticRecompCore::ClearCache()
+@@ -355,6 +372,7 @@ void StaticRecompCore::ClearCache()
  
    if (!m_module)
      return;
@@ -290,10 +296,10 @@ index e3581cc..cd2d082 100644
    m_failed_chunks = 0;
    ++m_reverify_events;
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
-index d084fea..62039b3 100644
+index d084fea..a2a5dc7 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
-@@ -171,8 +171,17 @@ private:
+@@ -171,8 +171,19 @@ private:
  
    u64 m_native_dispatches = 0;
    u64 m_fallback_steps = 0;
@@ -308,10 +314,12 @@ index d084fea..62039b3 100644
    u64 m_hook_fallback_instructions = 0;
 +  u64 m_hook_cache_fastpath_instructions = 0;
 +  u64 m_hook_interpreter_instructions = 0;
++  u64 m_hook_native_spr_instructions = 0;  // supervisor mtspr/mfspr handled natively
++  u64 m_spr_check_mismatches = 0;
    u64 m_timebase_cycle_remainder = 0;
    std::unordered_map<u32, u64> m_dispatch_samples;
    u64 m_bursts = 0;          // SyncIn..SyncOut native runs (diagnostic)
-@@ -191,6 +200,7 @@ private:
+@@ -191,6 +202,7 @@ private:
      u32 size;
    };
    std::vector<ActiveRelSection> m_active_rel_sections;
@@ -320,19 +328,41 @@ index d084fea..62039b3 100644
    std::vector<u64> m_effective_chunk_hashes;
    u64 m_rel_mapping_generation = 0;
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
-index 7b3d845..a42cebc 100644
+index 7b3d845..b76b6eb 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
-@@ -13,6 +13,8 @@
+@@ -13,6 +13,30 @@
  #include "Common/Logging/Log.h"
  
  #include <cstdio>
 +#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
 +#include <unordered_set>
  
  namespace
  {
-@@ -367,6 +369,13 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -367,6 +391,13 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
    auto* core = static_cast<StaticRecompCore*>(cpu->external_user_data);
    cia = core->TranslateRelAddress(cia);
    ++core->m_hook_fallback_instructions;
@@ -346,7 +376,7 @@ index 7b3d845..a42cebc 100644
  
    // Lockstep: a block that fell back to the interpreter for an unmodeled
    // instruction (DMA mtspr, cache op, ...) performed side effects not captured
-@@ -397,6 +406,7 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -397,6 +428,7 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
          ppc.iCache.Invalidate(system.GetMemory(), system.GetJitInterface(), ea);
        else
          system.GetJitInterface().InvalidateICacheLine(ea);
@@ -354,7 +384,102 @@ index 7b3d845..a42cebc 100644
        // These bypass SingleStepInner, so charge Dolphin's PPCTables cost
        // here (icbi 4, dcbf/dcbst/dcbi 5); their emitted block cost is zero.
        ppc.downcount -= (xo == 982u) ? 4 : 5;
-@@ -411,6 +421,7 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -405,12 +437,102 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+     }
+   }
+ 
++  // Native supervisor mtspr/mfspr (scripts/tool_fix_native_spr.py). Only SPRs
++  // whose HookSPRRead/HookSPRWrite match Interpreter::mfspr/mtspr exactly.
++  if ((raw >> 26) == 31u && (cpu->msr & 0x4000u) == 0)
++  {
++    const u32 xo = (raw >> 1) & 0x3FFu;
++    const u32 spr = ((raw >> 16) & 0x1Fu) | ((raw >> 6) & 0x3E0u);
++    const bool native_spr =
++        spr == SPR_DEC || spr == SPR_SDR || (spr >= SPR_SPRG0 && spr <= SPR_SPRG3) ||
++        (spr >= SPR_IBAT0U && spr <= SPR_DBAT3L) || (spr >= SPR_IBAT4U && spr <= SPR_DBAT7L) ||
++        spr == SPR_WPAR || spr == SPR_DMAU || spr == SPR_DMAL || (spr >= 952u && spr <= 959u) ||
++        spr == SPR_HID0 || spr == SPR_HID1 || spr == SPR_HID4 || spr == SPR_IABR ||
++        spr == SPR_L2CR || spr == SPR_ICTC || (spr >= SPR_THRM1 && spr <= SPR_THRM3);
++    if ((xo == 339u || xo == 467u) && native_spr)
++    {
++      const u32 reg = (raw >> 21) & 31u;
++      // Same surroundings as the interpreter path (full SyncOut/SyncIn keep MSR,
++      // segment registers, timebase and MMU state exactly as before); only the
++      // SingleStepInner step is replaced by the native register operation.
++      const auto run_native = [&] {
++        core->SyncOut();
++        if (xo == 339u)
++          ppc.gpr[reg] = HookSPRRead(cpu, static_cast<u16>(spr), cia);
++        else
++          HookSPRWrite(cpu, static_cast<u16>(spr), ppc.gpr[reg], cia);
++        ppc.downcount -= (xo == 339u) ? 1 : 2;  // PPCTables: mfspr 1, mtspr 2
++        ppc.pc = cia + 4u;
++        ppc.npc = cia + 4u;
++        core->SyncIn();
++      };
++      static const bool check = std::getenv("WARIO_SPR_CHECK") != nullptr;
++      if (!check)
++      {
++        run_native();
++        ++core->m_hook_native_spr_instructions;
++        return;
++      }
++      // Differential check: native on a snapshot, then the interpreter for real.
++      const CPUState guest_before = *cpu;
++      u32 spr_before[1024];
++      std::memcpy(spr_before, ppc.spr, sizeof(spr_before));
++      const int downcount_before = ppc.downcount;
++      const u32 exceptions_before = ppc.Exceptions;
++      const u64 remainder_before = core->m_timebase_cycle_remainder;
++      run_native();
++      const CPUState guest_native = *cpu;
++      u32 spr_native[1024];
++      std::memcpy(spr_native, ppc.spr, sizeof(spr_native));
++      const int downcount_native = ppc.downcount;
++      const u32 exceptions_native = ppc.Exceptions;
++      *cpu = guest_before;
++      std::memcpy(ppc.spr, spr_before, sizeof(spr_before));
++      ppc.downcount = downcount_before;
++      ppc.Exceptions = exceptions_before;
++      core->m_timebase_cycle_remainder = remainder_before;
++      core->SyncOut();
++      ppc.pc = cia;
++      ppc.npc = cia + 4;
++      ++core->m_hook_interpreter_instructions;
++      ppc.downcount -= system.GetInterpreter().SingleStepInner();
++      core->SyncIn();
++      // SyncOut re-mirrors registers that native code owns in CPUState (LR, CTR,
++      // XER, SRR0/1, DAR, DSISR, EAR, HID2, GQRs) into ppc.spr; those slots are
++      // stale caches on the native path and are not compared.
++      const auto mirrored = [](u32 index) {
++        return index == SPR_XER || index == SPR_LR || index == SPR_CTR || index == SPR_SRR0 ||
++               index == SPR_SRR1 || index == SPR_DAR || index == SPR_DSISR || index == SPR_EAR ||
++               index == SPR_HID2 || (index >= SPR_GQR0 && index < SPR_GQR0 + 8);
++      };
++      u32 first_diff = 0xFFFFFFFFu;
++      for (u32 index = 0; index < 1024 && first_diff == 0xFFFFFFFFu; ++index)
++        if (!mirrored(index) && ppc.spr[index] != spr_native[index])
++          first_diff = index;
++      const bool same = cpu->gpr[reg] == guest_native.gpr[reg] && cpu->pc == guest_native.pc &&
++                        cpu->timebase == guest_native.timebase && first_diff == 0xFFFFFFFFu &&
++                        ppc.downcount == downcount_native && ppc.Exceptions == exceptions_native;
++      if (!same)
++      {
++        ++core->m_spr_check_mismatches;
++        std::fprintf(stderr,
++                     "[wario-spr] MISMATCH pc=%08x raw=%08x spr=%u gpr %08x/%08x pc %08x/%08x "
++                     "tb %llx/%llx dc %d/%d exc %x/%x spr_diff=%u\n",
++                     cia, raw, spr, cpu->gpr[reg], guest_native.gpr[reg], cpu->pc, guest_native.pc,
++                     (unsigned long long)cpu->timebase, (unsigned long long)guest_native.timebase,
++                     ppc.downcount, downcount_native, ppc.Exceptions, exceptions_native, first_diff);
++      }
++      return;
++    }
++  }
++
+   // The recompiled segment resumes via the dispatcher at the PC this leaves
+   // behind, so this must execute exactly the instruction at cia via
+   // Dolphin's interpreter and hand the register state back.
    core->SyncOut();
    ppc.pc = cia;
    ppc.npc = cia + 4;

@@ -29,7 +29,7 @@ for run in args.run:
     shutdown=next((line for line in log.splitlines() if line.startswith('[staticrecomp] shutdown:')),None)
     counters={k:int(v) for k,v in re.findall(r'(\w+)=(\d+)',shutdown)} if shutdown else None
     if counters is not None and 'hook_cache' in counters:
-        assert counters['hook_fb']==counters['hook_cache']+counters['hook_interp'],counters
+        assert counters['hook_fb']==counters['hook_cache']+counters['hook_interp']+counters.get('hook_spr',0),counters
     reports.append({'run':str(run),'distinct_sites':len(sites),'unique_sites_by_instruction':dict(Counter(s['instruction'] for s in sites)),'counters':counters,'sites':sites})
 report={'runs':reports,'limitation':'First-seen sites are not per-site invocation counts. Fast-cache eligibility is not proof of live cache mode. Counters distinguish actual tiers when available. No full-game coverage claim.'}
 args.output.write_text(json.dumps(report,indent=2)+'\n')

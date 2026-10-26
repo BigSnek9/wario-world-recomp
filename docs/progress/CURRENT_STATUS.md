@@ -10,6 +10,13 @@ Read this first, then NEXT_ACTIONS.md, KNOWN_ISSUES.md, ../START_HERE.md.
 - Loading the human's progressed save (copy) from the file menu reaches the hub.
 - Water animates at the first Greenhorn river in hidden tests.
 
+## Static-recomp status
+
+All game code (main.dol + 8 RELs) is compiled to native code. As of
+2026-10-26 night no game instruction runs in Dolphin's interpreter or JIT on
+the tested routes (hook_interp=0, JIT 0). Release runner swap with this change
+pending (human was playing); profiling runner has it.
+
 ## Broken / open
 
 - KI-001 slowdowns: resolved per human (half of stage 2 with zero issues on the

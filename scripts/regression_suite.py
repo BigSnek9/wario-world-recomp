@@ -85,6 +85,11 @@ def main() -> int:
     last_luma = mean_luma(shots[-1]) if shots else 0.0
     record("boot_to_hub", run, result["exit_code"] == 0 and not result["forced_stop"] and stats.get("min_speed", 0) >= 0.8
            and last_luma > 20, min_speed=stats.get("min_speed"), min_fps=stats.get("min_fps"), last_luma=round(last_luma, 1))
+    # Static-only guard: no game instruction may reach Dolphin's interpreter or JIT.
+    interp = re.search(r"hook_interp=(\d+)", log)
+    jit = re.search(r"fallback_entries=(\d+)", log)
+    record("no_interpreter_or_jit", run, bool(interp and jit) and int(interp.group(1)) == 0 and int(jit.group(1)) == 0,
+           hook_interp=int(interp.group(1)) if interp else None, jit_entries=int(jit.group(1)) if jit else None)
 
     # 2. Greenhorn Forest movement and combat inputs hold full speed.
     run, result, log = smoke("--module", args.module, "--full", "--vectors", "--seconds", 110,

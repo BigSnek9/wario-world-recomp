@@ -47,7 +47,18 @@ synthetic branch/continuation cases pass against the actual production detector,
 including negative cases for backward calls and unrelated later loops.
 No guest patch, validator whitelist, mismatch filter or fallback override used.
 
-## A003 - Hidden instruction-level interpreter dependency
+## A003 - Hidden instruction-level interpreter dependency - RESOLVED on tested routes (2026-10-26)
+
+Resolution: supervisor mtspr/mfspr for the system registers the game uses
+(SPRG0-3, HID0/1/4, L2CR, DEC, WPAR, BATs, DMA, PMC/MMCR, THRM, ICTC, IABR, SDR1)
+now run natively in HookInstructionFallback with Dolphin's exact side-effect
+calls inside the same SyncOut/SyncIn (scripts/tool_fix_native_spr.py); cache
+ops already had a native fast path. Results: hook_interp=0 and JIT entries 0 on
+boot->title->save->hub and Greenhorn gameplay; WARIO_SPR_CHECK=1 differential
+(native vs interpreter per instruction) 0 mismatches over ~400k instructions;
+regression suite (incl. two lockstep routes) passes; suite now fails if
+hook_interp or JIT entries are non-zero. Routes not yet run (later worlds) are
+covered by the same code path but not yet observed. Original notes follow.
 
 The initial 20-second Null-renderer boot reports native=63189880 and fallback=0,
 but hook_fb=1033441. The latter counter is incremented in HookInstructionFallback

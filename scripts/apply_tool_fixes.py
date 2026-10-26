@@ -448,6 +448,8 @@ def main():
             "  bool Init() override;")
     import tool_fix_rel_scratch
     tool_fix_rel_scratch.apply(replace, core_dir)
+    import tool_fix_native_spr
+    tool_fix_native_spr.apply(replace, core_dir)
     print("Tool fixes applied. Original game bytes were not changed.")
 
 

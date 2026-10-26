@@ -2,6 +2,20 @@
 
 Newest first. Earlier history (2026-10-24..26 morning): ../PROGRESS.md and ../HANDOFF.md.
 
+## 2026-10-26 (night)
+
+- A003 resolved on tested routes: native system-register mtspr/mfspr
+  (tool_fix_native_spr.py); hook_interp 0, JIT 0; differential check mode
+  WARIO_SPR_CHECK=1 0 mismatches; regression passes; suite guards hook_interp=0.
+  A first variant without the full SyncOut/SyncIn broke early boot (stale
+  segment/MMU state) - kept the full sync.
+- Launcher: live volume slider (set_volume automation command), static texture
+  extractor (scripts/extract_textures.py, 1,701 textures, HD-loader names; RSC
+  format in docs/engine/ASSETS.md), play tracker (stage log, perf log, per-area
+  savestate checkpoints, save history).
+- KI-002 (water) and KI-005 (brightness = Dolphin HDR processing) closed by
+  human side-by-side comparisons.
+
 ## 2026-10-26 (afternoon session)
 
 - Committed the prior session's uncommitted work as baseline 18f7654.
