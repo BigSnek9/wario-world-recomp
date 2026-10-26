@@ -162,7 +162,7 @@ index ba3e88f..613c03a 100644
  }
  
 diff --git a/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp b/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp
-index 35cad68..043c4c1 100644
+index 35cad68..85ed541 100644
 --- a/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp
 +++ b/Source/Core/Core/HW/EXI/EXI_DeviceMemoryCard.cpp
 @@ -256,6 +256,7 @@ void CEXIMemoryCard::CmdDone()
@@ -191,6 +191,27 @@ index 35cad68..043c4c1 100644
      byte = 0xFF;                             // would be tristate, but we don't care.
  
      switch (m_command)  // This seems silly, do we really need it?
+@@ -397,6 +402,9 @@ void CEXIMemoryCard::TransferByte(u8& byte)
+         byte = 0x80;  // dummy cycle
+       else
+         byte = static_cast<u8>(m_memory_card->GetCardId() >> (24 - (((m_position - 2) & 3) * 8)));
++      std::fprintf(stderr, "[wario-mc] nintendo_id pos=%u byte=%02x card_id=%08x\n",
++                   static_cast<unsigned>(m_position), static_cast<unsigned>(byte),
++                   static_cast<unsigned>(m_memory_card->GetCardId()));
+       break;
+ 
+     case Command::ReadArray:
+@@ -524,6 +532,10 @@ void CEXIMemoryCard::DMARead(u32 addr, u32 size)
+ {
+   auto& memory = m_system.GetMemory();
+   m_memory_card->Read(m_address, size, memory.GetPointerForRange(addr, size));
++  std::fprintf(stderr, "[wario-mc] dma_read addr=%06x size=%u first=%02x%02x%02x%02x\n",
++               static_cast<unsigned>(m_address), static_cast<unsigned>(size),
++               memory.GetPointerForRange(addr, size)[0], memory.GetPointerForRange(addr, size)[1],
++               memory.GetPointerForRange(addr, size)[2], memory.GetPointerForRange(addr, size)[3]);
+ 
+   if ((m_address + size) % Memcard::BLOCK_SIZE == 0)
+   {
 diff --git a/Source/Core/Core/PowerPC/Interpreter/Interpreter_FloatCompare.cpp b/Source/Core/Core/PowerPC/Interpreter/Interpreter_FloatCompare.cpp
 index a44792a..d2136d4 100644
 --- a/Source/Core/Core/PowerPC/Interpreter/Interpreter_FloatCompare.cpp
@@ -214,10 +235,26 @@ index a44792a..d2136d4 100644
    ppc_state.cr.SetField(inst.CRFD, compare_value);
  }
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
-index e3581cc..d573d55 100644
+index e3581cc..cd2d082 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.cpp
-@@ -226,6 +226,12 @@ void StaticRecompCore::Shutdown()
+@@ -202,11 +202,13 @@ void StaticRecompCore::Shutdown()
+ {
+   g_static_recomp_core = nullptr;
+   std::fprintf(stderr,
+-               "[staticrecomp] shutdown: native=%llu fallback=%llu native_exc=%llu hook_fb=%llu "
++               "[staticrecomp] shutdown: native=%llu fallback=%llu native_exc=%llu hook_fb=%llu hook_cache=%llu hook_interp=%llu "
+                "smc_failed=%u verifications=%llu reverify_events=%llu bursts=%llu cycles=%llu\n",
+                (unsigned long long)m_native_dispatches, (unsigned long long)m_fallback_steps,
+                (unsigned long long)m_native_exceptions,
+-               (unsigned long long)m_hook_fallback_instructions, m_failed_chunks,
++               (unsigned long long)m_hook_fallback_instructions,
++               (unsigned long long)m_hook_cache_fastpath_instructions,
++               (unsigned long long)m_hook_interpreter_instructions, m_failed_chunks,
+                (unsigned long long)m_verifications, (unsigned long long)m_reverify_events,
+                (unsigned long long)m_bursts, (unsigned long long)m_charged_cycles);
+   std::vector<std::pair<u32, u64>> dispatch_samples(m_dispatch_samples.begin(),
+@@ -226,6 +228,12 @@ void StaticRecompCore::Shutdown()
                   m_native_dispatches, m_fallback_steps, m_native_exceptions,
                   m_hook_fallback_instructions, m_failed_chunks, m_verifications,
                   m_reverify_events);
@@ -230,7 +267,7 @@ index e3581cc..d573d55 100644
    m_lockstep_verifier.reset();
    m_block_cache.Shutdown();
    m_module = nullptr;
-@@ -305,6 +311,13 @@ void StaticRecompCore::LoadModule()
+@@ -305,6 +313,13 @@ void StaticRecompCore::LoadModule()
    m_module = desc;
    m_module_active = (desc != nullptr);
    m_has_rel_modules = desc->num_rel_modules != 0;
@@ -244,11 +281,19 @@ index e3581cc..d573d55 100644
    m_chunk_state.assign(desc->num_chunk_ranges, CHUNK_UNVERIFIED);
    m_chunk_host_call_state.assign(desc->num_chunk_ranges, 0);
    m_effective_chunk_hashes.assign(desc->chunk_hashes,
+@@ -355,6 +370,7 @@ void StaticRecompCore::ClearCache()
+ 
+   if (!m_module)
+     return;
++  ++m_rel_mapping_generation;  // State/cache restoration requires fresh differential coverage.
+   std::fill(m_chunk_state.begin(), m_chunk_state.end(), u8{CHUNK_UNVERIFIED});
+   m_failed_chunks = 0;
+   ++m_reverify_events;
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
-index d084fea..19223f1 100644
+index d084fea..7fc4c13 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
-@@ -171,6 +171,13 @@ private:
+@@ -171,8 +171,17 @@ private:
  
    u64 m_native_dispatches = 0;
    u64 m_fallback_steps = 0;
@@ -261,9 +306,13 @@ index d084fea..19223f1 100644
 +  std::unordered_map<u32, u64> m_jit_fallback_sites;
    u64 m_native_exceptions = 0;
    u64 m_hook_fallback_instructions = 0;
++  u64 m_hook_cache_fastpath_instructions = 0;
++  u64 m_hook_interpreter_instructions = 0;
    u64 m_timebase_cycle_remainder = 0;
+   std::unordered_map<u32, u64> m_dispatch_samples;
+   u64 m_bursts = 0;          // SyncIn..SyncOut native runs (diagnostic)
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
-index 7b3d845..6ac6b8c 100644
+index 7b3d845..a42cebc 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
 @@ -13,6 +13,8 @@
@@ -289,6 +338,22 @@ index 7b3d845..6ac6b8c 100644
  
    // Lockstep: a block that fell back to the interpreter for an unmodeled
    // instruction (DMA mtspr, cache op, ...) performed side effects not captured
+@@ -397,6 +406,7 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+         ppc.iCache.Invalidate(system.GetMemory(), system.GetJitInterface(), ea);
+       else
+         system.GetJitInterface().InvalidateICacheLine(ea);
++      ++core->m_hook_cache_fastpath_instructions;
+       // These bypass SingleStepInner, so charge Dolphin's PPCTables cost
+       // here (icbi 4, dcbf/dcbst/dcbi 5); their emitted block cost is zero.
+       ppc.downcount -= (xo == 982u) ? 4 : 5;
+@@ -411,6 +421,7 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+   core->SyncOut();
+   ppc.pc = cia;
+   ppc.npc = cia + 4;
++  ++core->m_hook_interpreter_instructions;
+   ppc.downcount -= system.GetInterpreter().SingleStepInner();
+   core->SyncIn();
+ }
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
 index d91ec2d..1085c13 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Run.cpp
@@ -393,7 +458,7 @@ index 491c57e..28fd320 100644
      m_effective_chunk_hashes[index] = hash;
  
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.cpp
-index 2bed07c..2404ee1 100644
+index 2bed07c..c12f26b 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.cpp
 @@ -65,6 +65,9 @@ void StaticRecompLockstepVerifier::Init()
@@ -406,15 +471,28 @@ index 2bed07c..2404ee1 100644
    m_lockstep = true;
    if (const char* s = std::getenv("STATICRECOMP_LOCKSTEP_START"))
      m_ls_start = std::strtoull(s, nullptr, 0);
-@@ -126,6 +129,7 @@ bool StaticRecompLockstepVerifier::LockstepWindowOpen() const
+@@ -111,8 +114,9 @@ bool StaticRecompLockstepVerifier::ShouldCheck(u32 address) const
+     return false;
+   if (!LockstepWindowOpen())
+     return false;
++  const auto checked = m_ls_checked.find(address);
+   return m_ls_nodedup || address == m_ls_repeat_pc ||
+-         m_ls_checked.find(address) == m_ls_checked.end();
++         checked == m_ls_checked.end() || checked->second != m_core.m_rel_mapping_generation;
+ }
+ 
+ bool StaticRecompLockstepVerifier::LockstepWindowOpen() const
+@@ -126,7 +130,9 @@ bool StaticRecompLockstepVerifier::LockstepWindowOpen() const
  
  void StaticRecompLockstepVerifier::Prepare(const CPUState& guest)
  {
 +  if (m_instruction_journal) m_instruction_journal(1);
    m_ls_entry = guest.pc;
++  m_ls_entry_generation = m_core.m_rel_mapping_generation;
    m_ls_snapshot = guest;
    m_journal.Clear();
-@@ -142,6 +146,7 @@ void StaticRecompLockstepVerifier::Prepare(const CPUState& guest)
+   m_ls_fallback_seen = false;
+@@ -142,6 +148,7 @@ void StaticRecompLockstepVerifier::Prepare(const CPUState& guest)
  
  void StaticRecompLockstepVerifier::Verify(const CPUState& guest)
  {
@@ -422,10 +500,12 @@ index 2bed07c..2404ee1 100644
    m_ls_journaling = false;
    m_set_mem_journal(nullptr, nullptr);
    StaticRecompLockstep::g_ram_write_journal = nullptr;
-@@ -151,7 +156,10 @@ void StaticRecompLockstepVerifier::Verify(const CPUState& guest)
+@@ -150,8 +157,11 @@ void StaticRecompLockstepVerifier::Verify(const CPUState& guest)
+   StaticRecompLockstep::g_lc_write_journal_user = nullptr;
    StaticRecompLockstep::g_vmem_write_journal = nullptr;
    StaticRecompLockstep::g_vmem_write_journal_user = nullptr;
-   m_ls_checked.insert(m_ls_entry);
+-  m_ls_checked.insert(m_ls_entry);
++  m_ls_checked[m_ls_entry] = m_ls_entry_generation;
 +  static const bool trace_checks = std::getenv("WARIO_LS_CHECK_TRACE") != nullptr;
 +  if (trace_checks) { std::fprintf(stderr, "[wario-check] BEGIN entry=%08x end=%08x instructions=%llu helper=%d\n", m_ls_entry, guest.pc, static_cast<unsigned long long>(m_native_instruction_count), m_ls_fallback_seen); std::fflush(stderr); }
    LockstepCheck(m_ls_entry, guest.pc, m_ls_snapshot);
@@ -434,10 +514,17 @@ index 2bed07c..2404ee1 100644
  
  }  // namespace StaticRecompLockstep
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.h b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.h
-index fb54480..22bc752 100644
+index fb54480..d87277c 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.h
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep.h
-@@ -162,6 +162,9 @@ private:
+@@ -157,11 +157,15 @@ private:
+   u64 m_ls_undercharges = 0;      // blocks regs-exact but native undercharged downcount (D3)
+   s64 m_ls_max_undercharge = 0;   // worst per-block cycle deficit observed
+   SetMemJournalFn m_set_mem_journal = nullptr;  // resolved from the module
+-  std::unordered_set<u32> m_ls_checked;    // entry PCs already checked (dedupe)
++  std::unordered_map<u32, u64> m_ls_checked;  // PC -> code-mapping generation
++  u64 m_ls_entry_generation = 0;
+   std::unordered_set<u32> m_ls_whitelist;  // entry PCs never reported (known-benign)
    u32 m_ls_trace_pc = 0;  // STATICRECOMP_LOCKSTEP_TRACE: per-instr shadow dump for one entry PC
    u32 m_ls_repeat_pc = 0;
  
@@ -448,7 +535,7 @@ index fb54480..22bc752 100644
    CPUState m_ls_snapshot{};
  
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep_Check.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep_Check.cpp
-index 9c486ef..d76d1b5 100644
+index 9c486ef..17cd0cb 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep_Check.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep_Check.cpp
 @@ -21,12 +21,13 @@ namespace
@@ -502,7 +589,15 @@ index 9c486ef..d76d1b5 100644
  
    if (m_ls_fallback_seen)
    {
-@@ -162,7 +168,7 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
+@@ -123,7 +129,6 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
+         vmem[off] = pre;
+   }
+ 
+-  const u64 saved_msr = ppc.msr.Hex;
+   const int saved_downcount = ppc.downcount;
+   const u32 saved_exceptions = ppc.Exceptions;
+   LoadEntryRegsToPPC(entry_state);
+@@ -162,7 +167,7 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
    }
    int steps = 0;
    s64 interp_cycles = 0;
@@ -511,7 +606,7 @@ index 9c486ef..d76d1b5 100644
    while (steps < m_ls_step_cap)
    {
      const u32 before = ppc.pc;
-@@ -177,6 +183,12 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
+@@ -177,6 +182,12 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
                     steps, before, ppc.gpr[3], ppc.gpr[4], ppc.gpr[5], ppc.gpr[13], ppc.msr.Hex,
                     ppc.GetXER().Hex, ppc.cr.Get(), ppc.spr[SPR_LR], ppc.spr[SPR_CTR]);
      }
@@ -524,7 +619,7 @@ index 9c486ef..d76d1b5 100644
      if (ppc.pc == end_pc)
      {
        // A native dispatch can fall through into a loop body and return at its
-@@ -212,7 +224,8 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
+@@ -212,7 +223,8 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
    StaticRecompLockstep::g_vmem_write_journal_user = nullptr;
    StaticRecompLockstep::g_tb_override_active = false;
  
@@ -534,3 +629,147 @@ index 9c486ef..d76d1b5 100644
    const bool cap_hit = !reached && ppc.Exceptions == 0 && steps >= m_ls_step_cap;
    if (cap_hit)
      ++m_ls_cap_hits;
+@@ -366,7 +378,8 @@ void StaticRecompLockstepVerifier::LockstepCheck(u32 entry_pc, u32 end_pc, const
+         vmem[off] = post;
+   }
+ 
+-  ppc.msr.Hex = saved_msr;
++  StaticRecompCore::SetPPCStateFromGuestState(m_core.m_guest, ppc);
++  ppc.msr.Hex = m_core.m_guest.msr;
+   power_pc.MSRUpdated();
+   ppc.downcount = saved_downcount;
+   ppc.Exceptions = saved_exceptions;
+diff --git a/Source/Core/DolphinNoGUI/Platform.h b/Source/Core/DolphinNoGUI/Platform.h
+index 5b0729a..e506417 100644
+--- a/Source/Core/DolphinNoGUI/Platform.h
++++ b/Source/Core/DolphinNoGUI/Platform.h
+@@ -15,7 +15,7 @@ public:
+   virtual ~Platform();
+ 
+   bool IsRunning() const { return m_running.IsSet(); }
+-  bool IsWindowFocused() const { return m_window_focus; }
++  virtual bool IsWindowFocused() const { return m_window_focus; }
+   bool IsWindowFullscreen() const { return m_window_fullscreen; }
+ 
+   virtual bool Init();
+@@ -49,7 +49,7 @@ public:
+ #endif
+ 
+ #ifdef _WIN32
+-  static std::unique_ptr<Platform> CreateWin32Platform();
++  static std::unique_ptr<Platform> CreateWin32Platform(bool hidden = false);
+ #endif
+ 
+ #ifdef __APPLE__
+diff --git a/Source/Core/DolphinNoGUI/PlatformWin32.cpp b/Source/Core/DolphinNoGUI/PlatformWin32.cpp
+index 3402fda..74d499e 100644
+--- a/Source/Core/DolphinNoGUI/PlatformWin32.cpp
++++ b/Source/Core/DolphinNoGUI/PlatformWin32.cpp
+@@ -46,8 +46,14 @@ constexpr float FAST_FORWARD_SPEED = 2.0f;
+ class PlatformWin32 final : public Platform
+ {
+ public:
++  explicit PlatformWin32(bool hidden) : m_hidden(hidden) {}
+   ~PlatformWin32() override;
+ 
++  bool IsWindowFocused() const override
++  {
++    return !m_hidden && m_hwnd != nullptr && GetForegroundWindow() == m_hwnd && !IsIconic(m_hwnd);
++  }
++
+   bool Init() override;
+   void SetTitle(const std::string& string) override;
+   void MainLoop() override;
+@@ -59,7 +65,7 @@ private:
+ 
+   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+ 
+-  static bool RegisterRenderWindowClass();
++  static bool RegisterRenderWindowClass(bool hidden);
+   bool CreateRenderWindow();
+   bool CreateMenus();
+   void RefreshMenu(HMENU menu);
+@@ -68,6 +74,7 @@ private:
+   void UpdateWindowPosition();
+   void ProcessEvents();
+ 
++  const bool m_hidden;
+   HWND m_hwnd{};
+   HMENU m_menu{};
+   HMENU m_file_menu{};
+@@ -93,7 +100,7 @@ PlatformWin32::~PlatformWin32()
+     DestroyWindow(m_hwnd);
+ }
+ 
+-bool PlatformWin32::RegisterRenderWindowClass()
++bool PlatformWin32::RegisterRenderWindowClass(bool hidden)
+ {
+   WNDCLASSEX wc = {};
+   wc.cbSize = sizeof(WNDCLASSEX);
+@@ -111,7 +118,8 @@ bool PlatformWin32::RegisterRenderWindowClass()
+ 
+   if (!RegisterClassEx(&wc))
+   {
+-    MessageBox(nullptr, _T("Window registration failed."), _T("Error"), MB_ICONERROR | MB_OK);
++    if (!hidden)
++      MessageBox(nullptr, _T("Window registration failed."), _T("Error"), MB_ICONERROR | MB_OK);
+     return false;
+   }
+ 
+@@ -120,18 +128,22 @@ bool PlatformWin32::RegisterRenderWindowClass()
+ 
+ bool PlatformWin32::CreateRenderWindow()
+ {
+-  m_hwnd = CreateWindowEx(WS_EX_CLIENTEDGE, WINDOW_CLASS_NAME, _T("Dolphin"), WS_OVERLAPPEDWINDOW,
++  m_hwnd = CreateWindowEx(WS_EX_CLIENTEDGE | (m_hidden ? WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE : 0), WINDOW_CLASS_NAME, _T("Dolphin"), WS_OVERLAPPEDWINDOW,
+                           m_window_x < 0 ? CW_USEDEFAULT : m_window_x,
+                           m_window_y < 0 ? CW_USEDEFAULT : m_window_y, m_window_width,
+                           m_window_height, nullptr, nullptr, GetModuleHandle(nullptr), this);
+   if (!m_hwnd)
+   {
+-    MessageBox(nullptr, _T("CreateWindowEx failed."), _T("Error"), MB_ICONERROR | MB_OK);
++    if (!m_hidden)
++      MessageBox(nullptr, _T("CreateWindowEx failed."), _T("Error"), MB_ICONERROR | MB_OK);
+     return false;
+   }
+ 
+-  ShowWindow(m_hwnd, SW_SHOW);
+-  UpdateWindow(m_hwnd);
++  if (!m_hidden)
++  {
++    ShowWindow(m_hwnd, SW_SHOW);
++    UpdateWindow(m_hwnd);
++  }
+   return true;
+ }
+ 
+@@ -262,16 +274,16 @@ void PlatformWin32::ToggleFullscreen()
+ 
+ bool PlatformWin32::Init()
+ {
+-  if (!RegisterRenderWindowClass() || !CreateRenderWindow() || !CreateMenus())
++  if (!RegisterRenderWindowClass(m_hidden) || !CreateRenderWindow() || (!m_hidden && !CreateMenus()))
+     return false;
+ 
+   // TODO: Enter fullscreen if enabled.
+-  if (Config::Get(Config::MAIN_FULLSCREEN))
++  if (!m_hidden && Config::Get(Config::MAIN_FULLSCREEN))
+   {
+     ProcessEvents();
+   }
+ 
+-  if (Config::Get(Config::MAIN_DISABLE_SCREENSAVER))
++  if (!m_hidden && Config::Get(Config::MAIN_DISABLE_SCREENSAVER))
+     SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED);
+ 
+   UpdateWindowPosition();
+@@ -463,7 +475,7 @@ LRESULT PlatformWin32::WndProc(const HWND hwnd, const UINT msg, const WPARAM wPa
+ }
+ }  // namespace
+ 
+-std::unique_ptr<Platform> Platform::CreateWin32Platform()
++std::unique_ptr<Platform> Platform::CreateWin32Platform(bool hidden)
+ {
+-  return std::make_unique<PlatformWin32>();
++  return std::make_unique<PlatformWin32>(hidden);
+ }

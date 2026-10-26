@@ -4,10 +4,11 @@ In-progress Windows static recompilation of **Wario World USA, GWWE01 revision 0
 The original game behavior and speed are the baseline. FPS uncapping is a later,
 separate project; timing dependencies are recorded as they are discovered.
 
-**Status: the clean main-plus-all-eight-REL port DLL builds and runs; the
-earlier native main-only build reached the rendered title screen. This is not
-yet a verified bit-accurate or full-gameplay-validated build.** Read
-[the handoff](docs/HANDOFF.md) for the latest concrete state, blockers and next steps.
+**Status: experimental, partially validated build. The user completed stage one,
+but reports frozen water, slowdowns and transient stretching. Shared renderer
+shortcuts remain unvalidated; whole-game/hardware accuracy and static-only
+execution are not established.** See [the accuracy review](docs/ACCURACY_REVIEW.md). Read [START_HERE](docs/START_HERE.md)
+for a concise checkpoint and [the handoff](docs/HANDOFF.md) for detailed evidence.
 
 ## What is established
 
@@ -15,17 +16,23 @@ yet a verified bit-accurate or full-gameplay-validated build.** Read
   supplied ISO byte for byte; their hashes and offsets are preserved locally.
 - Main executable plus all eight dynamically loaded RELs translate to C using
   exact-semantics mode after an empty-section relocation tool fix.
-- No original game bytes, frame rate, refresh rate or widescreen settings patched.
+- No original game bytes or FPS-unlock patches applied. Host rendering defaults
+  previously included Auto aspect and forced progressive output; see the review.
+  Presentation is now explicitly 4:3 at native 1x; other assumptions remain open.
 - Runtime and native main DLL build with installed MSVC. OpenGL startup reaches
   the title screen near 59.94 FPS at 1x internal scale and exits cleanly.
 - The clean main-plus-eight-REL port DLL (no diagnostic instrumentation) builds
-  via `python scripts/build_rel_bundle.py --clean` into
-  `build/module-full/Release/gGWWE01_recomp.dll` and a bounded
-  `smoke_boot.py --full` run renders at 59.94 FPS, original speed, clean exit.
+  via `python scripts/build_rel_bundle.py --clean --vectors` into
+  `build/module-full-vectors/Release/gGWWE01_recomp.dll`; its bounded
+  `smoke_boot.py --full --vectors` hub run renders near 59.94 FPS, original
+  speed, clean exit, zero JIT entries on this route.
   The instrumented twin for lockstep verification is still built without
   `--clean`. Original bytes and behavior are unpatched in both.
-- Early differential run: 228 deduplicated checks, zero reports after correcting
-  the verifier's handling of inlined-loop continuations. This is limited coverage.
+- Native first-stage transition: 12,785 differential checks, zero reports,
+  zero JIT entries and natural memory-card file creation. Greenhorn Forest loads.
+  A 16-second idle DSP audio capture matches the runtime reference after onset
+  alignment. Instruction helpers
+  remain, and gameplay/full accuracy are still unverified. Tests are hidden and muted.
 - [Timing ledger](docs/TIMING.md), [validation criteria](docs/VALIDATION.md),
   [tool review](docs/TOOLING.md), [progress](docs/PROGRESS.md) and
   [publication boundary](docs/PUBLISHING.md) are maintained progressively.
@@ -44,11 +51,12 @@ python scripts/build.py tools --jobs 8
 python scripts/build.py extract --iso "path\to\Wario World (USA).iso"
 python scripts/build.py audit --iso "path\to\Wario World (USA).iso"
 python scripts/build.py translate --jobs 8
-python scripts/build_rel_bundle.py --clean
+python scripts/build_rel_bundle.py --clean --vectors
 ```
 
-The final stage produces the clean main-plus-eight-REL port DLL under
-`build/module-full/Release/`. Drop the `--clean` flag to build the instrumented
+The final stage produces the uninstrumented main-plus-eight-REL candidate,
+including physical SDK paths, under `build/module-full-vectors/Release/`.
+Drop the `--clean` flag to build the instrumented
 diagnostic twin used by lockstep verification instead. `scripts/rel_timing_candidates.py`
 regenerates the REL portion of the frame/refresh dependency inventory.
 
@@ -60,10 +68,10 @@ For bounded diagnostics after building:
 
 ```powershell
 python scripts/smoke_boot.py --seconds 8 --lockstep
-python scripts/smoke_boot.py --full --seconds 40 --graphics OpenGL --windowed --capture
+python scripts/smoke_boot.py --full --vectors --seconds 120 --graphics OpenGL --probe-file config/probes/start_adventure.json --pad-hold 12 --capture
 ```
 
-The latter opens a temporary game window. Each run gets a new private user folder;
+The latter runs hidden and muted. Each run gets a new private user folder;
 captures and logs remain private. Instruction-level interpreter helpers are still
 used. See [open accuracy issues](docs/ACCURACY_ISSUES.md) before interpreting results.
 
@@ -87,3 +95,7 @@ and the limits of the publication guard.
 
 Original project scripts and authored patches are provided under GPLv3; preserve
 the component licenses/notices that apply to upstream material.
+
+For your own later test, double-click `Play-WarioWorld.cmd`; see [keyboard and
+playtest notes](docs/PLAYTEST.md). The agent does not run this visible/audible
+launcher during automated tests. Full-game accuracy remains unverified.

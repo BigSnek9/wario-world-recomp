@@ -13,22 +13,6 @@ struct ResumeGuard {
     ~ResumeGuard() { ResumeThread(thread); }
 };
 
-static void window_text(HWND window) {
-    wchar_t text[8192]{};
-    DWORD_PTR result=0;
-    SendMessageTimeoutW(window,WM_GETTEXT,8192,reinterpret_cast<LPARAM>(text),SMTO_ABORTIFHUNG,100,&result);
-    char utf8[32768]{};
-    WideCharToMultiByte(CP_UTF8,0,text,-1,utf8,sizeof utf8,nullptr,nullptr);
-    if (*utf8) std::printf("Window text: %s\n",utf8);
-}
-
-static BOOL CALLBACK child_window(HWND window, LPARAM) { window_text(window); return TRUE; }
-static BOOL CALLBACK owned_window(HWND window, LPARAM owner) {
-    DWORD pid=0; GetWindowThreadProcessId(window,&pid);
-    if(pid==static_cast<DWORD>(owner)) { window_text(window); EnumChildWindows(window,child_window,0); }
-    return TRUE;
-}
-
 int wmain(int argc, wchar_t** argv) {
     if (argc != 3) return 2;
     DWORD pid = wcstoul(argv[1], nullptr, 10);
@@ -39,7 +23,6 @@ int wmain(int argc, wchar_t** argv) {
         std::puts("Refusing: PID does not match the exact diagnostic runner path.");
         CloseHandle(process); return 4;
     }
-    EnumWindows(owned_window,static_cast<LPARAM>(pid));
     auto symbols = std::filesystem::path(argv[2]).parent_path().wstring();
     SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_FAIL_CRITICAL_ERRORS);
     if (!SymInitializeW(process, symbols.c_str(), TRUE)) { CloseHandle(process); return 5; }

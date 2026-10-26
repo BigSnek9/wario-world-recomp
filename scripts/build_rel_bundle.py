@@ -1,4 +1,4 @@
-"""Build main-plus-eight-REL DLLs: the shipping clean port (--clean) or the
+"""Build main-plus-eight-REL DLLs: an uninstrumented candidate (--clean) or the
 instrumented diagnostic bundle used for lockstep verification."""
 from pathlib import Path
 import argparse
@@ -12,12 +12,12 @@ from emit_rel_metadata import emit
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--vectors", action="store_true", help="Include experimental physical SDK paths; shadow-check stall unresolved")
-parser.add_argument("--clean", action="store_true", help="Emit the shipping main-plus-REL port DLL without instruction-count instrumentation")
+parser.add_argument("--vectors", action="store_true", help="Include verified physical SDK exception/vector paths")
+parser.add_argument("--clean", action="store_true", help="Emit the uninstrumented main-plus-REL port DLL without instruction-count instrumentation")
 args = parser.parse_args()
 if args.vectors and args.clean:
-    parser.error("--vectors and --clean are mutually exclusive")
-if args.vectors:
+    variant = "full-vectors"
+elif args.vectors:
     variant = "rel-bundle-vectors"
 elif args.clean:
     variant = "full"
@@ -71,7 +71,7 @@ for path in sorted((ROOT / "original/GWWE01/files/dll").glob("*.rel")):
     base = (base + len(raw) + int.from_bytes(raw[0x20:0x24], "big") + 0xffff) & ~0xffff
 write_changed(destination / "rel_metadata.c", emit(models))
 # The diagnostic bundle instruments every actual instruction comment, including
-# counted-loop copies. The clean shipping bundle copies chunks unchanged.
+# counted-loop copies. The clean bundle copies chunks unchanged.
 sites = 0
 for source, chunk in chunk_sources:
     text = source.read_text()
@@ -209,7 +209,7 @@ command = ["cmake", "-S", template, "-B", build, "-G", "Visual Studio 17 2022", 
            "-DGENERATED_DIR=" + str(destination), "-DGXRUNTIME_DIR=" + str(upstream / "GXRuntime"),
            "-DCHASSIS_ABI_DIR=" + str(upstream / "Source/Core/Core/PowerPC/StaticRecomp")]
 print("Bundle instruction sites:", sites, "REL chunks:", len(new_chunks), flush=True)
-with (ROOT / "reports/build-rel-bundle.log").open("w") as log:
+with (ROOT / f"reports/build-rel-bundle-{variant}.log").open("w") as log:
     subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT)
-    subprocess.run(["cmake", "--build", build, "--config", "Release", "--parallel", "8"], check=True, stdout=log, stderr=subprocess.STDOUT)
+    subprocess.run(["cmake", "--build", build, "--config", "Release", "--parallel", "1", "--", "/nr:false"], check=True, stdout=log, stderr=subprocess.STDOUT)
 print(build / "Release/gGWWE01_recomp.dll")

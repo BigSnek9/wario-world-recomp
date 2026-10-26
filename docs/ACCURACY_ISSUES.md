@@ -1,5 +1,19 @@
 # Open accuracy and coverage issues
 
+## Current status correction - 2026-10-26
+
+Read ACCURACY_REVIEW.md for the current status. Historical A004/A006/A007 and
+A009 narratives below describe earlier builds; later resolutions supersede them.
+New open A015: manual 3x/Auto versus test 1x drift and unvalidated runtime graphics,
+video-field and DSP shortcuts. Presentation drift corrected to 4:3/1x; broader
+accuracy remains open. A016: Win32 constant-focus bug repaired/rebuilt, six
+compiled controls pass; human integration remains untested. A017: frozen water
+in Greenhorn Forest, unresolved. A018: general/box-breaking slowdowns there,
+unresolved. A019: native/JIT reference shares graphics/audio/device runtime,
+so common defects can pass; independent rendering and guest-poll replay needed.
+User confirms controller works and stage one cleared; not an accuracy proof.
+
+
 No bit-accuracy claim is made. Reproduce these before choosing fixes; do not
 silence the validator or force fallback to make the reports disappear.
 
@@ -154,8 +168,9 @@ Configurations tested: default GCI folder card (user/GC/USA/Card A, empty, no
 16 MiB MemoryCardA.USA.raw appears only at shutdown, never during play). Both
 fail identically, so the failure is not folder-versus-raw specific. No memcard
 error is logged. In reference Dolphin, first-boot creation on an empty card is
-expected to succeed; no reference emulator is installed on this machine, so the
-comparison is pending.
+expected to succeed; an installed standalone Dolphin 2606a was subsequently located. An isolated
+comparison is now in progress; earlier assertions of expected behavior were
+not measured evidence.
 
 Suspect: runtime memory-card/EXI emulation defect, not the static recomp CPU.
 Decisive comparison, run 20261025T135447110723Z: the identical probe under
@@ -199,3 +214,72 @@ matches upstream Dolphin master line-for-line in the relevant paths, so the
 defect is expected in the fork's EXI interrupt/timing integration (EXI_Channel,
 EXI.cpp UpdateInterrupts, CoreTiming pacing under the recomp runtime) or in a
 game-SDK timing assumption, not in the card command state machine.
+
+## A010 - Verifier restores stale MSR translation mode (fixed in C overlay)
+
+The physical-vector lockstep stall was a hidden MMU fatal-address dialog at
+0x8019B270. The native vector returns with changed MSR translation bits, but
+the checker restored saved entry cached MSR at the end of its interpreter
+shadow. Restore canonical post-native CPU state, explicitly copy guest MSR,
+and call MSRUpdated() before resuming. No guest bytes were patched.
+Evidence: private/runs/20261025T205523324085Z, clean 120-second run;
+6043 checks/0 reports, zero JIT entries, no code-hash failures. Helper skips
+and instruction helpers remain; title/menu coverage only. Repair currently
+lives in C build/runtime-overlay and scripts/apply_tool_fixes.py; F source
+awaits actual write permission. Earlier vector-stall notes are historical.
+
+## A009 resolution, 2026-10-26 - Incorrect menu input probe
+
+The runtime-bug inference above is superseded. The menu responds to analog
+main_y=1; D-pad inputs failed to choose the intended option. A corrected probe
+under the rebuilt native runtime issues genuine SectorErase/PageProgram writes
+and creates an 81,984-byte GWWE/01 GCI containing ten blocks. Evidence: run
+20261026T104743933654Z, reports/save-creation-20261026.json, corrected probe
+config/probes/repeated_analog_yes.json. 6,189 lockstep checks, zero reports,
+zero JIT entries. No EXI timing or game/save bytes were patched. The standalone
+Dolphin movie test was confounded by the same input-selection error and does
+not establish a card emulation defect. The observed post-creation screen is
+'Please choose a file'; advancement/gameplay is still being investigated.
+
+## A011 - Windows headless graphical startup requires a hidden HWND
+
+The old HeadlessPlatform gave OpenGL no Windows rendering surface, causing
+startup to stall before CPU frames. Headless graphical rendering now uses a
+Win32 surface that is never shown or activated; Null retains HeadlessPlatform.
+Headless alerts go to stderr and panic exits rather than opening a dialog;
+No Audio Output remains selected. This is a host test-harness repair, not a
+change to guest timing or framebuffer data. Run 20261026T104538740504Z:
+120 seconds, 6043 checks/zero reports/JIT entries, 59.94 FPS/VPS. The visible
+window inventory was empty during rendering. User requires silent hidden tests.
+
+## A012 - Differential coverage must follow code-mapping lifetime (fixed)
+
+PC-only deduplication could skip newly loaded code at reused REL addresses.
+The verifier now records generation per PC, captures generation at Prepare,
+and rechecks after mapping changes or ClearCache/state restoration. Compiled
+production predicates have nine regression cases (1 fails before, 0 after).
+The Greenhorn transition passes 12785 checks / zero reports under this repair.
+Previously reported checks are limited historical coverage, not invalidated CPU
+comparisons; code/context coverage was weaker than the PC count suggested.
+
+## A013 - Snapshot REL audits must exclude stale unlinked headers (fixed)
+
+The inspector's raw header scan was candidate discovery only; the auditor had
+selected all absolute headers, including potential stale allocations. Audits now
+validate the live OSLink head/tail/backlinks and require candidates to belong to
+that queue. Empty queues report zero active modules/REL bytes. Greenhorn uses
+main code, with no linked REL in the snapshot; all main text bytes match original.
+
+## A014 - Probe frame origin after state load (harness limitation)
+
+The renderer frame counter is restored from state. The first new resume probe
+could queue steps against stale pre-load status. The harness now waits for a
+processed load command plus settled post-load status before setting its relative
+origin. This is adequate for behavioral navigation but is not input-poll-exact
+replay. Resume tests use copied genuine private user data; no save fabrication.
+
+
+A014 follow-up (review): capture/memory/state-save commands now wait for the load
+settling handshake, preventing another command from hiding the load status before
+its half-second observation. This improves reporting/navigation only; it does not
+establish deterministic guest input replay. See ACCURACY_REVIEW.md for evidence.

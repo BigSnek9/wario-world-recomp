@@ -96,10 +96,95 @@ static char* quote_spawn_arg(const char* arg) {
     return ok;''')
 
 
+def fix_silent_headless(runtime):
+    # Invisible native surface preserves real GPU rendering for silent diagnostics.
+    replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/Platform.h',
+            '  static std::unique_ptr<Platform> CreateWin32Platform();',
+            '  static std::unique_ptr<Platform> CreateWin32Platform(bool hidden = false);')
+    replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/PlatformWin32.cpp',
+            'public:\n  ~PlatformWin32() override;',
+            'public:\n  explicit PlatformWin32(bool hidden) : m_hidden(hidden) {}\n  ~PlatformWin32() override;')
+    replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/PlatformWin32.cpp',
+            '  static bool RegisterRenderWindowClass();',
+            '  static bool RegisterRenderWindowClass(bool hidden);')
+    replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/PlatformWin32.cpp',
+            '  HWND m_hwnd{};',
+            '  const bool m_hidden;\n  HWND m_hwnd{};')
+    replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/PlatformWin32.cpp',
+            'bool PlatformWin32::RegisterRenderWindowClass()',
+            'bool PlatformWin32::RegisterRenderWindowClass(bool hidden)')
+    replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/PlatformWin32.cpp',
+            '    MessageBox(nullptr, _T("Window registration failed."), _T("Error"), MB_ICONERROR | MB_OK);',
+            '    if (!hidden)\n      MessageBox(nullptr, _T("Window registration failed."), _T("Error"), MB_ICONERROR | MB_OK);')
+    replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/PlatformWin32.cpp',
+            '  m_hwnd = CreateWindowEx(WS_EX_CLIENTEDGE, WINDOW_CLASS_NAME, _T("Dolphin"), WS_OVERLAPPEDWINDOW,',
+            '  m_hwnd = CreateWindowEx(WS_EX_CLIENTEDGE | (m_hidden ? WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE : 0), WINDOW_CLASS_NAME, _T("Dolphin"), WS_OVERLAPPEDWINDOW,')
+    replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/PlatformWin32.cpp',
+            '    MessageBox(nullptr, _T("CreateWindowEx failed."), _T("Error"), MB_ICONERROR | MB_OK);',
+            '    if (!m_hidden)\n      MessageBox(nullptr, _T("CreateWindowEx failed."), _T("Error"), MB_ICONERROR | MB_OK);')
+    replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/PlatformWin32.cpp',
+            '  ShowWindow(m_hwnd, SW_SHOW);\n  UpdateWindow(m_hwnd);',
+            '  if (!m_hidden)\n  {\n    ShowWindow(m_hwnd, SW_SHOW);\n    UpdateWindow(m_hwnd);\n  }')
+    replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/PlatformWin32.cpp',
+            '  if (!RegisterRenderWindowClass() || !CreateRenderWindow() || !CreateMenus())',
+            '  if (!RegisterRenderWindowClass(m_hidden) || !CreateRenderWindow() || (!m_hidden && !CreateMenus()))')
+    replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/PlatformWin32.cpp',
+            '  if (Config::Get(Config::MAIN_FULLSCREEN))',
+            '  if (!m_hidden && Config::Get(Config::MAIN_FULLSCREEN))')
+    replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/PlatformWin32.cpp',
+            '  if (Config::Get(Config::MAIN_DISABLE_SCREENSAVER))',
+            '  if (!m_hidden && Config::Get(Config::MAIN_DISABLE_SCREENSAVER))')
+    replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/PlatformWin32.cpp',
+            'std::unique_ptr<Platform> Platform::CreateWin32Platform()\n{\n  return std::make_unique<PlatformWin32>();',
+            'std::unique_ptr<Platform> Platform::CreateWin32Platform(bool hidden)\n{\n  return std::make_unique<PlatformWin32>(hidden);')
+    replace(runtime / 'src/runtime/dolphin_runtime.cpp',
+            '#include "Common/HookableEvent.h"',
+            '#include "Common/HookableEvent.h"\n#include "Common/MsgHandler.h"')
+    replace(runtime / 'src/runtime/dolphin_runtime.cpp',
+            '  if (impl->config.headless)\n    impl->platform = Platform::CreateHeadlessPlatform();',
+            '  if (impl->config.headless)\n  {\n    // Windows OpenGL needs an HWND even when no window is shown.\n#ifdef _WIN32\n    if (!impl->config.graphics.backend.empty() && impl->config.graphics.backend != "Null")\n      impl->platform = Platform::CreateWin32Platform(true);\n    else\n#endif\n      impl->platform = Platform::CreateHeadlessPlatform();\n    Common::RegisterMsgAlertHandler([](const char* caption, const char* text, bool, Common::MsgType style) {\n      std::fprintf(stderr, "[headless-alert] %s: %s\\n", caption, text);\n      std::fflush(stderr);\n      if (style == Common::MsgType::Warning || style == Common::MsgType::Critical)\n        std::_Exit(EXIT_FAILURE);\n      return false;\n    });\n  }')
+
+
+def fix_diagnostic_coverage(runtime):
+    core = runtime / "vendor/dolphin/Source/Core/Core/PowerPC/StaticRecomp"
+    replace(core / 'StaticRecompLockstep.h',
+            '  std::unordered_set<u32> m_ls_checked;    // entry PCs already checked (dedupe)',
+            '  std::unordered_map<u32, u64> m_ls_checked;  // PC -> code-mapping generation\n  u64 m_ls_entry_generation = 0;')
+    replace(core / 'StaticRecompLockstep.cpp',
+            '  return m_ls_nodedup || address == m_ls_repeat_pc ||\n         m_ls_checked.find(address) == m_ls_checked.end();',
+            '  const auto checked = m_ls_checked.find(address);\n  return m_ls_nodedup || address == m_ls_repeat_pc ||\n         checked == m_ls_checked.end() || checked->second != m_core.m_rel_mapping_generation;')
+    replace(core / 'StaticRecompLockstep.cpp',
+            '  m_ls_entry = guest.pc;',
+            '  m_ls_entry = guest.pc;\n  m_ls_entry_generation = m_core.m_rel_mapping_generation;')
+    replace(core / 'StaticRecompLockstep.cpp',
+            '  m_ls_checked.insert(m_ls_entry);',
+            '  m_ls_checked[m_ls_entry] = m_ls_entry_generation;')
+    replace(core / 'StaticRecompCore.cpp',
+            '  std::fill(m_chunk_state.begin(), m_chunk_state.end(), u8{CHUNK_UNVERIFIED});',
+            '  ++m_rel_mapping_generation;  // State/cache restoration requires fresh differential coverage.\n  std::fill(m_chunk_state.begin(), m_chunk_state.end(), u8{CHUNK_UNVERIFIED});')
+    replace(core / 'StaticRecompCore.h',
+            '  u64 m_hook_fallback_instructions = 0;',
+            '  u64 m_hook_fallback_instructions = 0;\n  u64 m_hook_cache_fastpath_instructions = 0;\n  u64 m_hook_interpreter_instructions = 0;')
+    replace(core / 'StaticRecompCore_Hooks.cpp',
+            "      // These bypass SingleStepInner, so charge Dolphin's PPCTables cost",
+            "      ++core->m_hook_cache_fastpath_instructions;\n      // These bypass SingleStepInner, so charge Dolphin's PPCTables cost")
+    replace(core / 'StaticRecompCore_Hooks.cpp',
+            '  ppc.downcount -= system.GetInterpreter().SingleStepInner();',
+            '  ++core->m_hook_interpreter_instructions;\n  ppc.downcount -= system.GetInterpreter().SingleStepInner();')
+    replace(core / 'StaticRecompCore.cpp',
+            '"[staticrecomp] shutdown: native=%llu fallback=%llu native_exc=%llu hook_fb=%llu "',
+            '"[staticrecomp] shutdown: native=%llu fallback=%llu native_exc=%llu hook_fb=%llu hook_cache=%llu hook_interp=%llu "')
+    replace(core / 'StaticRecompCore.cpp',
+            '               (unsigned long long)m_hook_fallback_instructions, m_failed_chunks,',
+            '               (unsigned long long)m_hook_fallback_instructions,\n               (unsigned long long)m_hook_cache_fastpath_instructions,\n               (unsigned long long)m_hook_interpreter_instructions, m_failed_chunks,')
+
+
 def main():
     fix_rel(ROOT / "third_party/DolRecomp")
     fix_windows_test(ROOT / "third_party/DolRecomp")
     runtime = ROOT / "third_party/ModernGekko"
+    fix_silent_headless(runtime)
+    fix_diagnostic_coverage(runtime)
     # Its bundled compiler is a separate pin; only fix code with a matching preimage.
     nested = runtime / "vendor/dolphin/DolRecomp"
     if "section->size == 0 || offset > section->size" in (nested / "src/frontend/container/rel.c").read_text():
@@ -128,6 +213,17 @@ def main():
     replace(sockets, "  nfds = std::min<u32>(nfds, std::size(s_sockets));",
             "  nfds = std::min<u32>(nfds, static_cast<u32>(std::size(s_sockets)));")
     lockstep = runtime / "vendor/dolphin/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep_Check.cpp"
+    # A native rfi/mtmsr can change translation mode. Restore the cached MSR
+    # from canonical post-native state after the interpreter shadow, not entry.
+    replace(lockstep, "  ppc.msr.Hex = saved_msr;\n  power_pc.MSRUpdated();",
+            "  StaticRecompCore::SetPPCStateFromGuestState(m_core.m_guest, ppc);\n"
+            "  ppc.msr.Hex = m_core.m_guest.msr;\n  power_pc.MSRUpdated();")
+    saved_declaration = "  const u64 saved_msr = ppc.msr.Hex;\n"
+    lockstep_text = lockstep.read_text(encoding="utf-8")
+    if saved_declaration in lockstep_text:
+        if lockstep_text.count(saved_declaration) != 1:
+            raise RuntimeError("Unexpected saved-MSR declaration count")
+        lockstep.write_text(lockstep_text.replace(saved_declaration, ""), encoding="utf-8", newline="\n")
     replace(lockstep, "bool LsIsLoopHeader(const u8* ram, u32 ram_size, u32 end_pc)",
             "bool LsEndCanRepeat(const u8* ram, u32 ram_size, u32 entry_pc, u32 end_pc)")
     replace(lockstep, "  const u32 start_off = end_pc - kBase;",
@@ -328,6 +424,19 @@ def main():
             "  if (trace_checks) { std::fprintf(stderr, \"[wario-check] BEGIN entry=%08x end=%08x instructions=%llu helper=%d\\n\", m_ls_entry, guest.pc, static_cast<unsigned long long>(m_native_instruction_count), m_ls_fallback_seen); std::fflush(stderr); }\n"
             "  LockstepCheck(m_ls_entry, guest.pc, m_ls_snapshot);\n"
             "  if (trace_checks) { std::fprintf(stderr, \"[wario-check] END entry=%08x\\n\", m_ls_entry); std::fflush(stderr); }")
+    # Query foreground ownership at the point of use, including CPU-thread input polls.
+    # GetFocus() is thread-local; the old cached flag was never updated on Win32.
+    platform_dir = ROOT / "third_party/ModernGekko/vendor/dolphin/Source/Core/DolphinNoGUI"
+    replace(platform_dir / "Platform.h",
+            "  bool IsWindowFocused() const { return m_window_focus; }",
+            "  virtual bool IsWindowFocused() const { return m_window_focus; }")
+    replace(platform_dir / "PlatformWin32.cpp",
+            "  bool Init() override;",
+            "  bool IsWindowFocused() const override\n"
+            "  {\n"
+            "    return !m_hidden && m_hwnd != nullptr && GetForegroundWindow() == m_hwnd && !IsIconic(m_hwnd);\n"
+            "  }\n\n"
+            "  bool Init() override;")
     print("Tool fixes applied. Original game bytes were not changed.")
 
 

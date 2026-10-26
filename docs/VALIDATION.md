@@ -4,6 +4,13 @@ The PC executable cannot have the same machine-code bytes as a GameCube DOL.
 The acceptance goal is equivalent guest-visible behavior. Source extraction
 can and does have a separate literal byte-for-byte check.
 
+## Review correction, 2026-10-26
+
+Read ACCURACY_REVIEW.md before interpreting historical results below. Manual
+3x/Auto settings differed from 1x tests; runtime rendering shortcuts were not
+validated. Shared native/JIT rendering cannot detect common renderer defects.
+Presentation now explicitly 4:3/native 1x; this does not close rendering accuracy.
+
 ## Already established
 
 - Disc identity/hash pinned; all 245 FST files and extracted main DOL match ISO.
@@ -54,3 +61,75 @@ deterministic replay. Input probes currently reach differing save prompts.
 The original fallback counter covers interpreter steps only. Check separate
 [wario-jit] entries as well as hook_fb. These count JIT transfers, not guest
 instructions. Cache fast paths also increment hook_fb.
+
+## Latest verified checkpoint: 2026-10-26, clean hub build
+
+All testing is hidden and muted at the user's request. The main runtime now
+supports an invisible Windows rendering surface; do not launch a GUI test.
+F project write access was granted for this turn; source and patches are integrated.
+
+Best uninstrumented candidate: build/module-full-vectors/Release/gGWWE01_recomp.dll
+SHA256 d848261fe4c8277e0164cdd746f9daa479fbaccadc9a1c702042471f9798ed9f.
+It includes main, all eight RELs and the SDK vector/startup copies. Export audit
+confirms required ABI/REL hooks and absence of the instruction-count journal.
+Run 20261026T105730237471Z-91c90501: 120 seconds, natural save creation, hub and
+pause book rendered, clean exit, original speed near 59.94 FPS/VPS; JIT entries
+zero, 97 executable hash checks, smc_failed=0. It is NOT a lockstep run.
+
+Checked twin: build/module-rel-bundle-vectors/Release/gGWWE01_recomp.dll.
+Hub run 20261026T105101421481Z-379aa3dc: 9066 checks / zero reports / zero JIT.
+Movement run 20261026T105549637900Z-c1ec75df: 150 seconds, actual hub movement,
+8903 checks / zero reports / zero JIT; 45 helper skips and 75 zero-instruction
+skips, no cap/filter/undercharge events; 97 code-hash checks, no failures.
+Counts are deduplicated PER RUN; do not add them as unique cumulative coverage.
+The movement test visibly changed Wario/camera position but did not establish
+entry into a stage. Per-instruction hardware helper calls remain in both builds.
+
+Evidence summaries: reports/hub-validation-20261026.json,
+reports/hub-rel-audit-20261026.json, reports/full-vectors-exports.json.
+Loaded WWUSPF (ID 7) code: all 190272 bytes match independent relocation;
+all 757 initialized-data relocation sites match, one legal non-site marker change.
+Patch replay reproduces every changed upstream source file from its pinned HEAD
+across all four checkouts: scripts/verify_patch_replay.py, reports/patch-replay.json.
+Original DOL/eight REL hashes were rechecked unchanged after these runs.
+
+Rebuild: python scripts/build_rel_bundle.py --clean --vectors
+Checked build: python scripts/build_rel_bundle.py --vectors
+Bounded hidden run: python scripts/smoke_boot.py --full --vectors --graphics OpenGL
+--seconds 120 --probe-file config/probes/start_adventure.json --pad-hold 12
+For CPU checking omit --full and add --lockstep --lockstep-limit 0.
+Use --probe-file config/probes/hub_movement.json --seconds 150 for movement.
+Detailed probe format/limits are in docs/PROBES.md. Do not use the old D-pad Yes
+probe; analog main_y=1 resolves the supposed memory-card failure without patches.
+
+Next required work: navigate into the first stage, exercise additional RELs and
+load/unload/reload lifetimes, combat/collision/cutscenes/audio/save reload; inventory
+remaining hardware/interpreter helpers; deterministic input/tick replay and
+pixel/audio/reference comparisons; continue the frame-dependency audit. T006
+already proves fixed-step REL arithmetic. FPS is still capped at original speed.
+Full-game bit accuracy and full static coverage remain unproven. No installation
+or publication was performed. Historical checkpoints follow below.
+
+
+## 2026-10-26 additional validation
+
+Greenhorn Forest transition: 12785 checks / 0 reports / 0 JIT, followed by
+checked and uninstrumented stage checkpoint reload/input tests. Full loaded main
+text audit compares 1599232 original bytes exactly. The stage's active update
+is in main; live REL queue is empty, so this does not exercise WWUSS1.
+
+The verifier now deduplicates by PC and code-map generation, not PC alone.
+Nine compiled regression controls pass. Nine module-queue controls pass; audits
+exclude stale unlinked headers. Six exact-PCM negative controls pass, including
+single-bit errors and retained trailing silence. Normal unittest discovery runs
+29 Python cases without invoking an incidental native build on import.
+
+Silent native/reference audio captures from one idle stage checkpoint match
+515064 stereo 16-bit sample frames (16.0816785 seconds at reported 32028 Hz)
+after explicit initial-zero alignment. No timing/onset or hardware/full-game
+parity claim follows from this alignment. Neither WAV was played.
+
+A fresh-boot outer-card-read test passes 18678 checks / zero reports / zero JIT,
+with genuine copied diagnostic user data. Slots still say New: actual gameplay
+save-point/stage-clear/reboot/Continue progression is NOT validated. Manual
+playtest launcher is prepared but has not been executed by the agent.

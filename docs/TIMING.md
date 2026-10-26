@@ -1,6 +1,9 @@
 # Frame and refresh dependency ledger
 
-Baseline: no FPS, refresh, widescreen, logic, or speed patches. A future renderer
+Intent: preserve original simulation speed and video cadence. No guest FPS,
+widescreen, logic or speed patches are applied. Review correction (2026-10-26):
+the host inherited ForceProgressive=true and previously Auto aspect/3x manual
+rendering; original video fields/cadence have NOT been validated. See ACCURACY_REVIEW.md. A future renderer
 must preserve the original guest simulation clock, interrupt schedule and input
 sampling until measured evidence justifies a change. Do not assume that display
 refresh, VI interrupts, rendered frames and game updates have identical rates.
@@ -17,9 +20,9 @@ Nothing below is patched today; these are the documented intervention points.
    original guest times; do not poll once per host frame.
 3. Guest clock: OSGetTime/OSGetTick 0x801A4158/0x801A4170 and alarms (T003).
    Keep tick arithmetic, wraparound and frequency guest-accurate.
-4. Modules: all eight RELs show zero direct timing evidence (T004 scan,
-   2026-10-25); their cadence arrives through main's vtable-driven update path,
-   so uncap changes stay in main.dol scheduling.
+4. Modules: T004 found no named SDK timing references, but T006 confirms
+   fixed-step title-module arithmetic. Audit all module update callbacks and
+   counters; a negative symbol scan does not establish refresh independence.
 5. Presentation: framebuffer toggles at 0x80041B30 and draw-done callback
    0x80042280 (T005). Presents already outnumber frame callbacks roughly 2:1 in
    diagnostics; interpolate only after validating guest completion events.
@@ -89,11 +92,10 @@ executable words and 30,289 non-executable initialized data words:
 Output: reports/timing-candidates-rel.csv (header only, zero rows).
 Confidence: high that no REL contains direct timing evidence of the kinds
 scanned; low coverage for indirect timing through unnamed main-module wrappers.
-Working conclusion: module cadence is fully mediated by main.dol via the
-vtable-driven update path (T001/T004). A future FPS uncap therefore centers on
-main.dol's retrace wait and its scheduling, not inside the RELs. Revisit with
-renamed wrappers (Ghidra) before treating this as proof that modules never
-gate on time.
+Working hypothesis only: the observed outer update path is mediated by main.dol
+(T001/T004). The negative scan cannot exclude REL counters, indirect time reads
+or additional gates. T006/T007 already show fixed-step REL behavior. Investigate
+main retrace scheduling AND all module update math before an FPS change.
 
 ## Raw candidate inventory
 
@@ -157,3 +159,36 @@ presentation would change damping, bounds and transition timing. Keep it on the
 original simulation schedule and interpolate presentation only after validation.
 Required replay: trigger the corresponding title/menu transition, record x/v,
 flags and update count at guest ticks, and compare at differing host refresh rates.
+
+## T007 - Opening cutscene transition counts update calls
+
+Module WWUSOP, ID 5 (pinned hash in config/project.json), executable section 3
+offset 0x59BC, active object's vtable +0x48 callback. In the intro snapshot,
+object=0x804BB780, vtable=0x804B71EC, callback=0x804B5034. These are observed
+allocations, not constants for the recompiled runtime. Evidence:
+private/runs/20261026T110707530213Z-749f68a0/control/mem1-low.bin and
+private assembly generated/analysis/WWUSOP/asm/auto_00_00000000_text.s,
+fn_5_59BC. The loaded 30940 code bytes independently match original relocation
+(reports/intro-rel-audit-20261026.json).
+
+Signed 16-bit state is object+0x2C; signed 16-bit countdown is +0x2E.
+In states 0, 2 and 3, each callback subtracts one and transitions only when
+countdown < 0. State 1 accepts flag +0x31 or input rising edges masked 0x1100
+from the controller object at global 0x801FDA90 (current +0xE0, previous +0xF0).
+It then enters state 2, sets countdown to 0x5A (90), and passes that countdown
+to main-module transition/fade calls (0x8007F928, 0x80059730). State 2's terminal
+transition sets state=3 and countdown=3. State 3 eventually requests a main
+state change via 0x80030550, choosing 3 or 4 by byte global 0x801FD952.
+
+Confidence: high for per-callback countdown and control flow; screen/fade roles
+are inferred, not named symbols. No elapsed-time operand is used. The strict
+negative terminal check means a fresh countdown 90 needs 91 decrements, and a
+fresh 3 needs four, unless another routine changes it. Do not label these as
+seconds or rendered frames without measuring actual callback cadence. Like T006,
+this module callback belongs to the main pre-retrace update path. Calling it
+once per uncapped presentation would shorten skip/transition timing.
+
+Future handling: retain original simulation updates and input edges, including
+signed width and the terminal off-by-one rule. Required replay: resume the intro
+checkpoint, apply the skip input, record state/countdown at guest ticks, and
+compare update counts and transition boundaries at different host refresh rates.

@@ -12,10 +12,42 @@ index 1cbef59..298538b 100644
                  "$<TARGET_FILE:dolrecomp>"
                  "$<TARGET_FILE_DIR:moderngekko-port>"
 diff --git a/src/runtime/dolphin_runtime.cpp b/src/runtime/dolphin_runtime.cpp
-index f9b5405..9d07133 100644
+index f9b5405..50474dd 100644
 --- a/src/runtime/dolphin_runtime.cpp
 +++ b/src/runtime/dolphin_runtime.cpp
-@@ -807,7 +807,7 @@ RuntimeRunResult Runtime::Run() {
+@@ -3,6 +3,7 @@
+ #include "AudioCommon/AudioCommon.h"
+ #include "Common/Config/Config.h"
+ #include "Common/HookableEvent.h"
++#include "Common/MsgHandler.h"
+ #include "Common/StringUtil.h"
+ #include "Core/Boot/Boot.h"
+ #include "Core/Boot/BootManager.h"
+@@ -615,7 +616,22 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+   Config::SetBase(Config::MAIN_FULLSCREEN, impl->config.fullscreen);
+ 
+   if (impl->config.headless)
+-    impl->platform = Platform::CreateHeadlessPlatform();
++  {
++    // Windows OpenGL needs an HWND even when no window is shown.
++#ifdef _WIN32
++    if (!impl->config.graphics.backend.empty() && impl->config.graphics.backend != "Null")
++      impl->platform = Platform::CreateWin32Platform(true);
++    else
++#endif
++      impl->platform = Platform::CreateHeadlessPlatform();
++    Common::RegisterMsgAlertHandler([](const char* caption, const char* text, bool, Common::MsgType style) {
++      std::fprintf(stderr, "[headless-alert] %s: %s\n", caption, text);
++      std::fflush(stderr);
++      if (style == Common::MsgType::Warning || style == Common::MsgType::Critical)
++        std::_Exit(EXIT_FAILURE);
++      return false;
++    });
++  }
+ #ifdef _WIN32
+   else
+     impl->platform = Platform::CreateWin32Platform();
+@@ -807,7 +823,7 @@ RuntimeRunResult Runtime::Run() {
    if (!m_impl->config.headless && m_impl->config.show_fps_in_title) {
      title_thread = std::jthread([](std::stop_token stop_token) {
        while (!stop_token.stop_requested()) {

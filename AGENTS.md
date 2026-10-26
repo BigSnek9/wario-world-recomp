@@ -1,6 +1,6 @@
 # Wario World Recomp
 
-Read README.md, docs/HANDOFF.md, docs/PROGRESS.md and docs/TIMING.md before work.
+Read README.md, docs/START_HERE.md, docs/HANDOFF.md, docs/PROGRESS.md and docs/TIMING.md before work.
 The task is a faithful Windows static recompilation of GWWE01 revision 0.
 Keep the original game speed and behavior until the user starts the FPS project.
 Never describe a successful translation, compile, or boot as bit-accuracy proof.
@@ -18,3 +18,7 @@ Keep those under ignored directories. Use scripts/check_public_tree.py before st
 Never force-add ignored files. Public scripts must accept a user-supplied disc.
 Do not silently substitute an interpreter/JIT and call it a complete static recomp.
 No subagents are authorized by this file.
+
+Run all tests hidden and muted; the user explicitly requested no visible or audible testing on 2026-10-26. Do not launch standalone GUI Dolphin for tests; use headless runtime logging/captures saved privately.
+
+The manual launcher uses private/playtest-user. Preserve the user's saves/settings there; automated tests must use fresh private/runs folders.

@@ -93,3 +93,18 @@ zero forever. Gameplay detection currently requires screenshots. Wiring these
 fields to real game state (after identifying the structures in Ghidra) is open
 work. smoke_boot.py --capture-cadence N saves numbered screenshots every N
 seconds for observing menu progression.
+
+## Private replay and audio checks, 2026-10-26
+
+smoke_boot.py supports private --load-state/--seed-user/--save-state-at replay
+and --dump-audio with No Audio Output. Probe origin waits for post-load renderer
+counter status; this is behavioral navigation, not deterministic input polling.
+compare_audio.py compares raw PCM and optionally aligns initial exact silence;
+verify_audio_comparison.py tests negative controls. audit_loaded_main.py pins
+original input hashes and audits all loaded DOL text. inspect_boot.py now also
+validates the live module queue; audit_loaded_rel.py requires queue membership.
+inventory_helpers.py separates traced helper categories and verifies measured
+fast-cache/interpreter counter accounting. verify_lockstep_context.py compiles
+production predicates against code reuse/window regressions. The legacy
+scripts/test_lockstep_boundary.py is now a guarded compatibility entry point,
+so unittest discovery no longer compiles code as an import side effect.

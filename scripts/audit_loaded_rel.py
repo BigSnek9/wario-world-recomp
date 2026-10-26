@@ -17,7 +17,12 @@ check_game()
 run = args.run.resolve()
 inspection = summarize(run)
 memory = (run / "control/mem1-low.bin").read_bytes() + (run / "control/mem1-high.bin").read_bytes()
-linked = [m for m in inspection["module_header_candidates"] if m["state"] == "linked absolute table"]
+queue = inspection["module_queue"]
+if not queue["consistent"]:
+    raise ValueError("Cannot audit an inconsistent module queue: " + queue.get("reason", "unknown"))
+linked = [m for m in inspection["module_header_candidates"] if m["state"] == "linked absolute table" and m["in_module_queue"]]
+if {m["module_id"] for m in linked} != {m["module_id"] for m in queue["headers"]}:
+    raise ValueError("An active module header is missing from the pinned input inventory")
 addresses = {m["module_id"]: {s["index"]: int(s["start"], 16) & ~3 for s in m["sections"]} for m in linked}
 inventory, checks = [], []
 for path in sorted((ROOT / "original/GWWE01/files/dll").glob("*.rel")):
@@ -61,7 +66,8 @@ for path in sorted((ROOT / "original/GWWE01/files/dll").glob("*.rel")):
                            relocation_sites=len(site_offsets), mismatched_relocation_bytes=len(site_diffs),
                            first_relocation_offsets=site_diffs[:16], other_mismatched_bytes=len(other_diffs),
                            first_other_offsets=other_diffs[:16]))
-report = dict(run=str(run), inventory=inventory, executable_checks=[c for c in checks if c.get("kind") != "data"],
+report = dict(run=str(run), module_queue=queue, active_module_ids=[m["module_id"] for m in linked],
+              audited_executable_bytes=sum(c["size"] for c in checks if c.get("kind") != "data"), inventory=inventory, executable_checks=[c for c in checks if c.get("kind") != "data"],
               data_checks=[c for c in checks if c.get("kind") == "data"],
               limitation="Checks loaded code bytes and data relocation sites after relocation, not execution semantics, active lifetime or full-game coverage. Data mutations after load are legal and only recorded.")
 args.output.write_text(json.dumps(report, indent=2) + "\n")
