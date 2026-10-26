@@ -164,6 +164,10 @@ class Launcher(tk.Tk):
             self.aspect.set(AUTO)
         tk.OptionMenu(picker, self.resolution, *RESOLUTION_CHOICES).pack(side="left")
         tk.OptionMenu(picker, self.aspect, *ASPECT_CHOICES).pack(side="left")
+        if not runner_supports_display_enhancements():
+            tk.Label(frame, text="(Runtime update pending - these apply after the runtime is rebuilt;\n"
+                                 "until then the game uses Original 4:3 / native.)",
+                     fg="#b06000", justify="left").pack(anchor="w")
         self.hd = tk.BooleanVar(value=settings.get("hd_textures", False))
         tk.Checkbutton(frame, text="Use HD textures", variable=self.hd).pack(anchor="w")
 
