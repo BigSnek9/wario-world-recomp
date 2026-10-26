@@ -54,6 +54,37 @@ def python_console():
     return str(candidate if candidate.is_file() else exe)
 
 
+TOOL_MODULES = ("numpy", "PIL", "xxhash")  # needed by scripts/extract_textures.py
+_tool_python = None
+
+
+def tool_python():
+    """A console Python that can import the extractor's packages.
+
+    Several Python installs can coexist; the one that started this launcher may
+    lack them. Tries this interpreter first, then every python.exe on PATH."""
+    global _tool_python
+    if _tool_python:
+        return _tool_python
+    candidates = [python_console()]
+    try:
+        found = subprocess.run(["where", "python"], capture_output=True, text=True, creationflags=NO_WINDOW)
+        candidates += [line.strip() for line in found.stdout.splitlines() if line.strip().lower().endswith(".exe")]
+    except OSError:
+        pass
+    probe = "import importlib.util as u, sys; sys.exit(0 if all(u.find_spec(m) for m in %r) else 1)" % (TOOL_MODULES,)
+    for candidate in dict.fromkeys(candidates):
+        if "WindowsApps" in candidate:  # Microsoft Store alias stub
+            continue
+        try:
+            if subprocess.run([candidate, "-c", probe], capture_output=True, creationflags=NO_WINDOW).returncode == 0:
+                _tool_python = candidate
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
 def load_settings():
     try:
         return json.loads(SETTINGS.read_text(encoding="utf-8"))
@@ -237,7 +268,12 @@ class Launcher(tk.Tk):
 
     def run_extract(self):
         try:
-            result = subprocess.run([python_console(), str(EXTRACTOR), "--game", str(GAME), "--out", str(TEXTURE_OUT)],
+            python = tool_python()
+            if python is None:
+                self.set_status("Extraction needs the Python packages numpy, Pillow and xxhash. Install them with:\n"
+                                "python -m pip install numpy pillow xxhash")
+                return
+            result = subprocess.run([python, str(EXTRACTOR), "--game", str(GAME), "--out", str(TEXTURE_OUT)],
                                     capture_output=True, text=True, creationflags=NO_WINDOW)
             tail = (result.stdout + result.stderr).strip().splitlines()[-3:]
             self.set_status(("Extraction finished: " if result.returncode == 0 else "Extraction failed: ")
