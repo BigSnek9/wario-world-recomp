@@ -3,6 +3,7 @@ instrumented diagnostic bundle used for lockstep verification."""
 from pathlib import Path
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -18,6 +19,11 @@ parser.add_argument("--clang", action="store_true",
                     help="Compile with LLVM clang-cl + Ninja into build/module-<variant>-clang/ (same /O2 /fp:strict flags; "
                          "~1.75x faster generated code than MSVC in measured gameplay)")
 parser.add_argument("--clang-cl", default="C:/Program Files/LLVM/bin/clang-cl.exe")
+parser.add_argument("--pgo-generate", action="store_true",
+                    help="With --clang: build an instrumented module (-fprofile-instr-generate) into module-<variant>-clang-pgogen")
+parser.add_argument("--pgo-use", help="With --clang: merged .profdata path relative to the Recomp folder (no spaces); "
+                                      "builds module-<variant>-clang-pgo")
+parser.add_argument("--jobs", type=int, default=8, help="Parallel compile jobs for --clang builds")
 args = parser.parse_args()
 if args.vectors and args.clean:
     variant = "full-vectors"
@@ -217,19 +223,44 @@ def vcvars64():
     raise SystemExit("vcvars64.bat not found; --clang needs the MSVC x64 environment for headers/libs")
 
 
+def pgo_flags(clang, build):
+    """CMake cache flags for clang PGO. Paths must be space-free (CMake splits flag strings),
+    so the profile is referenced relative to the build folder."""
+    # Release-only flags: CMake's compiler self-test builds in Debug from a nested
+    # scratch folder, where the build-relative profile path would not resolve.
+    base = "/O2 /Ob2 /DNDEBUG"
+    if args.pgo_generate:
+        runtime = next((clang.parent.parent / "lib/clang").glob("*/lib/windows/clang_rt.profile-x86_64.lib"), None)
+        if runtime is None:
+            raise SystemExit("clang_rt.profile-x86_64.lib not found next to clang-cl")
+        # Linked by name from the build folder (the LLVM path contains spaces).
+        build.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(runtime, build / runtime.name)
+        return ["-DCMAKE_C_FLAGS_RELEASE=" + base + " -fprofile-instr-generate",
+                "-DCMAKE_SHARED_LINKER_FLAGS_RELEASE=" + runtime.name]
+    if args.pgo_use:
+        profile = Path(os.path.relpath(ROOT / args.pgo_use, build)).as_posix()
+        if " " in profile:
+            raise SystemExit("profile path must not contain spaces relative to the build folder")
+        return ["-DCMAKE_C_FLAGS_RELEASE=" + base + " -fprofile-instr-use=" + profile
+                + " -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date -Wno-backend-plugin"]
+    return []
+
+
 common = ["-DGAME_ID=GWWE01", "-DGENERATED_DIR=" + str(destination), "-DGXRUNTIME_DIR=" + str(upstream / "GXRuntime"),
           "-DCHASSIS_ABI_DIR=" + str(upstream / "Source/Core/Core/PowerPC/StaticRecomp")]
 print("Bundle instruction sites:", sites, "REL chunks:", len(new_chunks), flush=True)
 if args.clang:
-    build = ROOT / "build" / ("module-" + variant + "-clang")
+    suffix = "-clang-pgogen" if args.pgo_generate else "-clang-pgo" if args.pgo_use else "-clang"
+    build = ROOT / "build" / ("module-" + variant + suffix)
     clang = Path(args.clang_cl)
     if not clang.is_file():
         raise SystemExit(f"clang-cl not found at {clang}")
     linker = clang.with_name("lld-link.exe")
     configure = subprocess.list2cmdline(["cmake", "-S", str(template), "-B", str(build), "-G", "Ninja",
         "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_C_COMPILER=" + clang.as_posix(), "-DCMAKE_CXX_COMPILER=" + clang.as_posix(),
-        "-DCMAKE_LINKER=" + linker.as_posix(), "-DRECOMPCORE_MODULE_ENABLE_IPO=OFF", *common])
-    compile_ = subprocess.list2cmdline(["cmake", "--build", str(build), "--parallel", "8"])
+        "-DCMAKE_LINKER=" + linker.as_posix(), "-DRECOMPCORE_MODULE_ENABLE_IPO=OFF", *pgo_flags(clang, build), *common])
+    compile_ = subprocess.list2cmdline(["cmake", "--build", str(build), "--parallel", str(args.jobs)])
     script = build.parent / (build.name + "-build.cmd")
     script.write_text(f'@echo off\r\ncall "{vcvars64()}" >nul 2>nul || exit /b 1\r\n'
                       f'{configure} || exit /b 1\r\n{compile_}\r\n')

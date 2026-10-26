@@ -80,3 +80,8 @@ IDs here are stable. Older accuracy items A001-A019 live in ../ACCURACY_ISSUES.m
   relaxing); DolRecomp emitter improvements (ctx->pc store per instruction,
   registers kept in ctx, giant per-chunk switch functions). Any change needs
   lockstep + regression re-validation.
+- 2026-10-26 PGO experiment: clang PGO module (profiles from boot->hub, Greenhorn
+  and 7 playthrough checkpoints; build_rel_bundle.py --clang --pgo-generate /
+  --pgo-use) on the R12 checkpoint: game code 38.7% -> 29.5% of the emulation
+  thread, idle 38% -> 48% (two repeats each). Pending: PGO lockstep twin
+  validation before switching the launcher.
