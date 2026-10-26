@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PLAYER_POINTER = 0x801C5820  # live player actor (found 2026-10-26; 0x801FDA00 is a follower copy)
 POSITION_Y = 0x18          # player + 0x14 = x, +0x18 = y (up), +0x1C = z
-RISE_PER_TICK = 6.0        # world units per ~50 ms command poll (~120 units/s)
+RISE_PER_TICK = 2.0        # default world units per ~50 ms command poll (~40 units/s); slider in the window
 XINPUT_A = 0x1000
 VK_X = 0x58
 
@@ -53,6 +53,7 @@ class Cheats:
         self.started = time.time()
         self.serial = 0
         self.enabled = True
+        self.rise = RISE_PER_TICK
         self.status = "Waiting for jump..."
 
     def jump_held(self):
@@ -115,7 +116,7 @@ class Cheats:
                 if not raw:
                     continue
                 target = struct.unpack(">f", raw)[0]
-            target += RISE_PER_TICK
+            target += self.rise
             self.write_float(player + POSITION_Y, target)
             self.status = f"Moon jump: height {target:.0f}"
 
@@ -141,6 +142,14 @@ def main():
 
     tk.Checkbutton(window, text="Moon jump (hold A / X)", variable=enabled, command=toggle).pack(
         anchor="w", padx=12, pady=(10, 2))
+    tk.Label(window, text="Rise speed").pack(anchor="w", padx=12)
+    speed = tk.DoubleVar(value=RISE_PER_TICK)
+
+    def set_speed(_value):
+        cheats.rise = speed.get()
+
+    tk.Scale(window, from_=0.5, to=8.0, resolution=0.5, orient="horizontal", length=200,
+             variable=speed, command=set_speed).pack(anchor="w", padx=12)
     status = tk.StringVar(value=cheats.status)
     tk.Label(window, textvariable=status, fg="gray").pack(anchor="w", padx=12, pady=(0, 10))
 
