@@ -63,3 +63,19 @@ clang + mod early-outs 0.69-0.77; + host_call unwired 0.87-0.88.
 
 Earlier PGO twin (before the quad change): Greenhorn 12,555/0, title-hub
 14,225/0, W1 arena R12 5,768/0, W2 boss B21 5,245/0.
+
+## 2026-10-26 late night: optional 120 FPS interpolation (prof runner, hidden, OpenGL)
+
+| Run | Interpolated | Skipped (cut / no cam / late) | Speed min | Notes |
+|---|---|---|---|---|
+| Greenhorn walk_punch, FPS on | 1790/1800 | 1 / 7 / 2 | 0.985 | mid frame 8.46 ms after real (avg) |
+| Greenhorn, identity replay | 1790/1800 | - | 0.989 | 15/17 dumped pairs pixel-identical |
+| CB41 boss, FPS on, final pacing | 2094/2100 | 1 / 3 / 109 | 0.992 | gaps 6-10 ms: 3833/4079 |
+| CB21 boss, FPS on, final pacing | 2094/2100 | 1 / 3 / 30 | 0.999 | |
+| CB41 / CB21 boss, FPS off | - | - | 1.000 / 0.999 | baseline |
+| CB41 / CB21, first pacing (video-thread sleep) | 2094 | - | 0.931 / 0.907 | replaced |
+| CB41 boss, release runner, Vulkan, FPS on | 2094/2100 | - / - / 72 | 0.969 (one 1 s sample) | gaps 6-10 ms: 3918 |
+| CB41 boss, release runner, Vulkan, FPS off | - | - | 1.000 | baseline |
+
+Regression suite --quick with FPS off (prof runner): ALL PASS
+(reports/regression-20261026T224236Z.json).

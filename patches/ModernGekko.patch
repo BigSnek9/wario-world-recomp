@@ -12,7 +12,7 @@ index 1cbef59..298538b 100644
                  "$<TARGET_FILE:dolrecomp>"
                  "$<TARGET_FILE_DIR:moderngekko-port>"
 diff --git a/src/runtime/dolphin_runtime.cpp b/src/runtime/dolphin_runtime.cpp
-index f9b5405..912da35 100644
+index f9b5405..b14c579 100644
 --- a/src/runtime/dolphin_runtime.cpp
 +++ b/src/runtime/dolphin_runtime.cpp
 @@ -3,6 +3,7 @@
@@ -31,15 +31,22 @@ index f9b5405..912da35 100644
  #include "VideoCommon/PerformanceMetrics.h"
  #include "VideoCommon/VideoEvents.h"
  #include "VideoCommon/VideoConfig.h"
-@@ -39,6 +41,7 @@
+@@ -39,6 +41,14 @@
  #include <cstddef>
  #include <cstdio>
  #include <cstdlib>
 +#include <cstring>
++#include <cmath>
++#ifdef _WIN32
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
++#include <windows.h>
++#endif
  #include <fstream>
  #include <fmt/format.h>
  #include <mutex>
-@@ -266,6 +269,63 @@ std::optional<RuntimeError> ReadAutomationMemory(const std::filesystem::path& pa
+@@ -266,6 +276,73 @@ std::optional<RuntimeError> ReadAutomationMemory(const std::filesystem::path& pa
    return {};
  }
  
@@ -90,6 +97,16 @@ index f9b5405..912da35 100644
 +  };
 +  write_float(0x801FE5B0u, aspect);                          // HC-0001 camera aspect default
 +  write_float(0x801FE6CCu, 320.0f * aspect / (4.0f / 3.0f));  // HC-0007 2D half-width
++#ifdef _WIN32
++  // WS-005: full-screen fade/overlay quads read this module variable (default 320).
++  static volatile s32 *const quad_half_width = [] {
++    HMODULE module = GetModuleHandleW(L"gGWWE01_recomp.dll");
++    return module ? reinterpret_cast<volatile s32 *>(GetProcAddress(module, "wario_fullscreen_half_width"))
++                  : nullptr;
++  }();
++  if (quad_half_width)
++    *quad_half_width = static_cast<s32>(std::lround(320.0f * aspect / (4.0f / 3.0f)));
++#endif
 +  const u32 camera = memory.Read_U32(0x801FDA50u);            // active camera block
 +  if (camera >= 0x80000000u && camera < 0x81800000u - 0x100u)
 +  {
@@ -103,7 +120,7 @@ index f9b5405..912da35 100644
  std::optional<RuntimeError> WriteAutomationMemory(u32 address,
                                                    const std::vector<std::uint8_t>& data)
  {
-@@ -346,6 +406,10 @@ std::optional<RuntimeError> ApplyAutomationCommand(Runtime& runtime,
+@@ -346,6 +423,10 @@ std::optional<RuntimeError> ApplyAutomationCommand(Runtime& runtime,
    case automation::CommandType::Stop:
      runtime.RequestStop();
      break;
@@ -114,7 +131,7 @@ index f9b5405..912da35 100644
    }
    MarkAutomationCommand(state, command.source_name);
    return {};
-@@ -368,6 +432,8 @@ bool AutomationCommandNeedsReadyCore(automation::CommandType type)
+@@ -368,6 +449,8 @@ bool AutomationCommandNeedsReadyCore(automation::CommandType type)
    case automation::CommandType::ClearPad:
    case automation::CommandType::Stop:
      return false;
@@ -123,7 +140,7 @@ index f9b5405..912da35 100644
    }
    return true;
  }
-@@ -613,9 +679,27 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+@@ -613,9 +696,27 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
      impl->ui_initialized = true;
    }
    Config::SetBase(Config::MAIN_FULLSCREEN, impl->config.fullscreen);
@@ -152,7 +169,7 @@ index f9b5405..912da35 100644
  #ifdef _WIN32
    else
      impl->platform = Platform::CreateWin32Platform();
-@@ -700,11 +784,15 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+@@ -700,11 +801,15 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
      recomp_source = StaticRecompModuleSource::Attached(
          reinterpret_cast<const StaticRecompModuleDesc *>(
              impl->config.module.descriptor));
@@ -173,7 +190,7 @@ index f9b5405..912da35 100644
    jit.SetStaticRecompModuleSource(std::move(recomp_source));
  
    s_runtime_active = true;
-@@ -796,6 +884,7 @@ RuntimeRunResult Runtime::Run() {
+@@ -796,6 +901,7 @@ RuntimeRunResult Runtime::Run() {
                                                     std::memory_order_relaxed);
          m_impl->automation_state.present_count.store(info.present_count,
                                                       std::memory_order_relaxed);
@@ -181,7 +198,7 @@ index f9b5405..912da35 100644
        });
    if (!m_impl->config.automation.directory.empty()) {
      m_impl->automation_thread =
-@@ -807,7 +896,7 @@ RuntimeRunResult Runtime::Run() {
+@@ -807,7 +913,7 @@ RuntimeRunResult Runtime::Run() {
    if (!m_impl->config.headless && m_impl->config.show_fps_in_title) {
      title_thread = std::jthread([](std::stop_token stop_token) {
        while (!stop_token.stop_requested()) {

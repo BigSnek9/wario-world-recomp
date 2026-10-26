@@ -2,6 +2,27 @@
 
 Newest first. Earlier history (2026-10-24..26 morning): ../PROGRESS.md and ../HANDOFF.md.
 
+## 2026-10-26 (late night): optional 120 FPS frame interpolation
+
+- New runtime fix scripts/tool_fix_wario_fps.py (env MODERNGEKKO_WARIO_FPS=1,
+  launcher checkbox "Smooth 120 FPS", default off). It records each frame's GPU
+  commands and start state, then at the XFB copy replays the frame with the
+  main-camera projection corrected to the halfway camera (eye/up/target lerp,
+  LookAt). The result goes to a private texture and is presented between VI
+  swaps. Simulation, input and audio are unchanged. Design and numbers:
+  docs/modding/FPS_UNLOCK.md.
+- Replay fidelity: identity replay equals the real frame pixel-for-pixel in
+  15/17 samples (the 2 others: stage-entry afterimage feedback effect).
+- Pacing: the game's XFB copy lands ~15 ms into each frame, so the real frame
+  is held half a frame after the in-between one. Sleeping on the video thread
+  for that cost 7-9% speed in boss arenas; holding it from the command loop
+  fixed it (CB41 0.992x, CB21 0.999x; 94% of present gaps 6-10 ms).
+- Pitfall: Present.cpp is inside namespace VideoCommon; globals defined there
+  need VideoCommon:: when declared extern elsewhere.
+- Pitfall: re-applying an edited tool_fix block duplicates it. For the six
+  VideoCommon files only this fix touches, `git checkout` them in
+  vendor/dolphin and re-run apply_tool_fixes.py.
+
 ## 2026-10-26 (night)
 
 - A003 resolved on tested routes: native system-register mtspr/mfspr

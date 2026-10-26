@@ -65,6 +65,14 @@ def runner_supports_display_enhancements():
         return False
 
 
+def runner_supports_fps():
+    """Frame interpolation (scripts/tool_fix_wario_fps.py) is also a runtime change."""
+    try:
+        return b"MODERNGEKKO_WARIO_FPS" in RUNNER.read_bytes()
+    except OSError:
+        return False
+
+
 def python_console():
     # pythonw has no console; helper scripts are run with the console python
     # but without a window.
@@ -170,6 +178,15 @@ class Launcher(tk.Tk):
                      fg="#b06000", justify="left").pack(anchor="w")
         self.hd = tk.BooleanVar(value=settings.get("hd_textures", False))
         tk.Checkbutton(frame, text="Use HD textures", variable=self.hd).pack(anchor="w")
+        self.fps120 = tk.BooleanVar(value=settings.get("fps120", False))
+        fps_button = tk.Checkbutton(frame, text="Smooth 120 FPS (in-between frames; game speed unchanged)",
+                                    variable=self.fps120)
+        fps_button.pack(anchor="w")
+        tk.Label(frame, text="Best on a 120 Hz+ screen. Adds about 8 ms of input delay. Off = original 60.",
+                 fg="gray").pack(anchor="w")
+        if not runner_supports_fps():
+            fps_button.configure(state="disabled")
+            self.fps120.set(False)
 
         tk.Label(frame, text="Volume (changes live while playing):").pack(anchor="w", pady=(8, 0))
         self.volume = tk.IntVar(value=settings.get("volume", 100))
@@ -201,7 +218,7 @@ class Launcher(tk.Tk):
     def current_settings(self):
         return {"build": self.build.get(), "fullscreen": self.fullscreen.get(), "hd_textures": self.hd.get(),
                 "display": self.display.get(), "volume": self.volume.get(),
-                "resolution": self.resolution.get(), "aspect": self.aspect.get()}
+                "resolution": self.resolution.get(), "aspect": self.aspect.get(), "fps120": self.fps120.get()}
 
     def volume_changed(self, _value):
         # Debounce slider drags; only the last value is sent.
@@ -293,10 +310,15 @@ class Launcher(tk.Tk):
                     stale.unlink()
 
             environment = dict(os.environ, MODERNGEKKO_STATICRECOMP="1")
-            for name in ("STATICRECOMP_LOCKSTEP", "MODERNGEKKO_DUMP_TEXTURES", "MODERNGEKKO_WARIO_ASPECT"):
+            for name in ("STATICRECOMP_LOCKSTEP", "MODERNGEKKO_DUMP_TEXTURES", "MODERNGEKKO_WARIO_ASPECT",
+                         "MODERNGEKKO_WARIO_FPS"):
                 environment.pop(name, None)
             if aspect_env:
                 environment["MODERNGEKKO_WARIO_ASPECT"] = aspect_env
+            if settings.get("fps120") and runner_supports_fps():
+                # In-between frames are presented between VI swaps; a 60 Hz VSync wait would stall them.
+                environment["MODERNGEKKO_WARIO_FPS"] = "1"
+                texture_tools._set(USER / "Config/GFX.ini", {"Hardware": {"VSync": "False"}})
             tracker = PlayTracker(ROOT, USER, CONTROL)
             tracker.start()
             self.set_status(f"Running ({module.parent.name})... close the game window to return here.\n"

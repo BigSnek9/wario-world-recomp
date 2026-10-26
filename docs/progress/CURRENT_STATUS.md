@@ -1,4 +1,4 @@
-# Current status (2026-10-26, evening)
+# Current status (2026-10-26, late night)
 
 Read this first, then NEXT_ACTIONS.md, KNOWN_ISSUES.md, ../START_HERE.md.
 
@@ -14,8 +14,17 @@ Read this first, then NEXT_ACTIONS.md, KNOWN_ISSUES.md, ../START_HERE.md.
 
 All game code (main.dol + 8 RELs) is compiled to native code. As of
 2026-10-26 night no game instruction runs in Dolphin's interpreter or JIT on
-the tested routes (hook_interp=0, JIT 0). Release runner swap with this change
-pending (human was playing); profiling runner has it.
+the tested routes (hook_interp=0, JIT 0). Release and profiling runners both
+have it.
+
+## Optional enhancements (all off for accuracy via "Original" / unchecked)
+
+- Auto resolution and any-aspect widescreen (launcher default Auto): Hor+ with
+  culling widened; WIDESCREEN_SUPPORT.md. Open: WS-005 transition fade is 4:3.
+- Smooth 120 FPS (launcher checkbox, default off): camera interpolated by
+  replaying each frame's GPU commands; objects still move at 60 Hz;
+  ../modding/FPS_UNLOCK.md.
+- Moon-jump cheat window (launcher/cheats.pyw), live volume, play tracker.
 
 ## Broken / open
 
