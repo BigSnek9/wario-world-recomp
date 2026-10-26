@@ -53,3 +53,13 @@ clang + mod early-outs 0.69-0.77; + host_call unwired 0.87-0.88.
 | clang | release | title -> save load -> hub | 14,258 | 8,195 |
 | clang | dispatch fixes | Greenhorn walk | 12,604 | 7,943 |
 | clang | dispatch fixes | title -> save load -> hub | 14,241 | 8,178 |
+
+## 2026-10-26 night: PGO twin incl. widescreen quad variable (default 320)
+
+| Route | checks | reports |
+|---|---|---|
+| title -> save load -> hub | 14,243 | 0 |
+| Greenhorn walk | 12,601 | 0 |
+
+Earlier PGO twin (before the quad change): Greenhorn 12,555/0, title-hub
+14,225/0, W1 arena R12 5,768/0, W2 boss B21 5,245/0.
