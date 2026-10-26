@@ -47,7 +47,11 @@ IDs here are stable. Older accuracy items A001-A019 live in ../ACCURACY_ISSUES.m
   marked processed but no PNG is written. Use captures between holds or idle
   checkpoints. Not a game bug.
 
-## KI-005 Brighter image than the human's Dolphin - display pipeline, open
+## KI-005 Brighter image than the human's Dolphin - CLOSED: Dolphin-side HDR processing
+
+- Resolution (human, 2026-10-26): the human's Dolphin had HDR processing on. With it
+  matched, a side-by-side of the file-select screen shows the same brightness and
+  colour. Recomp rendering was not the cause.
 
 - Human screenshots (hub, file select): recomp looks brighter/lower contrast than
   Dolphin 2606a. The human's Dolphin config: D3D12 with GFX Enhancements
