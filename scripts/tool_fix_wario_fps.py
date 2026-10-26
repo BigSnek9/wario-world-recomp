@@ -386,6 +386,7 @@ struct WarioFpsState
   std::vector<u8> replay;       // commands with interpolated matrix loads
   WarioFrameMatrices matrices, previous_matrices;
   u64 matrices_matched = 0, matrices_unmatched = 0;
+  Common::Matrix44 camera_delta = Common::Matrix44::Identity();  // V_N * V_N-1^-1
   std::vector<u8> prologue;
   std::vector<u8> tmem;
   WarioCamera current, previous;
@@ -595,6 +596,66 @@ u32 WarioFloatToBits(float value)
 // Halfway value of a matrix load matched between frames N-1 and N. Rejects pairs that are
 // clearly different objects or wrapped texture scrolls: rows of 4 (3 rotation/scale + 1
 // translation); rotation part may change by 35% of its size, translation by 25% + 0.5 units.
+// How far a matched load moved by itself between N-1 and N (lower is better); false when it
+// cannot be the same object. Position matrices under the main camera are compared after
+// applying the camera's own move (camera_delta = V_N * V_N-1^-1), so a static object scores 0
+// and only real object motion counts: at most 40 units per frame, rotation within 30%.
+bool WarioLerpMatrix(const u32* before, const u32* now, u32 count, float* out);
+
+bool WarioMatchScore(const u32* before, const u32* now, u32 count, bool position, float* score)
+{
+  if (count == 0 || count % 4 != 0)
+    return false;
+  if (!position)
+  {
+    float scratch[16];
+    if (!WarioLerpMatrix(before, now, count, scratch))
+      return false;
+    float dt2 = 0.0f;
+    for (u32 i = 3; i < count; i += 4)
+    {
+      const float d = WarioBitsToFloat(now[i]) - WarioBitsToFloat(before[i]);
+      dt2 += d * d;
+    }
+    *score = std::sqrt(dt2);
+    return true;
+  }
+  const Common::Matrix44& d = s_wfps.camera_delta;
+  float worst = 0.0f;
+  for (u32 block = 0; block < count; block += 12)
+  {
+    float max_rot = 0.0f, rot_diff = 0.0f, dt2 = 0.0f;
+    for (int r = 0; r < 3; ++r)
+    {
+      for (int c = 0; c < 4; ++c)
+      {
+        float predicted = d.data[r * 4 + 0] * WarioBitsToFloat(before[block + 0 * 4 + c]) +
+                          d.data[r * 4 + 1] * WarioBitsToFloat(before[block + 1 * 4 + c]) +
+                          d.data[r * 4 + 2] * WarioBitsToFloat(before[block + 2 * 4 + c]);
+        if (c == 3)
+          predicted += d.data[r * 4 + 3];
+        const float actual = WarioBitsToFloat(now[block + r * 4 + c]);
+        if (!std::isfinite(predicted) || !std::isfinite(actual))
+          return false;
+        if (c == 3)
+        {
+          dt2 += (actual - predicted) * (actual - predicted);
+        }
+        else
+        {
+          max_rot = std::max(max_rot, std::abs(actual));
+          rot_diff = std::max(rot_diff, std::abs(actual - predicted));
+        }
+      }
+    }
+    if (rot_diff > 0.3f * std::max(max_rot, 1e-3f) || dt2 > 40.0f * 40.0f)
+      return false;
+    worst = std::max(worst, std::sqrt(dt2) + rot_diff * 10.0f);
+  }
+  *score = worst;
+  return true;
+}
+
 bool WarioLerpMatrix(const u32* before, const u32* now, u32 count, float* out)
 {
   if (count == 0 || count % 4 != 0)
@@ -640,18 +701,40 @@ void WarioBuildReplay()
   {
     out.insert(out.end(), commands + cursor, commands + load.offset);
     cursor = load.offset + load.size;
-    const auto found = before.by_key.find(load.key);
-    if (found == before.by_key.end() ||
-        !WarioLerpMatrix(&before.values[before.loads[found->second].values_at],
-                         &now.values[load.values_at], load.count, lerped))
+    // Draw order can shift by a load or two (culling, spawns): try nearby occurrences and keep
+    // the candidate with the smallest own motion. Wrong pairings (another object) are rejected,
+    // which is what caused objects to jump away and back for one in-between frame.
+    const bool position = load.main_projection && load.address < 0x78 && load.address % 4 == 0 &&
+                          load.count % 12 == 0;
+    const u64 occurrence = load.key >> 20;
+    const u64 base = load.key & 0xFFFFF;
+    const u32* best = nullptr;
+    float best_score = 0.0f;
+    for (s64 delta : {0, -1, 1, -2, 2})
+    {
+      const s64 candidate = static_cast<s64>(occurrence) + delta;
+      if (candidate < 0)
+        continue;
+      const auto found = before.by_key.find(base | (u64(candidate) << 20));
+      if (found == before.by_key.end())
+        continue;
+      const u32* values = &before.values[before.loads[found->second].values_at];
+      float score;
+      if (WarioMatchScore(values, &now.values[load.values_at], load.count, position, &score) &&
+          (!best || score < best_score))
+      {
+        best = values;
+        best_score = score;
+      }
+    }
+    if (!best || !WarioLerpMatrix(best, &now.values[load.values_at], load.count, lerped))
     {
       s_wfps.matrices_unmatched++;
       out.insert(out.end(), commands + load.offset, commands + load.offset + load.size);
       continue;
     }
     s_wfps.matrices_matched++;
-    if (load.main_projection && load.address < 0x78 && load.address % 4 == 0 &&
-        load.count % 12 == 0)
+    if (position)
     {
       for (u32 block = 0; block < load.count; block += 12)
       {
@@ -795,8 +878,10 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
   const Common::Vec3 up = (current.up + previous.up) * 0.5f;
   if (!((eye - target).LengthSquared() > 1e-6f) || !(up.LengthSquared() > 1e-6f))
     return;
-  g_wario_view_correction = WarioLookAt(eye, up, target) *
-                            WarioRigidInverse(WarioLookAt(current.eye, current.up, current.target));
+  const Common::Matrix44 view_now = WarioLookAt(current.eye, current.up, current.target);
+  g_wario_view_correction = WarioLookAt(eye, up, target) * WarioRigidInverse(view_now);
+  s_wfps.camera_delta =
+      view_now * WarioRigidInverse(WarioLookAt(previous.eye, previous.up, previous.target));
 
   // Diagnostics: MODERNGEKKO_WARIO_FPS_DUMP=<dir> saves two consecutive real/in-between pairs every 120 frames;
   // MODERNGEKKO_WARIO_FPS_IDENTITY=1 replays without the camera change (must match the real frame).
