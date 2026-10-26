@@ -1,30 +1,178 @@
 {
-  "schema": "id, module, address, section, type, original_value, used_by, role, confidence, systems, evidence, mod_notes",
-  "game": "GWWE01 rev0",
-  "constants": [
-    {"id": "HC-0001", "module": "main.dol", "address": "0x801FE5B0", "section": ".sdata2", "type": "f32", "original_value": 1.3333334,
-     "used_by": ["fn_80068250@0x800682E0"], "role": "camera aspect ratio default (4:3)", "confidence": "probable",
-     "systems": ["camera", "widescreen"], "evidence": "dtk asm; Dolphin 16:9 Gecko code replaces it with 1.7777778", "mod_notes": "Set to host aspect for Hor+; see WIDESCREEN.md WS-001"},
-    {"id": "HC-0002", "module": "main.dol", "address": "0x801FE5B4", "section": ".sdata2", "type": "f32", "original_value": 45.0,
-     "used_by": ["fn_80068250"], "role": "camera vertical FOV in degrees (stored at +0x48)", "confidence": "speculative",
-     "systems": ["camera"], "evidence": "dtk asm; stored adjacent to aspect", "mod_notes": "Adjustable FOV candidate"},
-    {"id": "HC-0003", "module": "main.dol", "address": "0x801FE5A4", "section": ".sdata2", "type": "f32", "original_value": 0.125,
-     "used_by": ["fn_80068250"], "role": "near plane (stored at +0x38)", "confidence": "speculative",
-     "systems": ["camera", "rendering"], "evidence": "dtk asm", "mod_notes": ""},
-    {"id": "HC-0004", "module": "main.dol", "address": "0x801FE5A8", "section": ".sdata2", "type": "f32", "original_value": 1024.0,
-     "used_by": ["fn_80068250"], "role": "far plane (stored at +0x3C)", "confidence": "speculative",
-     "systems": ["camera", "culling"], "evidence": "dtk asm", "mod_notes": "Draw distance candidate; check gameplay activation separately"},
-    {"id": "HC-0005", "module": "main.dol", "address": "0x801FE5AC", "section": ".sdata2", "type": "f32", "original_value": 1008.0,
-     "used_by": ["fn_80068250"], "role": "unknown distance just inside far plane (stored at +0x40); fog end or cull distance?", "confidence": "speculative",
-     "systems": ["camera", "culling"], "evidence": "dtk asm", "mod_notes": ""},
-    {"id": "HC-0006", "module": "main.dol", "address": "0x801FE5B8", "section": ".sdata2", "type": "f32", "original_value": 0.025,
-     "used_by": ["fn_80068250"], "role": "unknown (stored at +0x4C)", "confidence": "speculative",
-     "systems": ["camera"], "evidence": "dtk asm", "mod_notes": ""},
-    {"id": "HC-0007", "module": "main.dol", "address": "0x801FE6CC", "section": ".sdata2", "type": "f32", "original_value": 320.0,
-     "used_by": ["fn_8006F7CC@0x8006F7E8"], "role": "2D layer half-width (640/2)", "confidence": "probable",
-     "systems": ["ui", "widescreen"], "evidence": "dtk asm; Gecko 16:9 code writes 426.6667", "mod_notes": "Scale by aspect/(4/3)"},
-    {"id": "HC-0008", "module": "main.dol", "address": "0x80031AC4", "section": ".text", "type": "imm16 (li r5)", "original_value": -280,
-     "used_by": ["fn_800319A8"], "role": "HUD left x offset", "confidence": "probable",
-     "systems": ["ui", "widescreen"], "evidence": "Gecko 16:9 code writes -386", "mod_notes": "Full list of HUD layout immediates: engine/WIDESCREEN.md WS-003"}
-  ]
+ "schema": "id, module, address, section, type, original_value, used_by, role, confidence, systems, evidence, mod_notes",
+ "game": "GWWE01 rev0",
+ "constants": [
+  {
+   "id": "HC-0001",
+   "module": "main.dol",
+   "address": "0x801FE5B0",
+   "section": ".sdata2",
+   "type": "f32",
+   "original_value": 1.3333334,
+   "used_by": [
+    "fn_80068250@0x800682E0"
+   ],
+   "role": "camera aspect ratio default (4:3)",
+   "confidence": "confirmed",
+   "systems": [
+    "camera",
+    "widescreen"
+   ],
+   "evidence": "dtk asm; Dolphin 16:9 Gecko code replaces it with 1.7777778; runtime camera block +0x44 = 1.33333 feeds +0x54 perspective matrix (CAM-002)",
+   "mod_notes": "Set to host aspect for Hor+; see WIDESCREEN.md WS-001"
+  },
+  {
+   "id": "HC-0002",
+   "module": "main.dol",
+   "address": "0x801FE5B4",
+   "section": ".sdata2",
+   "type": "f32",
+   "original_value": 45.0,
+   "used_by": [
+    "fn_80068250"
+   ],
+   "role": "camera vertical FOV in degrees (block +0x48)",
+   "confidence": "confirmed",
+   "systems": [
+    "camera"
+   ],
+   "evidence": "dtk asm; stored adjacent to aspect; runtime projection matrix matches fovy 45 (CAM-002)",
+   "mod_notes": "Adjustable FOV candidate"
+  },
+  {
+   "id": "HC-0003",
+   "module": "main.dol",
+   "address": "0x801FE5A4",
+   "section": ".sdata2",
+   "type": "f32",
+   "original_value": 0.125,
+   "used_by": [
+    "fn_80068250"
+   ],
+   "role": "default near plane (block +0x38)",
+   "confidence": "confirmed",
+   "systems": [
+    "camera",
+    "rendering"
+   ],
+   "evidence": "dtk asm",
+   "mod_notes": "Default only; stages override (Greenhorn near 0.5, far 2048)"
+  },
+  {
+   "id": "HC-0004",
+   "module": "main.dol",
+   "address": "0x801FE5A8",
+   "section": ".sdata2",
+   "type": "f32",
+   "original_value": 1024.0,
+   "used_by": [
+    "fn_80068250"
+   ],
+   "role": "default far plane (block +0x3C)",
+   "confidence": "confirmed",
+   "systems": [
+    "camera",
+    "culling"
+   ],
+   "evidence": "dtk asm",
+   "mod_notes": "Default only; stages override (Greenhorn near 0.5, far 2048)"
+  },
+  {
+   "id": "HC-0005",
+   "module": "main.dol",
+   "address": "0x801FE5AC",
+   "section": ".sdata2",
+   "type": "f32",
+   "original_value": 1008.0,
+   "used_by": [
+    "fn_80068250"
+   ],
+   "role": "unknown distance just inside far plane (stored at +0x40); fog end or cull distance?",
+   "confidence": "speculative",
+   "systems": [
+    "camera",
+    "culling"
+   ],
+   "evidence": "dtk asm",
+   "mod_notes": ""
+  },
+  {
+   "id": "HC-0006",
+   "module": "main.dol",
+   "address": "0x801FE5B8",
+   "section": ".sdata2",
+   "type": "f32",
+   "original_value": 0.025,
+   "used_by": [
+    "fn_80068250"
+   ],
+   "role": "unknown (stored at +0x4C)",
+   "confidence": "speculative",
+   "systems": [
+    "camera"
+   ],
+   "evidence": "dtk asm",
+   "mod_notes": ""
+  },
+  {
+   "id": "HC-0007",
+   "module": "main.dol",
+   "address": "0x801FE6CC",
+   "section": ".sdata2",
+   "type": "f32",
+   "original_value": 320.0,
+   "used_by": [
+    "fn_8006F7CC@0x8006F7E8"
+   ],
+   "role": "2D layer half-width (640/2)",
+   "confidence": "probable",
+   "systems": [
+    "ui",
+    "widescreen"
+   ],
+   "evidence": "dtk asm; Gecko 16:9 code writes 426.6667",
+   "mod_notes": "Scale by aspect/(4/3)"
+  },
+  {
+   "id": "HC-0008",
+   "module": "main.dol",
+   "address": "0x80031AC4",
+   "section": ".text",
+   "type": "imm16 (li r5)",
+   "original_value": -280,
+   "used_by": [
+    "fn_800319A8"
+   ],
+   "role": "HUD left x offset",
+   "confidence": "probable",
+   "systems": [
+    "ui",
+    "widescreen"
+   ],
+   "evidence": "Gecko 16:9 code writes -386",
+   "mod_notes": "Full list of HUD layout immediates: engine/WIDESCREEN.md WS-003"
+  },
+  {
+   "id": "HC-0009",
+   "module": "main.dol",
+   "address": "0x801FDA20/0x801FDA24",
+   "section": ".sbss (runtime-set)",
+   "type": "f32 pair",
+   "original_value": [
+    512.0,
+    448.0
+   ],
+   "used_by": [
+    "fn_80067C34"
+   ],
+   "role": "3D viewport width/height (EFB render target 512x448)",
+   "confidence": "confirmed",
+   "systems": [
+    "rendering",
+    "widescreen"
+   ],
+   "evidence": "Greenhorn MEM1 snapshot; passed to GXSetViewport fn_8019B500",
+   "mod_notes": "Non-square pixels: VI scales 512 to 640 display width"
+  }
+ ]
 }

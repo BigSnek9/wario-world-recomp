@@ -261,6 +261,91 @@
    "confidence": "speculative",
    "evidence": "docs/engine/WIDESCREEN.md WS-003",
    "source": ""
+  },
+  {
+   "id": "F-0014",
+   "module": "main.dol",
+   "address": "0x8019B0FC",
+   "name": "GXSetProjection (identified)",
+   "role": "upload projection to XF 0x1020; type 0 persp / 1 ortho",
+   "systems": [
+    "rendering",
+    "camera"
+   ],
+   "callers": [],
+   "callees": [],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/engine/CAMERA.md CAM-003 (instruction pattern matches SDK)",
+   "source": ""
+  },
+  {
+   "id": "F-0015",
+   "module": "main.dol",
+   "address": "0x8019B1B0",
+   "name": "GXSetProjectionv (identified)",
+   "role": "vector form, called by __GXInitGX",
+   "systems": [
+    "rendering",
+    "camera"
+   ],
+   "callers": [],
+   "callees": [],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/engine/CAMERA.md CAM-003 (instruction pattern matches SDK)",
+   "source": ""
+  },
+  {
+   "id": "F-0016",
+   "module": "main.dol",
+   "address": "0x8019B500",
+   "name": "GXSetViewport (identified)",
+   "role": "calls GXSetViewportJitter fn_8019B3FC (XF 0x101A)",
+   "systems": [
+    "rendering",
+    "camera"
+   ],
+   "callers": [],
+   "callees": [],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/engine/CAMERA.md CAM-003 (instruction pattern matches SDK)",
+   "source": ""
+  },
+  {
+   "id": "F-0017",
+   "module": "main.dol",
+   "address": "0x8019B524",
+   "name": "GXSetScissor (identified)",
+   "role": "BP scissor with +342 offset",
+   "systems": [
+    "rendering",
+    "camera"
+   ],
+   "callers": [],
+   "callees": [],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/engine/CAMERA.md CAM-003 (instruction pattern matches SDK)",
+   "source": ""
+  },
+  {
+   "id": "F-0018",
+   "module": "main.dol",
+   "address": "0x80067C34",
+   "name": "fn_80067C34",
+   "role": "full-screen viewport/scissor + ortho projection setup",
+   "systems": [
+    "rendering",
+    "camera"
+   ],
+   "callers": [],
+   "callees": [],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/engine/CAMERA.md CAM-003 (instruction pattern matches SDK)",
+   "source": ""
   }
  ],
  "globals": [
@@ -278,6 +363,21 @@
     "physics"
    ],
    "notes": "Heap address varies per load; always go through the pointer. Second walk moved only ~6 units (likely blocked) - recheck with more samples."
+  },
+  {
+   "id": "G-0002",
+   "module": "main.dol",
+   "address": "0x801FDA50",
+   "name": "lbl_801FDA50",
+   "role": "active camera block pointer; +0x38 near, +0x3C far, +0x44 aspect, +0x48 fovY deg, +0x54 projection 4x4",
+   "confidence": "confirmed",
+   "evidence": "docs/engine/CAMERA.md CAM-002",
+   "systems": [
+    "camera",
+    "widescreen",
+    "culling"
+   ],
+   "notes": "Heap object; read through pointer"
   }
  ]
 }

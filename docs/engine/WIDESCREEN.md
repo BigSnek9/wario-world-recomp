@@ -22,9 +22,9 @@ is complete or that every site is understood.
 - Neighbouring constants stored into the same block by `fn_80068250`:
   `+0x38` 0.125, `+0x3C` 1024.0, `+0x40` 1008.0, `+0x44` 1.3333 (aspect),
   `+0x48` 45.0, `+0x4C` 0.025, `+0x34` -1.0. 45.0 next to the aspect is very
-  likely vertical FOV in degrees; 0.125 / 1024 likely near/far planes. Those
-  role labels are **probable**, not yet confirmed by tracing the GX projection
-  call (see CAMERA.md CAM-001).
+  vertical FOV in degrees. **Confirmed 2026-10-26** by reading the live camera
+  block: its +0x54 perspective matrix matches cot(45/2)/aspect exactly
+  (CAMERA.md CAM-002).
 - Mod approach: replace aspect with the host aspect, keep the 45 degree vertical
   FOV (Hor+). Because this is a default copied into a per-camera block, cutscene
   or special cameras that write `+0x44` themselves must also be found.
@@ -73,9 +73,19 @@ until each function is traced.
 - A real widescreen mod therefore needs BOTH guest changes (WS-001..003) and
   host presentation set to the matching aspect.
 
+## WS-004 Render target is 512x448 (confirmed runtime value)
+
+Viewport globals 0x801FDA20/0x801FDA24 hold 512.0 x 448.0 in Greenhorn Forest
+(CAMERA.md CAM-003). The game renders 3D into a 512-wide EFB area and the video
+interface scales it to the 640-wide display, so pixels are not square and the
+"4:3" aspect constant describes the displayed picture, not the EFB grid. A
+widescreen mod must keep aspect (+0x44) = displayed width/height; a higher host
+internal resolution scales this 512x448 target. 2D layout uses a separate
+640-based space (WS-002).
+
 ## Open questions
 
 - Which code writes camera `+0x44` besides fn_80068250 (cutscenes, bosses)?
-- Where the 640x480/528 EFB viewport and scissor are set (GXSetViewport /
-  GXSetScissor call sites not yet enumerated).
+- Where the camera block's +0x54 matrix is rebuilt from +0x44/+0x48 (needed so
+  aspect/FOV edits take effect).
 - Whether fn_8007BEAC is the main HUD draw.
