@@ -9,3 +9,9 @@ No confirmed findings yet. Observed: Greenhorn Forest stage update in main.dol a
 - Evidence and caveats: research/FUNCTION_DATABASE.json `globals` G-0001.
 - Use: automated navigation/test assertions can read this instead of relying on
   screenshots. Do not write it in tests that claim gameplay parity.
+
+## G-0007 Live player actor pointer - CONFIRMED (2026-10-26)
+
+`0x801C5820` -> player actor; position f32 x/y/z at +0x14/+0x18/+0x1C.
+Writing y moves Wario (camera follows). 0x801FDA00 (G-0001) only mirrors the
+position. Used by launcher/cheats.pyw (moon jump).

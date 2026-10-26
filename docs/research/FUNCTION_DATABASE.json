@@ -519,7 +519,7 @@
    "module": "main.dol",
    "address": "0x801FDA00",
    "name": "lbl_801FDA00",
-   "role": "pointer to the player (Wario) actor object; object+0x14/+0x18/+0x1C = world position x,y(up),z (f32)",
+   "role": "follower object tracking the player (camera target / scene helper); +0x14 position mirrors Wario but is rewritten each frame - use G-0007 for the player",
    "confidence": "probable",
    "evidence": "In-run MEM1 snapshots (private/runs/20261026T165304735180Z-f5082ae1): pointer 0x801FDA00 -> 0x804AF400 in Greenhorn Forest; +0x14 vec3 moved (-111.8,10.6,-36.6) -> (-270.6,11.4,-85.1) during a 2 s forward walk and +28 in x during a right walk with near-constant y. The camera init fn_80068250 calls this object's vtable slot +8 with camera block +0x94 (likely 'get position/target').",
    "systems": [
@@ -599,6 +599,20 @@
     "timing"
    ],
    "notes": ""
+  },
+  {
+   "id": "G-0007",
+   "module": "main.dol",
+   "address": "0x801C5820",
+   "name": "lbl_801C5820",
+   "role": "live player (Wario) actor pointer; world position f32 x,y(up),z at +0x14/+0x18/+0x1C; writing +0x18 moves Wario",
+   "confidence": "confirmed",
+   "evidence": "2026-10-26: candidate search matching the camera target, then writing +40 to y raised the camera target ~32 (World 2 F21 checkpoint); pointer re-verified in World 1 F12 (different heap address), moon-jump writes raised y 120 units/s",
+   "systems": [
+    "gameplay",
+    "physics"
+   ],
+   "notes": "G-0001 (0x801FDA00) is a follower/camera-target copy, not the physics position"
   }
  ]
 }

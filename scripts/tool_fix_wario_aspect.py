@@ -67,6 +67,16 @@ void UpdateWarioAspect()
   };
   write_float(0x801FE5B0u, aspect);                          // HC-0001 camera aspect default
   write_float(0x801FE6CCu, 320.0f * aspect / (4.0f / 3.0f));  // HC-0007 2D half-width
+#ifdef _WIN32
+  // WS-005: full-screen fade/overlay quads read this module variable (default 320).
+  static volatile s32 *const quad_half_width = [] {
+    HMODULE module = GetModuleHandleW(L"gGWWE01_recomp.dll");
+    return module ? reinterpret_cast<volatile s32 *>(GetProcAddress(module, "wario_fullscreen_half_width"))
+                  : nullptr;
+  }();
+  if (quad_half_width)
+    *quad_half_width = static_cast<s32>(std::lround(320.0f * aspect / (4.0f / 3.0f)));
+#endif
   const u32 camera = memory.Read_U32(0x801FDA50u);            // active camera block
   if (camera >= 0x80000000u && camera < 0x81800000u - 0x100u)
   {
@@ -107,10 +117,16 @@ CSTRING_OLD = "#include <cstdlib>\n"
 CSTRING_NEW = "#include <cstdlib>\n#include <cstring>\n"
 
 
+WINDOWS_OLD = "#include <cstdlib>\n#include <cstring>\n"
+WINDOWS_NEW = ("#include <cstdlib>\n#include <cstring>\n#include <cmath>\n#ifdef _WIN32\n#ifndef NOMINMAX\n#define NOMINMAX\n#endif\n"
+               "#include <windows.h>\n#endif\n")
+
+
 def apply(replace, runtime):
     source = runtime / "src/runtime/dolphin_runtime.cpp"
     replace(source, INCLUDE_OLD, INCLUDE_NEW)
     replace(source, CSTRING_OLD, CSTRING_NEW)
+    replace(source, WINDOWS_OLD, WINDOWS_NEW)
     replace(source, FUNC_ANCHOR, FUNC_NEW)
     replace(source, HOOK_OLD, HOOK_NEW)
     replace(runtime / "tools/frontend_config.cpp", RES_PARSE_OLD, RES_PARSE_NEW)

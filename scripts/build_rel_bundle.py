@@ -83,8 +83,29 @@ write_changed(destination / "rel_metadata.c", emit(models))
 # The diagnostic bundle instruments every actual instruction comment, including
 # counted-loop copies. The clean bundle copies chunks unchanged.
 sites = 0
+# Optional widescreen support (docs/modding/WIDESCREEN_SUPPORT.md WS-005): the
+# x coordinates (+-320) of the three full-screen quad draws (fades/overlays)
+# read the exported module variable wario_fullscreen_half_width instead of a
+# constant. It is 320 unless the runtime's aspect adapter widens it, so the
+# default build computes exactly the original values.
+FULLSCREEN_QUAD_X = (0x80062C3C, 0x80062C50, 0x800708C8, 0x800708DC, 0x800728B0, 0x800728C4)
+quad_sites = 0
+
+
+def widen_fullscreen_quads(text):
+    global quad_sites
+    for address in FULLSCREEN_QUAD_X:
+        pattern = re.compile(r"(    // %08X: li\s+r(\d+), (-?)320\n    ctx->gpr\[\2\] = )\(u32\)\(s32\)\(-?320\);" % address)
+        text, count = pattern.subn(r"\1(u32)(s32)(\3wario_fullscreen_half_width);", text)
+        quad_sites += count
+    if "wario_fullscreen_half_width" in text:
+        text = text.replace('#include "../generated.h"',
+                            '#include "../generated.h"\nextern volatile s32 wario_fullscreen_half_width;', 1)
+    return text
+
+
 for source, chunk in chunk_sources:
-    text = source.read_text()
+    text = widen_fullscreen_quads(source.read_text())
     if args.clean:
         count = 0
     else:
@@ -94,6 +115,8 @@ for source, chunk in chunk_sources:
     chunk.parent.mkdir(parents=True, exist_ok=True)
     write_changed(chunk, text)
     sites += count
+if quad_sites != len(FULLSCREEN_QUAD_X):
+    raise SystemExit(f"expected {len(FULLSCREEN_QUAD_X)} full-screen quad sites, patched {quad_sites}")
 for model in models:
     mid, name = model["module_id"], model["name"]
     write_changed(destination / f"rel_bridge_{mid}.c",
@@ -192,6 +215,7 @@ static const StaticRecompModuleDesc s_desc = {
 };
 WARIO_REL_EXPORT const StaticRecompModuleDesc* staticrecomp_get_module(void) { return &s_desc; }
 WARIO_REL_EXPORT int wario_runtime_pc_module(void) { return 1; }
+WARIO_REL_EXPORT volatile s32 wario_fullscreen_half_width = 320; /* WS-005; 320 = original */
 JOURNAL_GLOBALS
 '''
 journal_globals = ("u64 wario_instruction_count=0;\n"
