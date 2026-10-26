@@ -192,3 +192,27 @@ Future handling: retain original simulation updates and input edges, including
 signed width and the terminal off-by-one rule. Required replay: resume the intro
 checkpoint, apply the skip input, record state/countdown at guest ticks, and
 compare update counts and transition boundaries at different host refresh rates.
+
+## T008 - Main-loop tick handshake with a message-loop worker (2026-10-26)
+
+Locations: main.dol fn_800589A8 (called from main), fn_80058A78 (no direct
+callers; message loop, probably a thread entry), queue/object 0x801CF550,
+globals 0x801FDAE4 (main tick counter), 0x801FDAE8 (worker tick counter),
+0x801FDB01 (worker-busy flag), 0x801FDAEC (array of handler objects).
+Evidence: dtk assembly; runtime MEM1 snapshots 6 s apart in Greenhorn Forest
+(private/runs/20261026T165304735180Z-f5082ae1) show 0x801FDAE4 and 0x801FDAE8
+advancing in lockstep with the VI counter 0x801FE00C (+328/+335/+325 each,
+i.e. one per 59.94 Hz frame).
+Behaviour: each main-loop frame, fn_800589A8 checks 0x801FDB01; if the worker
+is idle it copies the worker count to 0x801FDAE4, sets the busy flag and posts
+message type 0 (via fn_80058258) to the queue; it then always increments
+0x801FDAE4. The worker (fn_80058A78) receives messages (fn_80058358/fn_80058468)
+and switches over 9 types (jump table 0x801BBF00); type 0 clears the busy flag
+and increments 0x801FDAE8; other types call vtable slots +0x0C/+0x10/... on
+objects in [0x801FDAEC].
+Implication for FPS work: the worker's tick rate equals the main-loop rate.
+Running the main loop faster would tick this worker faster too. What the
+worker does (streaming, audio, loading?) is not yet known - identify the
+[0x801FDAEC] handlers before any uncap.
+Confidence: confirmed for the counters and message flow; roles of the worker
+and handlers unknown.

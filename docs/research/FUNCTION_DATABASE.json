@@ -403,6 +403,54 @@
    "confidence": "probable",
    "evidence": "docs/engine/CAMERA.md CAM-004",
    "source": ""
+  },
+  {
+   "id": "F-0022",
+   "module": "main.dol",
+   "address": "0x800589A8",
+   "name": "fn_800589A8",
+   "role": "per-frame tick: posts message 0 to worker queue 0x801CF550 when idle; increments 0x801FDAE4 (T008)",
+   "systems": [
+    "timing",
+    "architecture"
+   ],
+   "callers": [
+    "main"
+   ],
+   "callees": [],
+   "globals": [
+    "0x801FDAE4",
+    "0x801FDAE8",
+    "0x801FDB01",
+    "0x801FDAEC",
+    "0x801CF550"
+   ],
+   "confidence": "confirmed",
+   "evidence": "docs/TIMING.md T008",
+   "source": ""
+  },
+  {
+   "id": "F-0023",
+   "module": "main.dol",
+   "address": "0x80058A78",
+   "name": "fn_80058A78",
+   "role": "worker message loop; type 0 increments 0x801FDAE8; other types dispatch to [0x801FDAEC] objects (T008)",
+   "systems": [
+    "timing",
+    "architecture"
+   ],
+   "callers": [],
+   "callees": [],
+   "globals": [
+    "0x801FDAE4",
+    "0x801FDAE8",
+    "0x801FDB01",
+    "0x801FDAEC",
+    "0x801CF550"
+   ],
+   "confidence": "confirmed",
+   "evidence": "docs/TIMING.md T008",
+   "source": ""
   }
  ],
  "globals": [

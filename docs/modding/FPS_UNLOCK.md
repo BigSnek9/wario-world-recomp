@@ -23,3 +23,13 @@ fn_80042714 (CAM-004). A presentation-only interpolation layer can lerp
 eye/target between the last two simulation updates and rebuild +0x98 for extra
 rendered frames without touching game logic. Actor transforms still need the
 same treatment (not yet located).
+
+## Frame-coupled systems found so far
+
+| ID | System | Coupling |
+|---|---|---|
+| T001 | main loop | waits for each VI retrace (0x801FE00C) |
+| T002 | controller sampling | SI sampling rate tied to video |
+| T006/T007 | title/opening modules | fixed-step per update, no delta time |
+| T008 | message-loop worker | one tick message per main-loop frame (0x801FDAE4/E8) |
+| CAM-004 | camera | projection/view rebuilt per camera update (interpolation hook) |
