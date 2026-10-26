@@ -63,3 +63,20 @@ IDs here are stable. Older accuracy items A001-A019 live in ../ACCURACY_ISSUES.m
   human compares with Dolphin HDR off vs recomp SDR, or Dolphin HDR on vs recomp
   Vulkan HDR. If they still differ like-for-like, investigate EFB->XFB copy gamma
   (GXSetDispCopyGamma) and VI output between this fork and Dolphin 2606a.
+
+## KI-006 Short speed dips in "Area R" wave arenas; static code slower than JIT - open
+
+- Playthrough telemetry (private/play-sessions/20261026T193631Z/perf.csv):
+  R12/R21 arenas show 1-3 s dips to 0.79-0.95x speed (16 samples, fps 48-56);
+  every other area so far holds ~1.0x (title, hub, F12, B12, F13, F21, B21).
+- Same R12 checkpoint (states/194039_AR12.sav), same probe, profiled 10 s:
+  static recomp (clang module): emulation thread 40% idle, game code 39%,
+  runtime 21%. Runtime's original-code JIT (--reference): 73% idle. So the
+  generated C costs several times the JIT's code for the same work; the dips
+  are host-side CPU peaks during heavy waves.
+- Candidates (in order of risk): clang PGO (ModernGekko has pgo_support);
+  clang flags (module uses /fp:strict via clang-cl's MSVC branch, likely
+  -frounding-math; check whether FPSCR rounding is host-emulated before
+  relaxing); DolRecomp emitter improvements (ctx->pc store per instruction,
+  registers kept in ctx, giant per-chunk switch functions). Any change needs
+  lockstep + regression re-validation.

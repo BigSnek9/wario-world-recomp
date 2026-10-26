@@ -22,7 +22,7 @@ from pathlib import Path
 import texture_tools
 
 STATE_DELAY = 25.0
-SKIP_AREAS = {"03 Shared (UNIV)", "04 Shared bosses", "05 IGNITE"}
+SKIP_AREAS = {"03 Shared (UNIV)", "04 Shared bosses", "05 IGNITE", "06 UGP", "06 UGR"}
 
 
 def _digest(path):
