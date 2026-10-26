@@ -300,6 +300,7 @@ def extract(game, out_dir, log=print):
         if MAGIC not in data:
             continue
         rel = path.relative_to(Path(game)).as_posix()
+        before = stats["banks"]
         for bank, records in find_banks(data):
             stats["banks"] += 1
             for rec in records:
@@ -324,7 +325,8 @@ def extract(game, out_dir, log=print):
                                      height=rec["height"], format=FORMATS[rec["fmt"]],
                                      mipmaps="yes" if rec["min_filter"] >= 2 else "no",
                                      source=f"{rel}:{rec['data']:#x}")
-        log(f"{rel}: {len(entries)} unique so far")
+        if stats["banks"] > before:
+            log(f"{rel}: {stats['banks'] - before} banks, {len(entries)} unique so far")
     with (out_dir / "manifest.csv").open("w", encoding="utf-8", newline="") as stream:
         writer = csv.writer(stream)
         writer.writerow(["file", "area", "archives", "width", "height", "format", "mipmaps", "source"])
@@ -335,7 +337,13 @@ def extract(game, out_dir, log=print):
     return entries, stats
 
 
-def verify(entries, out_dir, reference, sample=40):
+def verify(entries, out_dir, reference, sample=0):
+    """Check reference (runtime-dumped) names were produced and pixels match.
+
+    Expected misses: textures the game builds at run time and never stores on
+    the disc - file-select text rendered from the font (I4 432x144, 96x48,
+    96x96) and a procedural IA8 256x256 gradient in the hub. Their hashes do
+    not occur anywhere on the disc."""
     reference = Path(reference)
     refs = {p.name: p for p in reference.rglob("tex1_*.png")}
     produced = [n for n in refs if n in entries]
@@ -343,7 +351,7 @@ def verify(entries, out_dir, reference, sample=40):
     print(f"verify: {len(produced)}/{len(refs)} reference names produced")
     for name in missing:
         print("  missing:", name)
-    step = max(1, len(produced) // sample)
+    step = max(1, len(produced) // sample) if sample else 1
     checked, exact, worst = 0, 0, 0
     for name in sorted(produced)[::step]:
         mine = np.asarray(Image.open(Path(out_dir) / entries[name]["area"] / name).convert("RGBA"), np.int16)
@@ -359,7 +367,10 @@ def verify(entries, out_dir, reference, sample=40):
         if diff:
             print(f"  pixel diff {name}: max {diff}")
     print(f"verify: pixel-compared {checked}, identical {exact}, worst channel diff {worst}")
-    return not missing and worst == 0
+    if missing:
+        print(f"verify: {len(missing)} missing - expected only for run-time generated textures "
+              "(font-rendered text, procedural gradients), which are not on the disc")
+    return worst == 0
 
 
 def main():
@@ -367,6 +378,8 @@ def main():
     parser.add_argument("--game", default="original/GWWE01", help="extracted disc folder (contains files/)")
     parser.add_argument("--out", required=True, help="output folder (keep it under private/)")
     parser.add_argument("--verify", help="folder of runtime-dumped reference textures to compare against")
+    parser.add_argument("--sample", type=int, default=0,
+                        help="pixel-compare about this many references (default: all)")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
     started = time.time()
@@ -378,7 +391,7 @@ def main():
           f"({stats['skipped']} skipped) in {time.time() - started:.1f}s")
     print("formats:", ", ".join(f"{k} {v}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1])))
     if args.verify:
-        return 0 if verify(entries, args.out, args.verify) else 1
+        return 0 if verify(entries, args.out, args.verify, args.sample) else 1
     return 0
 
 

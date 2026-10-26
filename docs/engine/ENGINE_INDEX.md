@@ -17,6 +17,7 @@ Look up any main.dol address in the private disassembly with
 | Input | INPUT.md | T002 |
 | Audio | AUDIO.md | |
 | Memory / module loading | MEMORY.md | |
+| Disc assets / texture banks | ASSETS.md | |
 | Physics, animation, scripting | PHYSICS.md, ANIMATION.md, SCRIPTING.md | (mostly unmapped) |
 
 ID prefixes: F- function (FUNCTION_DATABASE.json), HC- hardcoded constant

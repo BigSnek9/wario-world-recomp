@@ -87,3 +87,9 @@ private/launcher.json.
   `command=set_volume volume=N` files (scripts/tool_fix_volume_command.py).
   Verified headless: valid values applied and persisted, 250 rejected.
 - **Display**: OpenGL SDR / Vulkan SDR / Vulkan HDR output (KI-005).
+
+Extractor result (2026-10-26): 1,701 textures in ~5 s, folders per area
+(Title, Opening, Hub, Shared, World1-4 Stage/Boss/Area folders, Ending, Main
+program), manifest.csv + README.txt. Text drawn from the font at run time
+(e.g. "Please choose a file") is not a disc texture; the font sheets themselves
+are extracted (I4 format).
