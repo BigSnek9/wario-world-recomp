@@ -79,3 +79,14 @@ Earlier PGO twin (before the quad change): Greenhorn 12,555/0, title-hub
 
 Regression suite --quick with FPS off (prof runner): ALL PASS
 (reports/regression-20261026T224236Z.json).
+
+## 2026-10-26 late night 2: object interpolation + queued pacing + overlay widening
+
+| Run | Speed min | Notes |
+|---|---|---|
+| Hub savestate, FPS on (prof, OpenGL) | 1.000 | gaps 6-10 ms 2968/2988, matrices interpolated |
+| CB41 boss, FPS on | 0.999 | gaps 6-10 ms 2852/2954 |
+| Greenhorn walk_punch, FPS on | 0.992 | 96.5% matrix loads matched |
+| Release runner, 16:9, FPS on, boot -> hub (Vulkan) | 0.873 (title boot dip, same as off) | no loading-coin trails; fade full width |
+| Regression --quick, FPS off, new module | ALL PASS | reports/regression-20261026T233143Z.json |
+| Hub A/B (prof): FPS off / on with sleep / no sleep | 0.998 / 0.954 / 1.000 | mid-frame sleep was the cost |

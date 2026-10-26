@@ -20,9 +20,10 @@ have it.
 ## Optional enhancements (all off for accuracy via "Original" / unchecked)
 
 - Auto resolution and any-aspect widescreen (launcher default Auto): Hor+ with
-  culling widened; WIDESCREEN_SUPPORT.md. Open: WS-005 transition fade is 4:3.
-- Smooth 120 FPS (launcher checkbox, default off): camera interpolated by
-  replaying each frame's GPU commands; objects still move at 60 Hz;
+  culling widened; transition fade and loading-coin afterimage widened too
+  (WS-005/WS-006 fixed); WIDESCREEN_SUPPORT.md.
+- Smooth 120 FPS (launcher checkbox, default off): each frame's GPU commands
+  are replayed with the camera and every matched object matrix halfway;
   ../modding/FPS_UNLOCK.md.
 - Moon-jump cheat window (launcher/cheats.pyw), live volume, play tracker.
 

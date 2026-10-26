@@ -51,6 +51,11 @@ and the 2D half-width (WS-002) still need their own changes.
   scenery at the sides, no missing geometry at the new edges, live camera from
   a savestate adapts), title/file select/hub 2D art keeps its proportions, HUD
   stays undistorted in the centre 4:3 area.
-- Known gap (WS-005): full-screen fades/transition overlays are 640-wide quads
-  and leave the extra side strips unfaded (seen on file select -> hub). Needs
-  the fade draw routine located and widened.
+- WS-005/WS-006 (2026-10-26): the screen-overlay constructors fn_8007F7A4
+  (solid fade quad, drawn by fn_8007FA2C; the file select -> hub white fade
+  that left side strips unfaded) and fn_8007EBF0 (textured EFB-copy feedback
+  quad, drawn by fn_8007EE8C; drawn at +-320 inside the widened ortho it shrank
+  each frame's copy by 0.75 toward the centre, giving the loading-coin trails)
+  store the half width at object +0x30. The `li 320` at 0x8007F7D8/0x8007EC24
+  now reads `wario_fullscreen_half_width` (scripts/build_rel_bundle.py
+  FULLSCREEN_QUAD_X); 320 in 4:3, so the default path is unchanged.

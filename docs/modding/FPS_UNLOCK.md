@@ -1,6 +1,6 @@
 # FPS unlock (frame interpolation)
 
-Status 2026-10-26: **implemented, optional, off by default** (launcher checkbox
+Status 2026-10-26: **implemented (camera + objects), optional, off by default** (launcher checkbox
 "Smooth 120 FPS", runtime env `MODERNGEKKO_WARIO_FPS=1`). The accurate baseline
 is the original 59.94 Hz loop; with the option off, nothing below runs.
 Runtime change: `scripts/tool_fix_wario_fps.py` (applied by
@@ -49,12 +49,27 @@ between each pair of real frames with the camera halfway between them.
    cannot see it.
 4. **Copy.** The replayed EFB is copied into a private texture-cache entry
    (no guest RAM write, not registered by address), then presented.
-5. **Pacing.** Wario World issues its XFB copy late in each 16.7 ms frame
+5. **Objects.** Every XF matrix-memory load of the real frame (immediate
+   writes and indexed loads to 0x000-0x0FF: GX position and texture matrices)
+   is recorded with its values. Loads are matched with frame N-1 by
+   (address, length, occurrence). A matched load is replaced in the replay by
+   an immediate write of the halfway matrix (element-wise lerp). A pair is
+   rejected, so frame N's value is kept, when the rotation part changes by
+   >35% or the translation by >25% + 0.5 units. That catches different objects
+   and wrapped texture scrolls. Position matrices (PNMTX slots, XF 0x00-0x77)
+   loaded under the main camera are pre-multiplied by C^-1, so the projection's
+   camera correction cancels and the result is exactly the halfway modelview.
+   Greenhorn: 96.5% of loads matched; boss CB41: 99.6% (~300 loads per frame).
+   `MODERNGEKKO_WARIO_FPS_OBJECTS=0` interpolates the camera only.
+6. **Pacing.** Wario World issues its XFB copy late in each 16.7 ms frame
    (measured: about 15 ms after the previous VI), so the in-between frame can
    only be built just before the next VI. The real frame from that VI is held
-   back to half a frame after the in-between one. The video thread never
-   sleeps for this; the held frame is shown from the command loop once due.
-   That adds about 8 ms of latency, the same trade as Ship of Harkinian.
+   back to half a frame after the in-between one (about 8 ms of extra latency,
+   the same trade as Ship of Harkinian). Neither frame is ever slept for on the
+   emulation thread. Both are queued and shown when due, either from the GPU
+   command loop or, in this runtime's single-thread mode, from inside Dolphin's
+   speed-limiter sleep (a hook in `CoreTimingManager::Throttle`), which is idle
+   time anyway.
 
 ## Measurements (hidden runs, prof runner, OpenGL, PGO module)
 
@@ -68,9 +83,13 @@ between each pair of real frames with the camera halfway between them.
   camera change) the replayed image equals the real frame pixel-for-pixel in
   15 of 17 samples. The two that differ are the stage-entry white afterimage
   effect, which feeds the previous frame back in as a texture.
-- A first version slept on the video thread to hold the real frame; that cost
-  7-9% speed in boss arenas (0.907/0.931). Holding it from the command loop
-  instead restored full speed.
+- Earlier versions slept to pace frames. Sleeping to hold the real frame cost
+  7-9% in boss arenas; sleeping before the in-between frame cost up to 30% in
+  the hub (0.70-0.76; this runtime runs CPU and GPU on one thread). Queuing
+  both frames removed it: hub 1.000 (99% of gaps 6-10 ms), boss CB41 0.999,
+  Greenhorn 0.992, with camera + object interpolation on.
+- `MODERNGEKKO_WARIO_FPS_DEBUG` bits isolate pacing (1 = no wait, 2 = don't
+  show in-between frames, 4 = don't hold real frames).
 
 ## Diagnostics
 
@@ -83,8 +102,9 @@ between each pair of real frames with the camera halfway between them.
 
 ## Known limits
 
-- Only the camera is interpolated. Wario, enemies, particles and animations
-  move at 60 Hz inside the 120 Hz camera motion (stage 3 of the plan below).
+- Objects are interpolated through their matrices. Geometry the CPU writes
+  directly into vertex buffers (if any particles do this) stays at 60 Hz.
+- Normal matrices (lighting) use frame N.
 - Objects drawn with the main projection but not in world space (for example a
   3D HUD model, if any) move with the camera correction in the in-between
   frame.
@@ -98,9 +118,6 @@ between each pair of real frames with the camera halfway between them.
 
 ## Next steps
 
-1. Per-object interpolation: match position matrices (XF 0x000-0x0FF loads)
-   between N-1 and N by draw order and slot, and lerp them, falling back to
-   frame N when the structure differs (spawns, despawns).
-2. Higher multiples (180/240 Hz) by replaying at t = 1/3, 2/3, ... when the
+1. Higher multiples (180/240 Hz) by replaying at t = 1/3, 2/3, ... when the
    video thread has the headroom.
-3. Pacing on a separate present thread (Vulkan), to drop the 8 ms delay.
+2. Pacing on a separate present thread (Vulkan), to drop the 8 ms delay.

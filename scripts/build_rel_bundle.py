@@ -24,6 +24,8 @@ parser.add_argument("--pgo-generate", action="store_true",
 parser.add_argument("--pgo-use", help="With --clang: merged .profdata path relative to the Recomp folder (no spaces); "
                                       "builds module-<variant>-clang-pgo")
 parser.add_argument("--jobs", type=int, default=8, help="Parallel compile jobs for --clang builds")
+parser.add_argument("--build-dir", help="Build folder name under build/ (default: module-<variant>[-clang suffix]); "
+                                        "use to test a module without touching the standard output")
 args = parser.parse_args()
 if args.vectors and args.clean:
     variant = "full-vectors"
@@ -83,12 +85,17 @@ write_changed(destination / "rel_metadata.c", emit(models))
 # The diagnostic bundle instruments every actual instruction comment, including
 # counted-loop copies. The clean bundle copies chunks unchanged.
 sites = 0
-# Optional widescreen support (docs/modding/WIDESCREEN_SUPPORT.md WS-005): the
-# x coordinates (+-320) of the three full-screen quad draws (fades/overlays)
+# Optional widescreen support (docs/modding/WIDESCREEN_SUPPORT.md WS-005/WS-006):
+# the x coordinates (+-320) of the full-screen quad draws (fades/overlays)
 # read the exported module variable wario_fullscreen_half_width instead of a
 # constant. It is 320 unless the runtime's aspect adapter widens it, so the
 # default build computes exactly the original values.
-FULLSCREEN_QUAD_X = (0x80062C3C, 0x80062C50, 0x800708C8, 0x800708DC, 0x800728B0, 0x800728C4)
+# 0x8007EC24 / 0x8007F7D8: the screen-overlay constructors fn_8007EBF0 (textured
+# EFB-copy feedback quad, drawn by fn_8007EE8C; the loading-coin afterimage) and
+# fn_8007F7A4 (solid colour quad, drawn by fn_8007FA2C) store the half width in
+# object +0x30 (s16), which the draw routines use as +-x.
+FULLSCREEN_QUAD_X = (0x80062C3C, 0x80062C50, 0x800708C8, 0x800708DC, 0x800728B0, 0x800728C4,
+                     0x8007EC24, 0x8007F7D8)
 quad_sites = 0
 
 
@@ -276,7 +283,7 @@ common = ["-DGAME_ID=GWWE01", "-DGENERATED_DIR=" + str(destination), "-DGXRUNTIM
 print("Bundle instruction sites:", sites, "REL chunks:", len(new_chunks), flush=True)
 if args.clang:
     suffix = "-clang-pgogen" if args.pgo_generate else "-clang-pgo" if args.pgo_use else "-clang"
-    build = ROOT / "build" / ("module-" + variant + suffix)
+    build = ROOT / "build" / (args.build_dir or ("module-" + variant + suffix))
     clang = Path(args.clang_cl)
     if not clang.is_file():
         raise SystemExit(f"clang-cl not found at {clang}")
@@ -288,11 +295,11 @@ if args.clang:
     script = build.parent / (build.name + "-build.cmd")
     script.write_text(f'@echo off\r\ncall "{vcvars64()}" >nul 2>nul || exit /b 1\r\n'
                       f'{configure} || exit /b 1\r\n{compile_}\r\n')
-    with (ROOT / f"reports/build-rel-bundle-{variant}-clang.log").open("w") as log:
+    with (ROOT / f"reports/build-rel-bundle-{args.build_dir or variant + '-clang'}.log").open("w") as log:
         subprocess.run(["cmd", "/c", str(script)], check=True, stdout=log, stderr=subprocess.STDOUT)
     print(build / "gGWWE01_recomp.dll")
     raise SystemExit(0)
-build = ROOT / "build" / ("module-" + variant)
+build = ROOT / "build" / (args.build_dir or ("module-" + variant))
 command = ["cmake", "-S", template, "-B", build, "-G", "Visual Studio 17 2022", "-A", "x64", *common]
 with (ROOT / f"reports/build-rel-bundle-{variant}.log").open("w") as log:
     subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT)

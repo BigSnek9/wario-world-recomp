@@ -2,6 +2,27 @@
 
 Newest first. Earlier history (2026-10-24..26 morning): ../PROGRESS.md and ../HANDOFF.md.
 
+## 2026-10-26 (late night 2): object interpolation, pacing, overlay widening
+
+- FPS: every XF matrix load (0x000-0x0FF) is recorded and matched with the
+  previous frame by (address, length, occurrence); the replay writes the
+  halfway matrix (guarded against mismatches/texture-scroll wraps). Position
+  matrices under the main camera get C^-1 so the camera correction cancels.
+  Measured: in-between frames sit between N-1 and N (closest to their average
+  in every sampled triple). 96-99.6% of loads match.
+- FPS pacing: the runtime is single-threaded (profile thread "CPU-GPU thread"),
+  so any sleep in the video path stalls emulation (hub 0.70-0.76). Frames are
+  now queued and shown from the command loop or the speed limiter's sleep
+  (CoreTiming::Throttle hook). Hub 1.000, boss 0.999.
+- Widescreen (subagent): the loading-coin afterimage trails and WS-005 fade
+  were the screen-overlay objects fn_8007EBF0 (EFB-copy feedback quad) and
+  fn_8007F7A4 (solid fade) storing a 320 half width at +0x30 (li at 0x8007EC24
+  / 0x8007F7D8). Both now read wario_fullscreen_half_width (inert at 320).
+  GXCopyTex is fn_801984D8; its callers: fn_80070028, fn_800703CC, fn_8007239C,
+  fn_8007A8A4, fn_8007B6F8 (other copy-back draws not yet traced).
+- build_rel_bundle.py --build-dir builds a test module without touching the
+  standard output folder.
+
 ## 2026-10-26 (late night): optional 120 FPS frame interpolation
 
 - New runtime fix scripts/tool_fix_wario_fps.py (env MODERNGEKKO_WARIO_FPS=1,
