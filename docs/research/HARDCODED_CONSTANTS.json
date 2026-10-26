@@ -87,13 +87,13 @@
    "used_by": [
     "fn_80068250"
    ],
-   "role": "unknown distance just inside far plane (stored at +0x40); fog end or cull distance?",
-   "confidence": "speculative",
+   "role": "default camera culling distance (block +0x40): frustum side planes are built at this distance in fn_80042714",
+   "confidence": "probable",
    "systems": [
     "camera",
     "culling"
    ],
-   "evidence": "dtk asm",
+   "evidence": "dtk asm; fn_80042714 uses +0x40 with tan(fov/2) and aspect to build side planes (CAM-004)",
    "mod_notes": ""
   },
   {

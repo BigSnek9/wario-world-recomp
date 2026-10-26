@@ -27,3 +27,12 @@ original bytes for the baseline and record every changed address.
 - Screenshot sweep: title, hub, Greenhorn Forest, pause menu, HUD at 4:3/16:9/21:9.
 - Check sprites/fades that cover the screen (full-screen quads may assume 640).
 - Verify culling at screen edges (wider view may expose popped objects).
+
+## Update 2026-10-26: where the camera values are consumed
+
+fn_80042714 (CAM-004) rebuilds the projection every camera update from block
++0x44 (aspect) and +0x48 (FOV), and also builds the culling side planes from
+the same aspect. So a Hor+ mod can write aspect into the active camera block
+([0x801FDA50]+0x44) or the default HC-0001 and both projection and culling
+follow; no separate culling patch is needed for the side planes. HUD (WS-003)
+and the 2D half-width (WS-002) still need their own changes.

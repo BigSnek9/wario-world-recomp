@@ -346,6 +346,63 @@
    "confidence": "confirmed",
    "evidence": "docs/engine/CAMERA.md CAM-003 (instruction pattern matches SDK)",
    "source": ""
+  },
+  {
+   "id": "F-0019",
+   "module": "main.dol",
+   "address": "0x80042714",
+   "name": "fn_80042714",
+   "role": "per-frame camera update: perspective, look-at, frustum side planes, quad selection",
+   "systems": [
+    "camera",
+    "culling",
+    "widescreen",
+    "timing"
+   ],
+   "callers": [],
+   "callees": [],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/engine/CAMERA.md CAM-004",
+   "source": ""
+  },
+  {
+   "id": "F-0020",
+   "module": "main.dol",
+   "address": "0x8019C618",
+   "name": "C_MTXPerspective (identified)",
+   "role": "perspective matrix from fovy/aspect/near/far",
+   "systems": [
+    "camera",
+    "culling",
+    "widescreen",
+    "timing"
+   ],
+   "callers": [],
+   "callees": [],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/engine/CAMERA.md CAM-004",
+   "source": ""
+  },
+  {
+   "id": "F-0021",
+   "module": "main.dol",
+   "address": "0x8019C290",
+   "name": "C_MTXLookAt (identified)",
+   "role": "view matrix from eye/up/target",
+   "systems": [
+    "camera",
+    "culling",
+    "widescreen",
+    "timing"
+   ],
+   "callers": [],
+   "callees": [],
+   "globals": [],
+   "confidence": "probable",
+   "evidence": "docs/engine/CAMERA.md CAM-004",
+   "source": ""
   }
  ],
  "globals": [

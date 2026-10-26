@@ -14,3 +14,12 @@ Ledger: ../TIMING.md (T001-T007). Summary of what must hold:
 Open work: identify where actor transforms and the camera matrix are produced
 per update (needed for interpolation); audit particle/animation updates and
 any per-frame counters. No code changed.
+
+## Update 2026-10-26: camera interpolation hook
+
+The camera's per-update inputs are block +0x14 (eye), +0x20 (up), +0x2C
+(target), turned into the view matrix +0x98 by C_MTXLookAt inside
+fn_80042714 (CAM-004). A presentation-only interpolation layer can lerp
+eye/target between the last two simulation updates and rebuild +0x98 for extra
+rendered frames without touching game logic. Actor transforms still need the
+same treatment (not yet located).

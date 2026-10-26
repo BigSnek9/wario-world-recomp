@@ -61,3 +61,25 @@ per-stage parameter (see ../modding/DRAW_DISTANCE.md).
   GXSetScissor(0, 0, u16 [0x801CEFBC+4], u16 [0x801CEFBC+6]), ortho projection.
   0x801FDA20/24 = 512.0 / 448.0 at runtime: the 3D render target is 512x448, and
   0x801CEFBC is likely the GXRenderModeObj (fbWidth/efbHeight).
+
+## CAM-004 Per-frame camera update fn_80042714 - CONFIRMED structure (static)
+
+Called through a vtable (no direct `bl` callers). With r31 = camera block:
+1. `fn_8019C618(block+0x54, fovy=+0x48, aspect=+0x44, near=+0x38, far=+0x3C)`
+   = C_MTXPerspective (uses 0.5 * 0.017453292 and a tan call). **This is where
+   aspect/FOV edits take effect** - patch the values before this call, or the
+   block fields, and the projection follows the next frame.
+2. `fn_8019C290(block+0x98, eye=+0x14, up=+0x20, target=+0x2C)` = C_MTXLookAt.
+   +0x98 is the view matrix (later passed to fn_800479F4). Eye/up/target are
+   the inputs an FPS-interpolation layer would lerp.
+3. Frustum side planes (probable): with t = tan(fovy/2), distance d = +0x40
+   (the "far - 16" field) and aspect +0x44, it forms four corner directions from
+   the view basis (+0xA8..+0xC4) and stores four normalized cross products at
+   +0xC8, +0xD4, +0xE0, +0xEC (fn_80033888 = vector normalize, probable). The
+   side planes widen automatically with aspect, so a widescreen aspect also
+   widens this culling. +0x40 is therefore the culling distance (HC-0005 role).
+4. (speculative) If count +0xF8 != 0, loops over 64-byte quads at [+0xFC]
+   (4 corners at +0x00..+0x2C, normal +0x30, d +0x3C), picks one along the view
+   direction, sets flag byte +0x100, builds eye-to-edge planes at +0x104..+0x130
+   and copies its plane to +0x134..+0x140. Possibly a camera clip/portal or
+   occluder quad; role unknown.
