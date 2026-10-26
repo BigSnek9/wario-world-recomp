@@ -195,6 +195,8 @@ def main():
     tool_fix_wario_aspect.apply(replace, runtime)
     import tool_fix_wario_fps
     tool_fix_wario_fps.apply(replace, runtime)
+    import tool_fix_wario_menu
+    tool_fix_wario_menu.apply(replace, runtime)
     # Its bundled compiler is a separate pin; only fix code with a matching preimage.
     nested = runtime / "vendor/dolphin/DolRecomp"
     if "section->size == 0 || offset > section->size" in (nested / "src/frontend/container/rel.c").read_text():

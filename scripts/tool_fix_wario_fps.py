@@ -303,7 +303,7 @@ PRESENT_INCLUDE_NEW = ('#include "VideoCommon/Present.h"\n\n#include <algorithm>
                        '#include "Common/ChunkFile.h"\n')
 
 BP_INCLUDE_OLD = '#include "VideoCommon/BPStructs.h"\n\n#include <algorithm>\n#include <cstring>\n#include <string>\n'
-BP_INCLUDE_NEW = ('#include "VideoCommon/BPStructs.h"\n\n#include <algorithm>\n#include <array>\n#include <cmath>\n'
+BP_INCLUDE_NEW = ('#include "VideoCommon/BPStructs.h"\n\n#include <algorithm>\n#include <array>\n#include <atomic>\n#include <cmath>\n'
                   '#include <cstdio>\n#include <cstdlib>\n#include <cstring>\n#include <string>\n#include <unordered_map>\n'
                   '#include <utility>\n#include <vector>\n')
 
@@ -343,6 +343,8 @@ static bool WarioFpsEnabled()
 }
 
 bool g_wario_fps_record = WarioFpsEnabled();
+// Wanted state, switched live by the in-game menu (VideoCommon/OnScreenUI.cpp).
+std::atomic<bool> g_wario_fps_enabled{WarioFpsEnabled()};
 static bool g_wario_fps_replaying = false;
 
 namespace
@@ -846,7 +848,24 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
                        const MathUtil::Rectangle<int>& src_rect, float y_scale, float gamma,
                        bool clear)
 {
-  if (!g_wario_fps_record || g_wario_fps_replaying)
+  if (g_wario_fps_replaying)
+    return;
+  // Live on/off from the in-game menu, switched at a frame boundary.
+  if (const bool wanted = g_wario_fps_enabled.load(std::memory_order_relaxed);
+      wanted != g_wario_fps_record)
+  {
+    g_wario_fps_record = wanted;
+    s_wfps.frame_valid = false;
+    s_wfps.reset_pending = wanted;
+    s_wfps.current.valid = false;
+    s_wfps.previous.valid = false;
+    s_wfps.matrices.Clear();
+    s_wfps.previous_matrices.Clear();
+    if (!wanted)
+      g_presenter->WarioFlushPendingPresent(true);
+    return;
+  }
+  if (!g_wario_fps_record)
     return;
   const bool had_frame = s_wfps.frame_valid;
   s_wfps.reset_pending = true;

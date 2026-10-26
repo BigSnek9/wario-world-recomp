@@ -73,6 +73,52 @@ def runner_supports_fps():
         return False
 
 
+def runner_supports_menu():
+    """The in-game menu (scripts/tool_fix_wario_menu.py) is a runtime change."""
+    try:
+        return b"WarioWorld.ini" in RUNNER.read_bytes()
+    except OSError:
+        return False
+
+
+MENU_SETTINGS = USER / "Config/WarioWorld.ini"
+
+
+def read_menu_settings():
+    values = {}
+    try:
+        for line in MENU_SETTINGS.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.startswith("#"):
+                key, value = line.split("=", 1)
+                values[key.strip()] = value.strip()
+    except OSError:
+        pass
+    return values
+
+
+def migrate_launcher_settings(settings):
+    """First run with the in-game menu: carry the old launcher choices over."""
+    if MENU_SETTINGS.is_file():
+        return
+    resolution = 0
+    for label, _, scale in enhancements.RESOLUTIONS:
+        if settings.get("resolution") == label:
+            resolution = scale
+    if settings.get("resolution") == ORIGINAL_RES:
+        resolution = 1
+    aspect = {AUTO: "auto", ORIGINAL_ASPECT: "original", "16:9": "16:9", "16:10": "16:10", "21:9": "21:9",
+              "32:9": "32:9"}.get(settings.get("aspect", AUTO), "auto")
+    MENU_SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+    MENU_SETTINGS.write_text(
+        "# Wario World in-game menu settings (Back / Tab in game)\n"
+        f"resolution={resolution}\naspect={aspect}\n"
+        f"fullscreen={int(bool(settings.get('fullscreen', False)))}\n"
+        f"hd_textures={int(bool(settings.get('hd_textures', False)))}\n"
+        f"hdr={int(settings.get('display') == 'vulkan-hdr')}\n"
+        f"fps={int(bool(settings.get('fps120', False)))}\n"
+        f"volume={int(settings.get('volume', 100))}\nmoon_jump=0\nmoon_speed=2.00\n", encoding="utf-8")
+
+
 def python_console():
     # pythonw has no console; helper scripts are run with the console python
     # but without a window.
@@ -133,6 +179,7 @@ class Launcher(tk.Tk):
         self.title("Wario World Recomp - Launcher")
         self.resizable(False, False)
         settings = load_settings()
+        self.saved = settings
         self.process = None
         self.volume_job = None
         self.volume_serial = 0
@@ -152,46 +199,18 @@ class Launcher(tk.Tk):
         if not BUILDS[self.build.get()][1].is_file():
             self.build.set(next((k for k, (_, p) in BUILDS.items() if p.is_file()), "clang"))
 
-        tk.Label(frame, text="Display:").pack(anchor="w", pady=(8, 0))
-        self.display = tk.StringVar(value=settings.get("display", "opengl"))
-        tk.Radiobutton(frame, text="OpenGL, SDR (default)", variable=self.display, value="opengl").pack(anchor="w")
-        tk.Radiobutton(frame, text="Vulkan, SDR", variable=self.display, value="vulkan").pack(anchor="w")
-        tk.Radiobutton(frame, text="Vulkan, HDR output (matches Dolphin with HDR on)", variable=self.display,
-                       value="vulkan-hdr").pack(anchor="w")
-        self.fullscreen = tk.BooleanVar(value=settings.get("fullscreen", False))
-        tk.Checkbutton(frame, text="Fullscreen", variable=self.fullscreen).pack(anchor="w")
-        tk.Label(frame, text="Resolution / aspect ratio (Auto follows the window or screen; "
-                             "Original = accurate):", wraplength=340, justify="left").pack(anchor="w", pady=(8, 0))
-        picker = tk.Frame(frame)
-        picker.pack(anchor="w")
-        self.resolution = tk.StringVar(value=settings.get("resolution", AUTO))
-        if self.resolution.get() not in RESOLUTION_CHOICES:
-            self.resolution.set(AUTO)
-        self.aspect = tk.StringVar(value=settings.get("aspect", AUTO))
-        if self.aspect.get() not in ASPECT_CHOICES:
-            self.aspect.set(AUTO)
-        tk.OptionMenu(picker, self.resolution, *RESOLUTION_CHOICES).pack(side="left")
-        tk.OptionMenu(picker, self.aspect, *ASPECT_CHOICES).pack(side="left")
-        if not runner_supports_display_enhancements():
-            tk.Label(frame, text="(Runtime update pending - these apply after the runtime is rebuilt;\n"
-                                 "until then the game uses Original 4:3 / native.)",
+        tk.Label(frame, text="Graphics backend (restart to change):").pack(anchor="w", pady=(8, 0))
+        display = settings.get("display", "opengl")
+        self.display = tk.StringVar(value="vulkan" if display.startswith("vulkan") else "opengl")
+        tk.Radiobutton(frame, text="OpenGL (default)", variable=self.display, value="opengl").pack(anchor="w")
+        tk.Radiobutton(frame, text="Vulkan (needed for HDR)", variable=self.display, value="vulkan").pack(anchor="w")
+        tk.Label(frame, text="Everything else is in the game: press Back on the controller (or Tab)\n"
+                             "for resolution, aspect ratio, fullscreen, HD textures, HDR,\n"
+                             "Smooth 120 FPS, volume and cheats. Changes apply instantly.",
+                 fg="#205080", justify="left").pack(anchor="w", pady=(8, 0))
+        if not runner_supports_menu():
+            tk.Label(frame, text="(Runtime update pending - the in-game menu needs a rebuilt runtime.)",
                      fg="#b06000", justify="left").pack(anchor="w")
-        self.hd = tk.BooleanVar(value=settings.get("hd_textures", False))
-        tk.Checkbutton(frame, text="Use HD textures", variable=self.hd).pack(anchor="w")
-        self.fps120 = tk.BooleanVar(value=settings.get("fps120", False))
-        fps_button = tk.Checkbutton(frame, text="Smooth 120 FPS (in-between frames; game speed unchanged)",
-                                    variable=self.fps120)
-        fps_button.pack(anchor="w")
-        tk.Label(frame, text="Best on a 120 Hz+ screen. Adds about 8 ms of input delay. Off = original 60.",
-                 fg="gray").pack(anchor="w")
-        if not runner_supports_fps():
-            fps_button.configure(state="disabled")
-            self.fps120.set(False)
-
-        tk.Label(frame, text="Volume (changes live while playing):").pack(anchor="w", pady=(8, 0))
-        self.volume = tk.IntVar(value=settings.get("volume", 100))
-        tk.Scale(frame, from_=0, to=100, orient="horizontal", length=320, variable=self.volume,
-                 command=self.volume_changed).pack(anchor="w")
 
         self.play = tk.Button(frame, text="PLAY", width=28, height=2, command=self.start)
         self.play.pack(pady=(12, 4))
@@ -216,28 +235,9 @@ class Launcher(tk.Tk):
         self.after(0, self.status.set, text)
 
     def current_settings(self):
-        return {"build": self.build.get(), "fullscreen": self.fullscreen.get(), "hd_textures": self.hd.get(),
-                "display": self.display.get(), "volume": self.volume.get(),
-                "resolution": self.resolution.get(), "aspect": self.aspect.get(), "fps120": self.fps120.get()}
-
-    def volume_changed(self, _value):
-        # Debounce slider drags; only the last value is sent.
-        if self.volume_job:
-            self.after_cancel(self.volume_job)
-        self.volume_job = self.after(120, self.send_volume)
-
-    def send_volume(self):
-        self.volume_job = None
-        save_settings(self.current_settings())
-        if not (self.process and self.process.poll() is None):
-            return
-        self.volume_serial += 1
-        commands = CONTROL / "commands"
-        commands.mkdir(parents=True, exist_ok=True)
-        pending = CONTROL / "volume.tmp"
-        pending.write_text(f"command=set_volume\nvolume={self.volume.get()}\n", encoding="utf-8")
-        # Command files run in name order; keep names unique and increasing.
-        pending.replace(commands / f"{int(time.time() * 1000):016d}-{self.volume_serial:06d}-volume.txt")
+        # Older keys (resolution, aspect, ...) are kept so the one-time migration to the
+        # in-game menu's WarioWorld.ini can still read them.
+        return dict(self.saved, build=self.build.get(), display=self.display.get())
 
     def start(self):
         module = BUILDS[self.build.get()][1]
@@ -262,45 +262,20 @@ class Launcher(tk.Tk):
             self.set_status("Applying 4:3 / native presentation baseline...")
             subprocess.run([python, str(ROOT / "scripts/configure_baseline.py"), "--user-dir", str(USER)],
                            check=True, capture_output=True, creationflags=NO_WINDOW)
+            migrate_launcher_settings(settings)
+            menu = read_menu_settings()
             config = configparser.ConfigParser(interpolation=None)
             config.read(USER / "config.ini", encoding="utf-8")
             if not config.has_section("Video"):
                 config.add_section("Video")
-            config.set("Video", "fullscreen", "true" if settings["fullscreen"] else "false")
+            # Startup only; the in-game menu toggles fullscreen live and applies the rest itself.
+            config.set("Video", "fullscreen", "true" if menu.get("fullscreen") == "1" else "false")
+            config.set("Video", "resolution", "auto")
             with (USER / "config.ini").open("w", encoding="utf-8") as stream:
                 config.write(stream)
-
-            # Resolution and aspect (enhancements.py). Original = the accurate baseline.
-            if not runner_supports_display_enhancements():
-                settings = dict(settings, resolution=ORIGINAL_RES, aspect=ORIGINAL_ASPECT)
-            resolution_label, scale = "640x528", 1
-            if settings["resolution"] == AUTO:
-                resolution_label, scale = "auto", 0
-            else:
-                for label, text, value in enhancements.RESOLUTIONS:
-                    if label == settings["resolution"]:
-                        resolution_label, scale = text, value
-            config.set("Video", "resolution", resolution_label)
-            with (USER / "config.ini").open("w", encoding="utf-8") as stream:
-                config.write(stream)
-            texture_tools._set(USER / "Config/GFX.ini", {"Settings": {"InternalResolution": str(scale)}})
-            aspect_env = None
-            if settings["aspect"] == AUTO:
-                aspect_env = "auto"
-                texture_tools._set(USER / "Config/GFX.ini", {"Settings": {"AspectRatio": "3", "wideScreenHack": "False"}})
-            elif settings["aspect"] == ORIGINAL_ASPECT:
-                enhancements.apply_host_aspect(texture_tools._set, USER, None)
-            else:
-                ratio = dict(enhancements.ASPECTS)[settings["aspect"]]
-                aspect_env = "%d:%d" % ratio
-                enhancements.apply_host_aspect(texture_tools._set, USER, ratio)
-
             texture_tools.set_dump_mode(USER, False)  # old play-time dump mode is retired
-            texture_tools.set_hd_mode(USER, settings["hd_textures"])
-            # Same rendered image on every backend; HDR changes how it reaches an HDR display.
-            texture_tools._set(USER / "Config/GFX.ini",
-                               {"Enhancements": {"HDROutput": "True" if settings["display"] == "vulkan-hdr" else "False"}})
-            texture_tools._set(USER / "Config/Dolphin.ini", {"DSP": {"Volume": str(settings["volume"])}})
+            texture_tools.hd_folder(USER).mkdir(parents=True, exist_ok=True)
+            resolution_label = "auto"
             backend = "OpenGL" if settings["display"] == "opengl" else "Vulkan"
 
             # Fresh control folder each session so stale commands never replay.
@@ -313,12 +288,8 @@ class Launcher(tk.Tk):
             for name in ("STATICRECOMP_LOCKSTEP", "MODERNGEKKO_DUMP_TEXTURES", "MODERNGEKKO_WARIO_ASPECT",
                          "MODERNGEKKO_WARIO_FPS"):
                 environment.pop(name, None)
-            if aspect_env:
-                environment["MODERNGEKKO_WARIO_ASPECT"] = aspect_env
-            if settings.get("fps120") and runner_supports_fps():
-                # In-between frames are presented between VI swaps; a 60 Hz VSync wait would stall them.
-                environment["MODERNGEKKO_WARIO_FPS"] = "1"
-                texture_tools._set(USER / "Config/GFX.ini", {"Hardware": {"VSync": "False"}})
+            # Smooth 120 FPS presents between VI swaps; a 60 Hz VSync wait would stall it.
+            texture_tools._set(USER / "Config/GFX.ini", {"Hardware": {"VSync": "False"}})
             tracker = PlayTracker(ROOT, USER, CONTROL)
             tracker.start()
             self.set_status(f"Running ({module.parent.name})... close the game window to return here.\n"

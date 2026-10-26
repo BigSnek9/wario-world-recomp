@@ -12,7 +12,7 @@ index 1cbef59..298538b 100644
                  "$<TARGET_FILE:dolrecomp>"
                  "$<TARGET_FILE_DIR:moderngekko-port>"
 diff --git a/src/runtime/dolphin_runtime.cpp b/src/runtime/dolphin_runtime.cpp
-index f9b5405..b14c579 100644
+index f9b5405..a607c34 100644
 --- a/src/runtime/dolphin_runtime.cpp
 +++ b/src/runtime/dolphin_runtime.cpp
 @@ -3,6 +3,7 @@
@@ -23,15 +23,19 @@ index f9b5405..b14c579 100644
  #include "Common/StringUtil.h"
  #include "Core/Boot/Boot.h"
  #include "Core/Boot/BootManager.h"
-@@ -22,6 +23,7 @@
+@@ -22,6 +23,11 @@
  #include "InputCommon/ControllerInterface/Touch/InputOverrider.h"
  #include "UICommon/UICommon.h"
  #include "VideoCommon/FrameDumper.h"
 +#include "VideoCommon/Present.h"
++#include <atomic>
++
++// Aspect target shared with the in-game menu (VideoCommon/OnScreenUI.cpp).
++extern std::atomic<float> g_wario_aspect_target;
  #include "VideoCommon/PerformanceMetrics.h"
  #include "VideoCommon/VideoEvents.h"
  #include "VideoCommon/VideoConfig.h"
-@@ -39,6 +41,14 @@
+@@ -39,6 +45,14 @@
  #include <cstddef>
  #include <cstdio>
  #include <cstdlib>
@@ -46,43 +50,42 @@ index f9b5405..b14c579 100644
  #include <fstream>
  #include <fmt/format.h>
  #include <mutex>
-@@ -266,6 +276,73 @@ std::optional<RuntimeError> ReadAutomationMemory(const std::filesystem::path& pa
+@@ -266,6 +280,72 @@ std::optional<RuntimeError> ReadAutomationMemory(const std::filesystem::path& pa
    return {};
  }
  
 +// Optional Wario World any-aspect enhancement (scripts/tool_fix_wario_aspect.py).
++// Target from g_wario_aspect_target (VideoCommon/OnScreenUI.cpp; set from MODERNGEKKO_WARIO_ASPECT
++// and live by the in-game menu): 0 = original 4:3 (the game's own values are restored once),
++// < 0 = follow the presentation backbuffer, > 0 = fixed ratio.
 +void UpdateWarioAspect()
 +{
-+  static const std::string mode = [] {
-+    const char *value = std::getenv("MODERNGEKKO_WARIO_ASPECT");
-+    return std::string(value ? value : "");
-+  }();
-+  if (mode.empty() || mode == "off")
-+    return;
-+  static const float fixed_aspect = [] {
-+    const std::string text = mode;
-+    const auto colon = text.find(':');
-+    if (colon != std::string::npos)
-+    {
-+      const float width = std::strtof(text.substr(0, colon).c_str(), nullptr);
-+      const float height = std::strtof(text.substr(colon + 1).c_str(), nullptr);
-+      return height > 0.0f ? width / height : 0.0f;
-+    }
-+    return std::strtof(text.c_str(), nullptr);
-+  }();
-+  float aspect = fixed_aspect;
-+  if (mode == "auto")
++  static bool applied = false;
++  const float target = g_wario_aspect_target.load(std::memory_order_relaxed);
++  float aspect = target;
++  if (target == 0.0f)
 +  {
-+    if (!g_presenter)
++    if (!applied)
 +      return;
-+    const int width = g_presenter->GetBackbufferWidth();
-+    const int height = g_presenter->GetBackbufferHeight();
-+    if (width <= 0 || height <= 0)
-+      return;
-+    aspect = static_cast<float>(width) / static_cast<float>(height);
++    applied = false;
++    aspect = 4.0f / 3.0f;  // exactly the original HC-0001 bits (0x3FAAAAAB)
 +  }
-+  if (!(aspect > 0.5f && aspect < 8.0f))
-+    return;
++  else
++  {
++    if (target < 0.0f)
++    {
++      if (!g_presenter)
++        return;
++      const int width = g_presenter->GetBackbufferWidth();
++      const int height = g_presenter->GetBackbufferHeight();
++      if (width <= 0 || height <= 0)
++        return;
++      aspect = static_cast<float>(width) / static_cast<float>(height);
++    }
++    if (!(aspect > 0.5f && aspect < 8.0f))
++      return;
++    applied = true;
++  }
 +  auto &memory = Core::System::GetInstance().GetMemory();
 +  const auto as_float = [](u32 bits) {
 +    float value;
@@ -120,7 +123,7 @@ index f9b5405..b14c579 100644
  std::optional<RuntimeError> WriteAutomationMemory(u32 address,
                                                    const std::vector<std::uint8_t>& data)
  {
-@@ -346,6 +423,10 @@ std::optional<RuntimeError> ApplyAutomationCommand(Runtime& runtime,
+@@ -346,6 +426,10 @@ std::optional<RuntimeError> ApplyAutomationCommand(Runtime& runtime,
    case automation::CommandType::Stop:
      runtime.RequestStop();
      break;
@@ -131,7 +134,7 @@ index f9b5405..b14c579 100644
    }
    MarkAutomationCommand(state, command.source_name);
    return {};
-@@ -368,6 +449,8 @@ bool AutomationCommandNeedsReadyCore(automation::CommandType type)
+@@ -368,6 +452,8 @@ bool AutomationCommandNeedsReadyCore(automation::CommandType type)
    case automation::CommandType::ClearPad:
    case automation::CommandType::Stop:
      return false;
@@ -140,7 +143,7 @@ index f9b5405..b14c579 100644
    }
    return true;
  }
-@@ -613,9 +696,27 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+@@ -613,9 +699,27 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
      impl->ui_initialized = true;
    }
    Config::SetBase(Config::MAIN_FULLSCREEN, impl->config.fullscreen);
@@ -169,7 +172,7 @@ index f9b5405..b14c579 100644
  #ifdef _WIN32
    else
      impl->platform = Platform::CreateWin32Platform();
-@@ -700,11 +801,15 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+@@ -700,11 +804,15 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
      recomp_source = StaticRecompModuleSource::Attached(
          reinterpret_cast<const StaticRecompModuleDesc *>(
              impl->config.module.descriptor));
@@ -190,7 +193,7 @@ index f9b5405..b14c579 100644
    jit.SetStaticRecompModuleSource(std::move(recomp_source));
  
    s_runtime_active = true;
-@@ -796,6 +901,7 @@ RuntimeRunResult Runtime::Run() {
+@@ -796,6 +904,7 @@ RuntimeRunResult Runtime::Run() {
                                                     std::memory_order_relaxed);
          m_impl->automation_state.present_count.store(info.present_count,
                                                       std::memory_order_relaxed);
@@ -198,7 +201,7 @@ index f9b5405..b14c579 100644
        });
    if (!m_impl->config.automation.directory.empty()) {
      m_impl->automation_thread =
-@@ -807,7 +913,7 @@ RuntimeRunResult Runtime::Run() {
+@@ -807,7 +916,7 @@ RuntimeRunResult Runtime::Run() {
    if (!m_impl->config.headless && m_impl->config.show_fps_in_title) {
      title_thread = std::jthread([](std::stop_token stop_token) {
        while (!stop_token.stop_requested()) {

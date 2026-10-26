@@ -21,38 +21,37 @@ INCLUDE_NEW = '#include "VideoCommon/FrameDumper.h"\n#include "VideoCommon/Prese
 
 FUNC_ANCHOR = "std::optional<RuntimeError> WriteAutomationMemory(u32 address,"
 FUNC_NEW = '''// Optional Wario World any-aspect enhancement (scripts/tool_fix_wario_aspect.py).
+// Target from g_wario_aspect_target (VideoCommon/OnScreenUI.cpp; set from MODERNGEKKO_WARIO_ASPECT
+// and live by the in-game menu): 0 = original 4:3 (the game's own values are restored once),
+// < 0 = follow the presentation backbuffer, > 0 = fixed ratio.
 void UpdateWarioAspect()
 {
-  static const std::string mode = [] {
-    const char *value = std::getenv("MODERNGEKKO_WARIO_ASPECT");
-    return std::string(value ? value : "");
-  }();
-  if (mode.empty() || mode == "off")
-    return;
-  static const float fixed_aspect = [] {
-    const std::string text = mode;
-    const auto colon = text.find(':');
-    if (colon != std::string::npos)
-    {
-      const float width = std::strtof(text.substr(0, colon).c_str(), nullptr);
-      const float height = std::strtof(text.substr(colon + 1).c_str(), nullptr);
-      return height > 0.0f ? width / height : 0.0f;
-    }
-    return std::strtof(text.c_str(), nullptr);
-  }();
-  float aspect = fixed_aspect;
-  if (mode == "auto")
+  static bool applied = false;
+  const float target = g_wario_aspect_target.load(std::memory_order_relaxed);
+  float aspect = target;
+  if (target == 0.0f)
   {
-    if (!g_presenter)
+    if (!applied)
       return;
-    const int width = g_presenter->GetBackbufferWidth();
-    const int height = g_presenter->GetBackbufferHeight();
-    if (width <= 0 || height <= 0)
-      return;
-    aspect = static_cast<float>(width) / static_cast<float>(height);
+    applied = false;
+    aspect = 4.0f / 3.0f;  // exactly the original HC-0001 bits (0x3FAAAAAB)
   }
-  if (!(aspect > 0.5f && aspect < 8.0f))
-    return;
+  else
+  {
+    if (target < 0.0f)
+    {
+      if (!g_presenter)
+        return;
+      const int width = g_presenter->GetBackbufferWidth();
+      const int height = g_presenter->GetBackbufferHeight();
+      if (width <= 0 || height <= 0)
+        return;
+      aspect = static_cast<float>(width) / static_cast<float>(height);
+    }
+    if (!(aspect > 0.5f && aspect < 8.0f))
+      return;
+    applied = true;
+  }
   auto &memory = Core::System::GetInstance().GetMemory();
   const auto as_float = [](u32 bits) {
     float value;
@@ -122,9 +121,16 @@ WINDOWS_NEW = ("#include <cstdlib>\n#include <cstring>\n#include <cmath>\n#ifdef
                "#include <windows.h>\n#endif\n")
 
 
+TARGET_OLD = INCLUDE_NEW
+TARGET_NEW = INCLUDE_NEW + ("#include <atomic>\n\n"
+                            "// Aspect target shared with the in-game menu (VideoCommon/OnScreenUI.cpp).\n"
+                            "extern std::atomic<float> g_wario_aspect_target;\n")
+
+
 def apply(replace, runtime):
     source = runtime / "src/runtime/dolphin_runtime.cpp"
     replace(source, INCLUDE_OLD, INCLUDE_NEW)
+    replace(source, TARGET_OLD, TARGET_NEW)
     replace(source, CSTRING_OLD, CSTRING_NEW)
     replace(source, WINDOWS_OLD, WINDOWS_NEW)
     replace(source, FUNC_ANCHOR, FUNC_NEW)

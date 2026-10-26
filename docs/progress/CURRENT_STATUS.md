@@ -19,6 +19,9 @@ have it.
 
 ## Optional enhancements (all off for accuracy via "Original" / unchecked)
 
+All settings now live in the in-game menu (Back / Tab; ../modding/IN_GAME_MENU.md)
+and apply instantly; the launcher only picks build and backend.
+
 - Auto resolution and any-aspect widescreen (launcher default Auto): Hor+ with
   culling widened; transition fade and loading-coin afterimage widened too
   (WS-005/WS-006 fixed); WIDESCREEN_SUPPORT.md.

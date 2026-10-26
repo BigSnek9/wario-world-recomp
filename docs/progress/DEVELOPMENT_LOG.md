@@ -2,6 +2,20 @@
 
 Newest first. Earlier history (2026-10-24..26 morning): ../PROGRESS.md and ../HANDOFF.md.
 
+## 2026-10-27 (night): in-game menu, live settings, flicker fix
+
+- FPS object flicker: loads were paired by occurrence order only; when draw
+  order shifted, a load could pair with another object within the loose 25%
+  guard. Matching now predicts the static-object matrix after the camera move
+  (V_N * V_N-1^-1 * MV_N-1), accepts only real motion <= 40 units/frame
+  (rotation within 30%) and picks the best of occurrences +-2.
+- In-game menu (scripts/tool_fix_wario_menu.py, docs/modding/IN_GAME_MENU.md):
+  ImGui panel on Back/Tab, controller + mouse, neutral pad while open, every
+  setting live and saved to Config/WarioWorld.ini. Aspect and FPS became
+  runtime-switchable (g_wario_aspect_target, g_wario_fps_enabled);
+  "Original 4:3" restores the game's exact values.
+- Launcher slimmed to build/backend/Play/tools; migrates old choices once.
+
 ## 2026-10-26 (late night 2): object interpolation, pacing, overlay widening
 
 - FPS: every XF matrix load (0x000-0x0FF) is recorded and matched with the
