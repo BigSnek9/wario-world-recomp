@@ -34,7 +34,11 @@ LOG = ROOT / "private/playtest-last.log"
 SETTINGS = ROOT / "private/launcher.json"
 CONTROL = ROOT / "private/launcher-control"
 BUILDS = {
-    "clang": ("Fast build (Clang, recommended)", ROOT / "build/module-full-vectors-clang/gGWWE01_recomp.dll"),
+    # Clang + profile-guided optimisation; lockstep-validated 2026-10-26 (falls back to plain clang).
+    "clang": ("Fast build (Clang, recommended)",
+              next((p for p in (ROOT / "build/module-full-vectors-clang-pgo/gGWWE01_recomp.dll",
+                                ROOT / "build/module-full-vectors-clang/gGWWE01_recomp.dll") if p.is_file()),
+                   ROOT / "build/module-full-vectors-clang/gGWWE01_recomp.dll")),
     "msvc": ("Original build (MSVC, fallback)", ROOT / "build/module-full-vectors/Release/gGWWE01_recomp.dll"),
 }
 TEXTURE_OUT = ROOT.parent / "Extracted Textures"
@@ -44,6 +48,21 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import texture_tools  # noqa: E402
 sys.path.insert(0, str(ROOT / "launcher"))
 from play_tracker import PlayTracker  # noqa: E402
+import enhancements  # noqa: E402
+
+AUTO = "Auto (match window) - default"
+ORIGINAL_RES = "Original native 1x (accurate)"
+ORIGINAL_ASPECT = "Original 4:3 (accurate)"
+RESOLUTION_CHOICES = [AUTO, ORIGINAL_RES] + [label for label, _, scale in enhancements.RESOLUTIONS if scale > 1]
+ASPECT_CHOICES = [AUTO, ORIGINAL_ASPECT] + [label for label, ratio in enhancements.ASPECTS if ratio]
+
+
+def runner_supports_display_enhancements():
+    """The aspect/auto-resolution support is a runtime change; older runners lack it."""
+    try:
+        return b"MODERNGEKKO_WARIO_ASPECT" in RUNNER.read_bytes()
+    except OSError:
+        return False
 
 
 def python_console():
@@ -133,6 +152,18 @@ class Launcher(tk.Tk):
                        value="vulkan-hdr").pack(anchor="w")
         self.fullscreen = tk.BooleanVar(value=settings.get("fullscreen", False))
         tk.Checkbutton(frame, text="Fullscreen", variable=self.fullscreen).pack(anchor="w")
+        tk.Label(frame, text="Resolution / aspect ratio (Auto follows the window or screen; "
+                             "Original = accurate):", wraplength=340, justify="left").pack(anchor="w", pady=(8, 0))
+        picker = tk.Frame(frame)
+        picker.pack(anchor="w")
+        self.resolution = tk.StringVar(value=settings.get("resolution", AUTO))
+        if self.resolution.get() not in RESOLUTION_CHOICES:
+            self.resolution.set(AUTO)
+        self.aspect = tk.StringVar(value=settings.get("aspect", AUTO))
+        if self.aspect.get() not in ASPECT_CHOICES:
+            self.aspect.set(AUTO)
+        tk.OptionMenu(picker, self.resolution, *RESOLUTION_CHOICES).pack(side="left")
+        tk.OptionMenu(picker, self.aspect, *ASPECT_CHOICES).pack(side="left")
         self.hd = tk.BooleanVar(value=settings.get("hd_textures", False))
         tk.Checkbutton(frame, text="Use HD textures", variable=self.hd).pack(anchor="w")
 
@@ -165,7 +196,8 @@ class Launcher(tk.Tk):
 
     def current_settings(self):
         return {"build": self.build.get(), "fullscreen": self.fullscreen.get(), "hd_textures": self.hd.get(),
-                "display": self.display.get(), "volume": self.volume.get()}
+                "display": self.display.get(), "volume": self.volume.get(),
+                "resolution": self.resolution.get(), "aspect": self.aspect.get()}
 
     def volume_changed(self, _value):
         # Debounce slider drags; only the last value is sent.
@@ -216,6 +248,31 @@ class Launcher(tk.Tk):
             with (USER / "config.ini").open("w", encoding="utf-8") as stream:
                 config.write(stream)
 
+            # Resolution and aspect (enhancements.py). Original = the accurate baseline.
+            if not runner_supports_display_enhancements():
+                settings = dict(settings, resolution=ORIGINAL_RES, aspect=ORIGINAL_ASPECT)
+            resolution_label, scale = "640x528", 1
+            if settings["resolution"] == AUTO:
+                resolution_label, scale = "auto", 0
+            else:
+                for label, text, value in enhancements.RESOLUTIONS:
+                    if label == settings["resolution"]:
+                        resolution_label, scale = text, value
+            config.set("Video", "resolution", resolution_label)
+            with (USER / "config.ini").open("w", encoding="utf-8") as stream:
+                config.write(stream)
+            texture_tools._set(USER / "Config/GFX.ini", {"Settings": {"InternalResolution": str(scale)}})
+            aspect_env = None
+            if settings["aspect"] == AUTO:
+                aspect_env = "auto"
+                texture_tools._set(USER / "Config/GFX.ini", {"Settings": {"AspectRatio": "3", "wideScreenHack": "False"}})
+            elif settings["aspect"] == ORIGINAL_ASPECT:
+                enhancements.apply_host_aspect(texture_tools._set, USER, None)
+            else:
+                ratio = dict(enhancements.ASPECTS)[settings["aspect"]]
+                aspect_env = "%d:%d" % ratio
+                enhancements.apply_host_aspect(texture_tools._set, USER, ratio)
+
             texture_tools.set_dump_mode(USER, False)  # old play-time dump mode is retired
             texture_tools.set_hd_mode(USER, settings["hd_textures"])
             # Same rendered image on every backend; HDR changes how it reaches an HDR display.
@@ -231,8 +288,10 @@ class Launcher(tk.Tk):
                     stale.unlink()
 
             environment = dict(os.environ, MODERNGEKKO_STATICRECOMP="1")
-            for name in ("STATICRECOMP_LOCKSTEP", "MODERNGEKKO_DUMP_TEXTURES"):
+            for name in ("STATICRECOMP_LOCKSTEP", "MODERNGEKKO_DUMP_TEXTURES", "MODERNGEKKO_WARIO_ASPECT"):
                 environment.pop(name, None)
+            if aspect_env:
+                environment["MODERNGEKKO_WARIO_ASPECT"] = aspect_env
             tracker = PlayTracker(ROOT, USER, CONTROL)
             tracker.start()
             self.set_status(f"Running ({module.parent.name})... close the game window to return here.\n"
@@ -246,6 +305,16 @@ class Launcher(tk.Tk):
                     cwd=RUNNER.parent, stdout=log, stderr=subprocess.STDOUT, env=environment,
                     creationflags=NO_WINDOW)
                 code = self.process.wait()
+            if code != 0 and resolution_label == "auto" and "unsupported Dolphin internal resolution" in                     LOG.read_text(encoding="utf-8", errors="replace"):
+                # Runtime built before auto-resolution support: retry at native.
+                config.set("Video", "resolution", "640x528")
+                with (USER / "config.ini").open("w", encoding="utf-8") as stream:
+                    config.write(stream)
+                with LOG.open("w", encoding="utf-8") as log:
+                    self.process = subprocess.Popen(self.process.args, cwd=RUNNER.parent, stdout=log,
+                                                    stderr=subprocess.STDOUT, env=environment,
+                                                    creationflags=NO_WINDOW)
+                    code = self.process.wait()
             self.process = None
             tracker.stop()
             self.set_status("Game closed normally." if code == 0 else

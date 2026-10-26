@@ -35,6 +35,8 @@ parser.add_argument("--trace-checks", action="store_true", help="Trace verifier 
 parser.add_argument("--probe-file", type=Path, help="JSON list of [guest-frame-callback, button] pairs")
 parser.add_argument("--memcard", choices=("folder", "raw"), help="Slot A device override; raw uses a .raw card image instead of a GCI folder")
 parser.add_argument("--module", type=Path, help="Use this game module DLL instead of the --full/--vectors selection (e.g. a compiler experiment)")
+parser.add_argument("--gfx-setting", action="append", default=[], metavar="SECTION.KEY=VALUE",
+                    help="Override a GFX.ini setting after the presentation baseline (repeatable; enhancement tests)")
 parser.add_argument("--dolphin-setting", action="append", default=[], metavar="SECTION.KEY=VALUE",
                     help="Override a Dolphin.ini setting in this run's private user folder (repeatable)")
 parser.add_argument("--profile-at", type=float, help="Start a read-only sampling profile of busy threads at this second")
@@ -100,6 +102,19 @@ if args.seed_user:
     "nickname=Player\naddress=127.0.0.1\nport=2626\nbuffer=auto\n", encoding="utf-8")
 from configure_baseline import install as install_presentation_baseline
 install_presentation_baseline(user_directory)
+if args.gfx_setting:
+    gfx = configparser.ConfigParser(interpolation=None, strict=False)
+    gfx.optionxform = str
+    gfx_path = user_directory / "Config/GFX.ini"
+    gfx.read(gfx_path, encoding="utf-8")
+    for override in args.gfx_setting:
+        key, _, value = override.partition("=")
+        section, _, name = key.partition(".")
+        if not gfx.has_section(section):
+            gfx.add_section(section)
+        gfx.set(section, name, value)
+    with gfx_path.open("w", encoding="utf-8") as output:
+        gfx.write(output)
 if args.memcard == "raw":
     # The core reads user/Config/Dolphin.ini (F_DOLPHINCONFIG_IDX is
     # D_CONFIG_IDX + DOLPHIN_CONFIG). EXIDeviceType::MemoryCard (1) selects the

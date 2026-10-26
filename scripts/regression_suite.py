@@ -65,8 +65,8 @@ def frame_change(paths):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--quick", action="store_true")
-    parser.add_argument("--module", type=Path, default=ROOT / "build/module-full-vectors-clang/gGWWE01_recomp.dll")
-    parser.add_argument("--twin", type=Path, default=ROOT / "build/module-rel-bundle-vectors-clang/gGWWE01_recomp.dll")
+    parser.add_argument("--module", type=Path, default=ROOT / "build/module-full-vectors-clang-pgo/gGWWE01_recomp.dll")
+    parser.add_argument("--twin", type=Path, default=ROOT / "build/module-rel-bundle-vectors-clang-pgo/gGWWE01_recomp.dll")
     parser.add_argument("--runner", type=Path)
     args = parser.parse_args()
     common = ["--graphics", "OpenGL"] + (["--runner", args.runner] if args.runner else [])

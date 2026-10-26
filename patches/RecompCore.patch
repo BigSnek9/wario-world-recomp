@@ -328,10 +328,10 @@ index d084fea..a2a5dc7 100644
    std::vector<u64> m_effective_chunk_hashes;
    u64 m_rel_mapping_generation = 0;
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
-index 7b3d845..b76b6eb 100644
+index 7b3d845..c9423cc 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
-@@ -13,6 +13,30 @@
+@@ -13,6 +13,46 @@
  #include "Common/Logging/Log.h"
  
  #include <cstdio>
@@ -359,10 +359,26 @@ index 7b3d845..b76b6eb 100644
 +#include <cstring>
 +#include "Core/CoreTiming.h"
 +#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
  
  namespace
  {
-@@ -367,6 +391,13 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -367,6 +407,13 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
    auto* core = static_cast<StaticRecompCore*>(cpu->external_user_data);
    cia = core->TranslateRelAddress(cia);
    ++core->m_hook_fallback_instructions;
@@ -376,7 +392,7 @@ index 7b3d845..b76b6eb 100644
  
    // Lockstep: a block that fell back to the interpreter for an unmodeled
    // instruction (DMA mtspr, cache op, ...) performed side effects not captured
-@@ -397,6 +428,7 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -397,6 +444,7 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
          ppc.iCache.Invalidate(system.GetMemory(), system.GetJitInterface(), ea);
        else
          system.GetJitInterface().InvalidateICacheLine(ea);
@@ -384,7 +400,7 @@ index 7b3d845..b76b6eb 100644
        // These bypass SingleStepInner, so charge Dolphin's PPCTables cost
        // here (icbi 4, dcbf/dcbst/dcbi 5); their emitted block cost is zero.
        ppc.downcount -= (xo == 982u) ? 4 : 5;
-@@ -405,12 +437,102 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -405,12 +453,102 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
      }
    }
  
