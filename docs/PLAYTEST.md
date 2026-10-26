@@ -46,3 +46,13 @@ The last manual launch log is private/playtest-last.log. Your playtest saves are
 retained in private/playtest-user and are never replaced by automated runs.
 Actual saved-progression reload still needs a real save-point or stage-clear
 cycle; the automated outer-card-file test is not proof of this.
+
+## Launcher (2026-10-26)
+
+Double-click `Launch Wario World.cmd` in the Wario World folder (or
+`Recomp/Launch-WarioWorld.cmd`). It opens a small window: pick the build
+(fast Clang build by default, MSVC fallback), optionally tick Fullscreen, press
+PLAY. It does the same setup as Play-WarioWorld.cmd (controls if missing, 4:3 /
+native baseline) and uses private/playtest-user, so saves are kept. "Open last
+log" shows private/playtest-last.log after a crash. Choices are remembered in
+private/launcher.json.
