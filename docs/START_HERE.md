@@ -1,10 +1,16 @@
 # Resume quickly
 
+UPDATE 2026-10-26 evening: the master brief (../../READ ME AGENTS.txt) docs
+layout now exists: start at progress/CURRENT_STATUS.md and NEXT_ACTIONS.md.
+Subagents are authorized by the user. The launcher now uses the clang-built
+module (lockstep-validated) and a runtime with dispatch fixes; see
+progress/DEVELOPMENT_LOG.md. Text below is the earlier checkpoint.
+
 Work in F:/AI Projects/Recomp/Wario World/Recomp. No user response is currently
 needed. Build a faithful GWWE01 rev0 static recomp first; FPS uncapping is later.
 All agent tests must be hidden and muted. Ask before new installations. Existing
 local DolRecomp/ModernGekko dependencies and portable Ghidra/loader are approved.
-No subagents authorized. Preserve private/playtest-user (the human's saves).
+Subagents authorized 2026-10-26. Preserve private/playtest-user (the human's saves).
 
 ## Accuracy review and user feedback take priority
 

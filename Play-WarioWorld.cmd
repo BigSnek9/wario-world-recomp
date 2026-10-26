@@ -7,7 +7,12 @@ if not exist "%project_dir%build\moderngekko\Release\moderngekko-run.exe" (
   echo Build the ModernGekko runtime first.
   exit /b 2
 )
-if not exist "%project_dir%build\module-full-vectors\Release\gGWWE01_recomp.dll" (
+rem Prefer the clang-built module (same generated code, ~1.75x faster, lockstep-verified
+rem 2026-10-26). Set WARIO_MODULE=msvc to use the original MSVC build instead.
+set "game_module=%project_dir%build\module-full-vectors-clang\gGWWE01_recomp.dll"
+if /i "%WARIO_MODULE%"=="msvc" set "game_module=%project_dir%build\module-full-vectors\Release\gGWWE01_recomp.dll"
+if not exist "%game_module%" set "game_module=%project_dir%build\module-full-vectors\Release\gGWWE01_recomp.dll"
+if not exist "%game_module%" (
   echo Build the full vector-inclusive game module first.
   exit /b 2
 )
@@ -31,7 +36,7 @@ if errorlevel 1 (
   exit /b 4
 )
 pushd "%project_dir%build\moderngekko\Release"
-"%project_dir%build\moderngekko\Release\moderngekko-run.exe" --game "%project_dir%original\GWWE01" --module "%project_dir%build\module-full-vectors\Release\gGWWE01_recomp.dll" --user-dir "%project_dir%private\playtest-user" --graphics OpenGL --no-mods --title "Wario World Recomp - Test Build" > "%project_dir%private\playtest-last.log" 2>&1
+"%project_dir%build\moderngekko\Release\moderngekko-run.exe" --game "%project_dir%original\GWWE01" --module "%game_module%" --user-dir "%project_dir%private\playtest-user" --graphics OpenGL --no-mods --title "Wario World Recomp - Test Build" > "%project_dir%private\playtest-last.log" 2>&1
 set "playtest_exit=%ERRORLEVEL%"
 popd
 if not "%playtest_exit%"=="0" (

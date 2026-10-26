@@ -126,7 +126,12 @@ int wmain(int argc, wchar_t** argv) {
         info->SizeOfStruct = sizeof(SYMBOL_INFO);
         info->MaxNameLen = 1023;
         DWORD64 displacement = 0;
-        if (SymFromAddr(process, rip, &displacement, info)) symbol = info->Name;
+        if (SymFromAddr(process, rip, &displacement, info)) {
+            symbol = info->Name;
+            // Without a containing private symbol DbgHelp returns the nearest
+            // preceding public one; mark those so they are not misread.
+            if (info->Size != 0 && displacement >= info->Size) symbol = "~" + symbol;
+        }
         else {
             char hex[32];
             std::snprintf(hex, sizeof hex, "0x%llx", static_cast<unsigned long long>(rip - mod.BaseOfImage));

@@ -8,14 +8,14 @@
   "ModernGekko": {
     "path": "third_party/ModernGekko",
     "commit": "a2e4e2b026a68d4848f20ebf16f0e0ddeb573957",
-    "patch_sha256": "e8a829a23ab044ea2c6ab4ab013f68bf9726733ef912dee040962a0220b3bf99",
-    "bytes": 2583
+    "patch_sha256": "4f4267750cafc932963ee9af5b5530422c08cf93d3765bcc9b6ac8890f34e18e",
+    "bytes": 4704
   },
   "RecompCore": {
     "path": "third_party/ModernGekko/vendor/dolphin",
     "commit": "cf8ceb81b47d6172164cd0572f57aa7624719f33",
-    "patch_sha256": "b3782de03f523f36ba93f0136d609b670d791f69f6d6e20ffdf2818b44638ff4",
-    "bytes": 34865
+    "patch_sha256": "15cd3c0402facfd0328629db18c0d26c71c042bea78ee7ed2b9c0a2fca0f27e8",
+    "bytes": 35695
   },
   "Bundled-DolRecomp": {
     "path": "third_party/ModernGekko/vendor/dolphin/DolRecomp",

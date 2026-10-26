@@ -7,3 +7,13 @@
 - Detailed evidence: ../HANDOFF.md, ../REL_RUNTIME.md.
 
 Unmapped: actor/entity system, collision, scripting, save system internals.
+
+## Module lifetime observation (2026-10-26)
+
+At the Greenhorn Forest entry checkpoint the OS module list (0x800030C8) is
+empty; after a few seconds of walking it holds WWUSS1 (module ID 1) at header
+0x809E74C0 with 23 sections (code section 3 at 0x809E75C0, 303,636 bytes;
+small data sections 4-7). So REL1 is linked and executed during Greenhorn
+Forest gameplay, correcting the earlier note that stage one does not exercise
+REL1. Evidence: private/runs/20261026T165304735180Z-f5082ae1 snapshots 1-3.
+What triggers the link (area streaming? enemy set?) is not yet known.

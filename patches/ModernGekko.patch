@@ -12,7 +12,7 @@ index 1cbef59..298538b 100644
                  "$<TARGET_FILE:dolrecomp>"
                  "$<TARGET_FILE_DIR:moderngekko-port>"
 diff --git a/src/runtime/dolphin_runtime.cpp b/src/runtime/dolphin_runtime.cpp
-index f9b5405..50474dd 100644
+index f9b5405..aa428d7 100644
 --- a/src/runtime/dolphin_runtime.cpp
 +++ b/src/runtime/dolphin_runtime.cpp
 @@ -3,6 +3,7 @@
@@ -47,7 +47,28 @@ index f9b5405..50474dd 100644
  #ifdef _WIN32
    else
      impl->platform = Platform::CreateWin32Platform();
-@@ -807,7 +823,7 @@ RuntimeRunResult Runtime::Run() {
+@@ -700,11 +716,15 @@ RuntimeCreateResult Runtime::Create(RuntimeConfig config) {
+     recomp_source = StaticRecompModuleSource::Attached(
+         reinterpret_cast<const StaticRecompModuleDesc *>(
+             impl->config.module.descriptor));
+-  recomp_source.host_call = &ModManager::HostCall;
+-  recomp_source.host_call_contains = &ModManager::HostCallContains;
+-  recomp_source.host_call_range_contains =
+-      &ModManager::HostCallRangeContains;
+-  recomp_source.host_call_user = impl->mods.get();
++  if (!impl->mods->Empty())
++  {
++    // No mods loaded => no interception can exist; skip the per-call hook.
++    recomp_source.host_call = &ModManager::HostCall;
++    recomp_source.host_call_contains = &ModManager::HostCallContains;
++    recomp_source.host_call_range_contains =
++        &ModManager::HostCallRangeContains;
++    recomp_source.host_call_user = impl->mods.get();
++  }
+   jit.SetStaticRecompModuleSource(std::move(recomp_source));
+ 
+   s_runtime_active = true;
+@@ -807,7 +827,7 @@ RuntimeRunResult Runtime::Run() {
    if (!m_impl->config.headless && m_impl->config.show_fps_in_title) {
      title_thread = std::jthread([](std::stop_token stop_token) {
        while (!stop_token.stop_requested()) {
@@ -56,3 +77,28 @@ index f9b5405..50474dd 100644
          for (int i = 0; i < 10 && !stop_token.stop_requested(); ++i)
            std::this_thread::sleep_for(std::chrono::milliseconds(100));
        }
+diff --git a/src/runtime/mod_loader.cpp b/src/runtime/mod_loader.cpp
+index 4b2345f..6b03850 100644
+--- a/src/runtime/mod_loader.cpp
++++ b/src/runtime/mod_loader.cpp
+@@ -567,6 +567,10 @@ bool ModManager::Dispatch(CPUState *state, std::uint32_t address) {
+     m_impl->runtime_started = true;
+     TriggerEvent("*", "runtime_start", state);
+   }
++  // No interceptions: every lookup below would miss (identical result).
++  if (m_impl->patches.empty() && m_impl->hooks.empty() &&
++      m_impl->pending_returns.empty())
++    return false;
+   if (!m_impl->pending_returns.empty() &&
+       m_impl->pending_returns.back().address == address &&
+       m_impl->pending_returns.back().stack_pointer == state->gpr[1]) {
+@@ -630,6 +634,9 @@ const std::vector<LoadedModInfo> &ModManager::GetLoadedMods() const {
+ }
+ 
+ bool ModManager::HandlesAddress(std::uint32_t address) const {
++  if (m_impl->patches.empty() && m_impl->hooks.empty() &&
++      m_impl->pending_returns.empty())
++    return false;
+   if (m_impl->patches.contains(address) || m_impl->hooks.contains(address))
+     return true;
+   return std::ranges::any_of(m_impl->pending_returns,

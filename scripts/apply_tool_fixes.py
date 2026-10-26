@@ -185,6 +185,8 @@ def main():
     runtime = ROOT / "third_party/ModernGekko"
     fix_silent_headless(runtime)
     fix_diagnostic_coverage(runtime)
+    import tool_fix_mod_dispatch
+    tool_fix_mod_dispatch.apply(replace, runtime)
     # Its bundled compiler is a separate pin; only fix code with a matching preimage.
     nested = runtime / "vendor/dolphin/DolRecomp"
     if "section->size == 0 || offset > section->size" in (nested / "src/frontend/container/rel.c").read_text():
@@ -365,8 +367,11 @@ def main():
             "    std::fprintf(stderr, \"[wario-rel] runtime PCs and independent relocation hashes enabled\\n\");\n"
             "  }")
     smc = core_dir / "StaticRecompCore_SMC.cpp"
+    # Discovery reuses a member scratch vector (see tool_fix_rel_scratch.py):
+    # this runs after every REL dispatch in runtime-PC mode.
     replace(smc, "  std::vector<ActiveRelSection> discovered;\n  for (u32 module_index",
-            "  std::vector<ActiveRelSection> discovered;\n"
+            "  std::vector<ActiveRelSection>& discovered = m_rel_discovery_scratch;\n"
+            "  discovered.clear();\n"
             "  if (m_runtime_rel_pc) {\n"
             "    for (u32 mi=0; mi<m_module->num_rel_modules; ++mi) {\n"
             "      const auto& module = m_module->rel_modules[mi];\n"
@@ -437,6 +442,8 @@ def main():
             "    return !m_hidden && m_hwnd != nullptr && GetForegroundWindow() == m_hwnd && !IsIconic(m_hwnd);\n"
             "  }\n\n"
             "  bool Init() override;")
+    import tool_fix_rel_scratch
+    tool_fix_rel_scratch.apply(replace, core_dir)
     print("Tool fixes applied. Original game bytes were not changed.")
 
 

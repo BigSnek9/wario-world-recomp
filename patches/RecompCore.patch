@@ -290,7 +290,7 @@ index e3581cc..cd2d082 100644
    m_failed_chunks = 0;
    ++m_reverify_events;
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
-index d084fea..7fc4c13 100644
+index d084fea..62039b3 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore.h
 @@ -171,8 +171,17 @@ private:
@@ -311,6 +311,14 @@ index d084fea..7fc4c13 100644
    u64 m_timebase_cycle_remainder = 0;
    std::unordered_map<u32, u64> m_dispatch_samples;
    u64 m_bursts = 0;          // SyncIn..SyncOut native runs (diagnostic)
+@@ -191,6 +200,7 @@ private:
+     u32 size;
+   };
+   std::vector<ActiveRelSection> m_active_rel_sections;
++  std::vector<ActiveRelSection> m_rel_discovery_scratch;  // reused by RefreshRelSections
+   std::vector<int> m_chunk_rel_sections;
+   std::vector<u64> m_effective_chunk_hashes;
+   u64 m_rel_mapping_generation = 0;
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
 index 7b3d845..a42cebc 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
@@ -378,13 +386,16 @@ index d91ec2d..1085c13 100644
          }
          else
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_SMC.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_SMC.cpp
-index 491c57e..28fd320 100644
+index 491c57e..d7d636a 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_SMC.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_SMC.cpp
-@@ -24,6 +24,16 @@ void StaticRecompCore::RefreshRelSections()
+@@ -23,7 +23,18 @@ void StaticRecompCore::RefreshRelSections()
+   if (!m_module || m_module->num_rel_modules == 0 || !m_guest.ram || m_guest.ram_size < 0x40)
      return;
  
-   std::vector<ActiveRelSection> discovered;
+-  std::vector<ActiveRelSection> discovered;
++  std::vector<ActiveRelSection>& discovered = m_rel_discovery_scratch;
++  discovered.clear();
 +  if (m_runtime_rel_pc) {
 +    for (u32 mi=0; mi<m_module->num_rel_modules; ++mi) {
 +      const auto& module = m_module->rel_modules[mi];
@@ -398,7 +409,16 @@ index 491c57e..28fd320 100644
    for (u32 module_index = 0; module_index < m_module->num_rel_modules; ++module_index)
    {
      const StaticRecompRelModule& module = m_module->rel_modules[module_index];
-@@ -118,8 +128,18 @@ bool StaticRecompCore::ResolveNativeAddress(u32 runtime_address, u32* linked_add
+@@ -87,7 +98,7 @@ void StaticRecompCore::RefreshRelSections()
+                                    });
+   if (!changed)
+     return;
+-  m_active_rel_sections = std::move(discovered);
++  m_active_rel_sections.swap(discovered);
+   ++m_rel_mapping_generation;
+   for (u32 i = 0; i < m_chunk_rel_sections.size(); ++i)
+   {
+@@ -118,8 +129,18 @@ bool StaticRecompCore::ResolveNativeAddress(u32 runtime_address, u32* linked_add
      }
      return false;
    };
@@ -418,7 +438,7 @@ index 491c57e..28fd320 100644
    const int direct_index = GetAddressLookupIndex(runtime_address);
    if (direct_index >= 0 && direct_index < static_cast<int>(m_chunk_lookup_table.size()))
    {
-@@ -147,12 +167,14 @@ bool StaticRecompCore::ResolveRuntimeAddress(u32 linked_address, u32* runtime_ad
+@@ -147,12 +168,14 @@ bool StaticRecompCore::ResolveRuntimeAddress(u32 linked_address, u32* runtime_ad
        return true;
      }
    }
@@ -434,7 +454,7 @@ index 491c57e..28fd320 100644
    u32 runtime_address = linked_address;
    ResolveRuntimeAddress(linked_address, &runtime_address);
    return runtime_address;
-@@ -160,6 +182,7 @@ u32 StaticRecompCore::TranslateRelAddress(u32 linked_address)
+@@ -160,6 +183,7 @@ u32 StaticRecompCore::TranslateRelAddress(u32 linked_address)
  
  int StaticRecompCore::GetAddressLookupIndex(u32 address) const
  {
@@ -442,7 +462,7 @@ index 491c57e..28fd320 100644
    if (address >= 0x80000000u && address < 0x80000000u + m_lookup_ram_size)
      return static_cast<int>((address - 0x80000000u) >> 2);
    if (address >= 0x90000000u && address < 0x90000000u + m_lookup_exram_size)
-@@ -308,6 +331,14 @@ void StaticRecompCore::VerifyChunk(u32 index)
+@@ -308,6 +332,14 @@ void StaticRecompCore::VerifyChunk(u32 index)
      hash *= 0x100000001B3ull;
    }
  
