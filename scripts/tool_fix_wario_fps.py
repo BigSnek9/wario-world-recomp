@@ -237,14 +237,16 @@ double Presenter::PresentInterpolated(RcTcacheEntry entry, u32 fb_width, u32 fb_
   s_wario_interval = std::chrono::duration_cast<DT>(std::chrono::duration<double>(interval_seconds));
   // Counted from the previous real frame (still held, or already shown), so frames the game
   // finishes early in the 16.7 ms still land evenly between two real frames. Never earlier than
-  // now, and never closer than one interval to the previous queued in-between frame (frames the
-  // game finishes late shift the following real frame instead of bunching up).
+  // now, and never closer than one interval to the previous in-between frame, queued or already
+  // shown: in rooms where the game finishes its frame late (underground levels, ~11 ms after the
+  // previous real frame) the in-between frames then start at the copy and stay evenly spaced
+  // instead of the overdue ones going out back to back.
   const auto now = Clock::now();
   const TimePoint base = s_wario_pending_present ? s_wario_pending_due : s_wario_last_real_present;
   TimePoint due = base + std::chrono::duration_cast<DT>(std::chrono::duration<double>(delay_seconds));
-  if (!m_wario_pending_mids.empty())
-    due = std::max(due, m_wario_pending_mids.back().due + s_wario_interval);
+  due = std::max(due, s_wario_last_mid_due + s_wario_interval);
   due = std::max(due, now);
+  s_wario_last_mid_due = due;
   m_wario_pending_mids.push_back(
       {std::move(entry), fb_width, fb_height, (WarioFpsDebug() & 1) ? now : due});
   const double offset_ms =
@@ -292,6 +294,7 @@ void Presenter::WarioFlushPendingPresent(bool force)
           static_cast<int>(frame.height * m_xfb_entry->GetHeight() / m_xfb_entry->native_height));
       m_xfb_entry->AcquireContentLock();
       Present(nullptr);
+      WarioTrace('M');
       s_wario_last_mid_present = Clock::now();
       WarioNotePresent();
       continue;
@@ -317,6 +320,7 @@ void Presenter::WarioFlushPendingPresent(bool force)
       m_xfb_entry->AcquireContentLock();
     }
     Present(&s_wario_pending_info);
+    WarioTrace('R');
     s_wario_last_real_present = Clock::now();
     WarioNotePresent();
     ProcessFrameDumping(s_wario_pending_ticks);
@@ -345,8 +349,25 @@ static int WarioFpsDebug()
   return bits;
 }
 
+// MODERNGEKKO_WARIO_FPS_TRACE=<file> (diagnostics): one line per pacing event, "<kind> <ms>":
+// C copy (frame end), Q in-between queued, M/R in-between/held real shown, V VI swap, H real held,
+// r real shown directly at the VI.
+void WarioTrace(char kind)
+{
+  static FILE* const file = [] {
+    const char* path = std::getenv("MODERNGEKKO_WARIO_FPS_TRACE");
+    return path && *path ? std::fopen(path, "w") : nullptr;
+  }();
+  if (!file)
+    return;
+  static const TimePoint start = Clock::now();
+  std::fprintf(file, "%c %.3f\\n", kind,
+               std::chrono::duration<double, std::milli>(Clock::now() - start).count());
+}
+
 static TimePoint s_wario_last_real_present{};
 static TimePoint s_wario_last_mid_present{};
+static TimePoint s_wario_last_mid_due{};  // planned time of the latest in-between frame
 static DT s_wario_interval = std::chrono::duration_cast<DT>(std::chrono::duration<double>(0.5 / 59.94));
 static bool s_wario_pending_present = false;
 static TimePoint s_wario_pending_due{};
@@ -392,10 +413,12 @@ PRESENT_VI_NEW = """    if ((s_wario_last_mid_present > s_wario_last_real_presen
         s_wario_pending_info = present_info;
         m_wario_real_entry = m_xfb_entry;
         m_wario_real_rect = m_xfb_rect;
+        WarioTrace('H');
         return;
       }
     }
     Present(&present_info);
+    WarioTrace('r');
     s_wario_last_real_present = Clock::now();
     WarioNotePresent();
     ProcessFrameDumping(ticks);
@@ -403,10 +426,11 @@ PRESENT_VI_NEW = """    if ((s_wario_last_mid_present > s_wario_last_real_presen
 
 PRESENT_VI_FLUSH_OLD = "  bool is_duplicate = FetchXFB(xfb_addr, fb_width, fb_stride, fb_height, ticks);\n"
 PRESENT_VI_FLUSH_NEW = ("  // A real frame still held from the previous VI goes out first.\n"
+                        "  WarioTrace('V');\n"
                         "  WarioFlushPendingPresent(s_wario_pending_present);\n" + PRESENT_VI_FLUSH_OLD)
 
 PRESENT_INCLUDE_OLD = '#include "VideoCommon/Present.h"\n\n#include "Common/ChunkFile.h"\n'
-PRESENT_INCLUDE_NEW = ('#include "VideoCommon/Present.h"\n\n#include <algorithm>\n#include <chrono>\n\n'
+PRESENT_INCLUDE_NEW = ('#include "VideoCommon/Present.h"\n\n#include <algorithm>\n#include <chrono>\n#include <cstdio>\n#include <cstdlib>\n\n'
                        '#include "Common/ChunkFile.h"\n')
 
 BP_INCLUDE_OLD = '#include "VideoCommon/BPStructs.h"\n\n#include <algorithm>\n#include <cstring>\n#include <string>\n'
@@ -431,6 +455,7 @@ extern RcTcacheEntry g_wario_private_xfb_entry;
 namespace VideoCommon
 {
 extern u64 g_wario_present_gaps[6];
+void WarioTrace(char kind);
 extern double g_wario_pending_late_sum, g_wario_pending_late_max;
 extern u64 g_wario_pending_count, g_wario_pending_forced;
 }  // namespace VideoCommon
@@ -1109,6 +1134,7 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
 {
   if (g_wario_fps_replaying)
     return;
+  VideoCommon::WarioTrace('C');
   // Live on/off from the in-game menu, switched at a frame boundary.
   if (const bool wanted = g_wario_fps_multiplier.load(std::memory_order_relaxed) > 1;
       wanted != g_wario_fps_record)
@@ -1211,9 +1237,41 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
     }
   }
 
+  // Each in-between frame is queued as soon as it is built, and frames already due (the held real
+  // frame, earlier in-between frames) are shown between steps: at 4x in heavy rooms the three
+  // replays take long enough that waiting for all of them bunched the presents (stutter that
+  // reads as motion blur).
+  size_t queued = 0;
+  const auto queue = [&](RcTcacheEntry frame) {
+    VideoCommon::WarioTrace('Q');
+    const size_t i = queued++;
+    if (!frame)
+      return;
+    s_wfps.interpolated++;
+    if (dump && i == 0)
+    {
+      frame->texture->Save(
+          fmt::format("{}/mid_{:08}.png", dump_dir, static_cast<unsigned long long>(s_wfps.frames)),
+          0);
+    }
+    const double offset = g_presenter->PresentInterpolated(
+        std::move(frame), dest_stride / 2, height, interval * static_cast<double>(i + 1), interval);
+    if (offset < 0.0)
+    {
+      s_wfps.skipped_late++;
+    }
+    else if (i == 0)
+    {
+      s_wfps.offset_sum += offset;
+      s_wfps.offset_count++;
+      s_wfps.offset_min = std::min(s_wfps.offset_min, offset);
+      s_wfps.offset_max = std::max(s_wfps.offset_max, offset);
+    }
+  };
+  g_presenter->WarioFlushPendingPresent(false);
+
   g_wario_fps_replaying = true;
   std::vector<u8> tmem_end(s_tex_mem.begin(), s_tex_mem.end());
-  std::vector<RcTcacheEntry> frames;
   for (int step = 1; step < multiplier; ++step)
   {
     const float t = static_cast<float>(step) / static_cast<float>(multiplier);
@@ -1242,7 +1300,7 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
     g_vertex_manager->Flush();
     g_wario_view_correction_active = false;
     xf_state_manager.SetProjectionChanged();
-    frames.push_back(private_copy());
+    queue(private_copy());
   }
   g_texture_cache->WarioSwapFrameCopies(false);
   std::copy(tmem_end.begin(), tmem_end.end(), s_tex_mem.begin());
@@ -1250,32 +1308,6 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
 
   BPFunctions::SetScissorAndViewport(g_framebuffer_manager.get(), bpmem.scissorTL, bpmem.scissorBR,
                                      bpmem.scissorOffset, xfmem.viewport);
-  for (size_t i = 0; i < frames.size(); ++i)
-  {
-    if (!frames[i])
-      continue;
-    s_wfps.interpolated++;
-    if (dump && i == 0)
-    {
-      frames[i]->texture->Save(
-          fmt::format("{}/mid_{:08}.png", dump_dir, static_cast<unsigned long long>(s_wfps.frames)),
-          0);
-    }
-    const double offset = g_presenter->PresentInterpolated(
-        std::move(frames[i]), dest_stride / 2, height, interval * static_cast<double>(i + 1),
-        interval);
-    if (offset < 0.0)
-    {
-      s_wfps.skipped_late++;
-    }
-    else if (i == 0)
-    {
-      s_wfps.offset_sum += offset;
-      s_wfps.offset_count++;
-      s_wfps.offset_min = std::min(s_wfps.offset_min, offset);
-      s_wfps.offset_max = std::max(s_wfps.offset_max, offset);
-    }
-  }
 }
 }  // namespace
 

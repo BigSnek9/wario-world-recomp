@@ -94,6 +94,18 @@ between each pair of real frames with the camera halfway between them.
    command loop or, in this runtime's single-thread mode, from inside Dolphin's
    speed-limiter sleep (a hook in `CoreTimingManager::Throttle`), which is idle
    time anyway.
+   Each in-between frame is queued as soon as its replay finishes, and frames
+   already due are shown between replay steps. Every in-between frame is at
+   least one interval after the previous one, whether that one is still queued
+   or already shown (2026-10-27).
+   - Underground levels (the trapdoor rooms, archive UGR) finish their frame
+     about 11 ms after the previous real frame. Before this fix, the overdue
+     in-between frames went out back to back. At 4x, 26% of presents were on
+     pace and 825 were bunched; after it, 79% were on pace and 49 bunched. The
+     human described the effect as motion blur.
+   - Diagnostics: MODERNGEKKO_WARIO_FPS_TRACE=<file> logs every pacing event
+     with a timestamp: C copy, Q queued, M/R in-between/real shown, V VI swap,
+     H real held, r real shown at the VI.
 
 ## Measurements (hidden runs, prof runner, OpenGL, PGO module)
 

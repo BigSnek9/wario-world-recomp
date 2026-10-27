@@ -47,15 +47,24 @@ retained in private/playtest-user and are never replaced by automated runs.
 Actual saved-progression reload still needs a real save-point or stage-clear
 cycle; the automated outer-card-file test is not proof of this.
 
-## Launcher (2026-10-26)
+## Starting the game (2026-10-27)
 
 Double-click `Launch Wario World.cmd` in the Wario World folder (or
-`Recomp/Launch-WarioWorld.cmd`). It opens a small window: pick the build
-(fast Clang build by default, MSVC fallback), optionally tick Fullscreen, press
-PLAY. It does the same setup as Play-WarioWorld.cmd (controls if missing, 4:3 /
-native baseline) and uses private/playtest-user, so saves are kept. "Open last
-log" shows private/playtest-last.log after a crash. Choices are remembered in
-private/launcher.json.
+`Recomp/Launch-WarioWorld.cmd` / `Play-WarioWorld.cmd`). There is no launcher
+window any more; the game starts straight away. Every option is in the in-game
+menu (Back on the controller, or Tab), saved in
+private/playtest-user/Config/WarioWorld.ini.
+- **Graphics backend:** a menu option. It takes effect with the menu's
+  "Restart now".
+- **Builds:** the fast Clang PGO build is always used; the MSVC fallback
+  choice is gone.
+- **Setup:** the starter (launcher/wario_launcher.pyw) still installs the
+  controls if they are missing, reapplies the 4:3 / native baseline, runs the
+  play tracker and writes private/playtest-last.log. Errors appear in a
+  message box.
+
+(The texture-dump notes below describe the retired launcher; texture
+extraction and the HD folder are now menu items.)
 
 ## Texture dump and HD textures (2026-10-26)
 
