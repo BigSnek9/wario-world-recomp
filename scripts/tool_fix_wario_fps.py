@@ -379,7 +379,7 @@ void Presenter::WarioFlushPendingPresent(bool force)
           0, 0, static_cast<int>(frame.width * m_xfb_entry->GetWidth() / m_xfb_entry->native_width),
           static_cast<int>(frame.height * m_xfb_entry->GetHeight() / m_xfb_entry->native_height));
       m_xfb_entry->AcquireContentLock();
-      WarioDumpPresented(m_xfb_entry, 'M');
+      WarioDumpPresented(m_xfb_entry, 'M'); WarioTrace('P');
       Present(nullptr);
       WarioTrace('M');
       s_wario_last_mid_present = Clock::now();
@@ -406,7 +406,7 @@ void Presenter::WarioFlushPendingPresent(bool force)
       m_xfb_rect = m_wario_real_rect;
       m_xfb_entry->AcquireContentLock();
     }
-    WarioDumpPresented(m_xfb_entry, 'R');
+    WarioDumpPresented(m_xfb_entry, 'R'); WarioTrace('P');
     Present(&s_wario_pending_info);
     WarioTrace('R');
     s_wario_last_real_present = Clock::now();
@@ -439,7 +439,8 @@ static int WarioFpsDebug()
 }
 
 // MODERNGEKKO_WARIO_FPS_TRACE=<file> (diagnostics): one line per pacing event, "<kind> <ms>":
-// C copy (frame end), Q in-between queued, M/R in-between/held real shown, V VI swap, H real held,
+// C copy (frame end), Q in-between queued, P present call starts, M/R in-between/held real shown
+// (P->M/R = time spent presenting, e.g. blocked on VSync), V VI swap, H real held,
 // r real shown directly at the VI.
 void WarioTrace(char kind)
 {
@@ -773,7 +774,7 @@ PRESENT_VI_NEW = """    WarioSyncVSync();
         return;
       }
     }
-    WarioDumpPresented(m_xfb_entry, 'r');
+    WarioDumpPresented(m_xfb_entry, 'r'); WarioTrace('P');
     Present(&present_info);
     WarioTrace('r');
     s_wario_last_real_present = Clock::now();

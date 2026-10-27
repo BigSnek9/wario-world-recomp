@@ -159,6 +159,10 @@ def run_once(module, env):
             stale.unlink()
     tracker = PlayTracker(ROOT, USER, CONTROL)
     tracker.start()
+    # Frame-timing evidence for Claude in the play-session folder: frame generation stats and a
+    # per-event pacing trace (a few MB per hour), so slowdowns on the real screen can be diagnosed.
+    env = dict(env, MODERNGEKKO_WARIO_FPS_STATS=str(tracker.folder / "fps-stats.txt"),
+               MODERNGEKKO_WARIO_FPS_TRACE=str(tracker.folder / "pacing-trace.txt"))
     try:
         with LOG.open("w", encoding="utf-8") as log:
             process = subprocess.Popen(
