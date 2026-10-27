@@ -44,6 +44,7 @@ parser.add_argument("--profile-ms", type=int, default=10000, help="Sampling prof
 parser.add_argument("--stack-at", type=float, help="Capture CPU/graphics stacks from this diagnostic child only")
 parser.add_argument("--runtime-root", type=Path, help="Read existing runtime/game elsewhere; keep new diagnostics beside this script")
 parser.add_argument("--runner", type=Path, help="Use a separately built workspace diagnostic runtime")
+parser.add_argument("--game", type=Path, help="Extracted disc folder (default: <runtime root>/original/GWWE01), e.g. a release test's game/GWWE01")
 parser.add_argument("--dump-audio", action="store_true", help="Write private DSP/stream WAV data while output stays muted")
 parser.add_argument("--save-state-at", type=float, help="Save a private diagnostic state after this many seconds")
 parser.add_argument("--load-state", type=Path, help="Resume a private diagnostic state after boot")
@@ -182,7 +183,8 @@ if args.lockstep:
         environment["STATICRECOMP_LOCKSTEP_TRACE"] = str(args.lockstep_trace)
     if args.trace_checks:
         environment["WARIO_LS_CHECK_TRACE"] = "1"
-command = [str(runner), "--game", str(runtime_root / "original/GWWE01"), "--module", str(module),
+game_directory = args.game.resolve() if args.game else runtime_root / "original/GWWE01"
+command = [str(runner), "--game", str(game_directory), "--module", str(module),
            "--user-dir", str(folder / "user"), "--automation-dir", str(control),
            "--graphics", args.graphics, "--mute", "--no-mods"]
 if not args.windowed:

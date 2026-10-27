@@ -35,7 +35,7 @@ STARTER_SCRIPTS = ("texture_tools.py", "configure_controls.py", "configure_basel
 MODULE_BUILD = "module-full-vectors-clang"  # build_rel_bundle.py --vectors --clean --clang (no PGO)
 NEEDED_GB = 5.0  # build files (3.5 GB measured) plus the install (0.4 GB), with some headroom
 REGIONS = {"E": "USA", "P": "Europe", "J": "Japan"}
-ICON_NAME = "WarioWorld.ico"  # made from the player's disc banner; only ever written to the install folder
+ICON_NAME = "WarioWorld.ico"  # the coin texture from the player's disc; only ever written to the install folder
 
 
 class InstallError(Exception):
@@ -273,7 +273,7 @@ STAGES = (
     ("prepare", "Prepare the REL and vector sources"),
     ("module", "Build the game module (clang)"),
     ("install", "Copy the game into the install folder"),
-    ("icon", "Make the game icon from your disc's banner"),
+    ("icon", "Make the game icon from your disc"),
     ("shortcuts", "Create shortcuts"),
     ("cleanup", "Remove the build files"),
 )
@@ -527,13 +527,9 @@ class Installer:
         self.log(f"  installed {_size(dest, exclude=self.work):.2f} GB to {dest}")
 
     def stage_icon(self):
-        from banner_icon import find_banner, write_icon
-        banner = find_banner(self.install / "game" / DISC_ID)
-        if not banner:
-            self.log("  no opening.bnr in the game files; the shortcuts use the runtime's icon")
-            return
+        from coin_icon import write_icon
         try:
-            icon = write_icon(banner, self.install / ICON_NAME)
+            icon = write_icon(self.install / "game" / DISC_ID, self.install / ICON_NAME)
             self.log(f"  {icon}")
         except (OSError, ValueError) as error:  # never fatal: the game works without it
             self.log(f"  could not make the icon ({error}); the shortcuts use the runtime's icon")
