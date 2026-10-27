@@ -198,3 +198,27 @@ between each pair of real frames with the camera halfway between them.
 1. Higher multiples (180/240 Hz) by replaying at t = 1/3, 2/3, ... when the
    video thread has the headroom.
 2. Pacing on a separate present thread (Vulkan), to drop the 8 ms delay.
+
+## HD texture streaming (2026-10-27, scripts/tool_fix_hd_texture_streaming.py)
+
+The hub / charge-dash slowdowns also happened at 60 fps. The cause was the
+player's HD pack, not frame generation:
+- the pack is 239 PNGs, 150 of them 4096x4096 (9.7 GB decoded);
+- Dolphin decodes them on its asset loader threads, but creates and uploads
+  each texture on the emulation thread the first time it is drawn.
+
+Each frame now uploads at most 32 MB of HD texture data (always at least one
+texture; MODERNGEKKO_HD_UPLOAD_MB overrides the limit). Past that, the
+original texture is shown for a frame or two and the HD version replaces it
+through the existing DidLinkedAssetsChange reload.
+
+Hidden hub run at 4K with the pack, frame gen off:
+
+| Version | Min speed | Slow samples |
+|---|---|---|
+| Before the fix | 0.838 | 14 |
+| After the fix | 0.998 | 0 |
+| After the fix, 4x frame gen | 0.996 | 0 |
+
+Dual core (Core.CPUThread=True) is not an option yet: it desyncs the GPU FIFO
+at once ("Unknown Opcode") with the static recomp.

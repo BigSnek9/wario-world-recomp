@@ -197,6 +197,8 @@ def main():
     tool_fix_wario_aspect.apply(replace, runtime)
     import tool_fix_wario_fps
     tool_fix_wario_fps.apply(replace, runtime)
+    import tool_fix_hd_texture_streaming
+    tool_fix_hd_texture_streaming.apply(replace, runtime)
     import tool_fix_wario_menu
     tool_fix_wario_menu.apply(replace, runtime)
     tool_fix_window_border.apply_late(replace, runtime)  # after the menu's WndProc additions
