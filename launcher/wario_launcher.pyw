@@ -146,7 +146,12 @@ def environment():
 
 
 def run_once(module, env):
-    backend = "Vulkan" if migrate_backend(read_menu_settings()) == "vulkan" else "OpenGL"
+    menu = read_menu_settings()
+    backend = "Vulkan" if migrate_backend(menu) == "vulkan" else "OpenGL"
+    # Performance mode (menu, applies after "Restart now"): Dolphin's dual core, the GPU emulation
+    # on its own thread. Off = the accurate single-thread default.
+    texture_tools._set(USER / "Config/Dolphin.ini",
+                       {"Core": {"CPUThread": "True" if menu.get("performance") == "1" else "False"}})
     # Fresh control folder each session so stale commands never replay.
     for sub in ("commands", "processed", "failed"):
         (CONTROL / sub).mkdir(parents=True, exist_ok=True)

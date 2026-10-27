@@ -222,3 +222,20 @@ Hidden hub run at 4K with the pack, frame gen off:
 
 Dual core (Core.CPUThread=True) is not an option yet: it desyncs the GPU FIFO
 at once ("Unknown Opcode") with the static recomp.
+
+## Performance mode (dual core, 2026-10-27)
+
+- **What it is:** an optional menu toggle (`performance=1` in
+  WarioWorld.ini). The starter writes Dolphin.ini [Core] CPUThread at launch,
+  so it applies after a restart. GPU emulation then runs on its own thread
+  ("dual core"); the default stays the accurate single thread.
+- **Verified (hidden):**
+  - fresh boot and save reload into the hub: exit 0, correct picture, no FIFO
+    errors;
+  - hub at 4K with the HD pack: min speed 0.999 with and without 4x frame
+    generation;
+  - presented frame sequence: even steps (frame generation runs on the GPU
+    thread there).
+- **Known limit:** loading a savestate made in single-core mode into dual core
+  desyncs the GPU FIFO ("Unknown Opcode"), with Dolphin's own CPU core too.
+  Use states made in the same mode; normal play never loads states.
