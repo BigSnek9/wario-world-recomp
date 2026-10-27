@@ -235,15 +235,16 @@ double Presenter::PresentInterpolated(RcTcacheEntry entry, u32 fb_width, u32 fb_
     g_wario_throttle_present_flush = WarioThrottlePresentFlush;
   }
   s_wario_interval = std::chrono::duration_cast<DT>(std::chrono::duration<double>(interval_seconds));
-  // Counted from when this frame's in-between frames are ready (delay 0 = the first one), so
-  // spacing stays even however late in the 16.7 ms the game delivered the frame. A real frame
-  // still held from before goes first.
+  // Counted from the previous real frame (still held, or already shown), so frames the game
+  // finishes early in the 16.7 ms still land evenly between two real frames. Never earlier than
+  // now, and never closer than one interval to the previous queued in-between frame (frames the
+  // game finishes late shift the following real frame instead of bunching up).
   const auto now = Clock::now();
-  if (delay_seconds <= 0.0)
-    s_wario_batch_base = std::max(now, s_wario_pending_present ? s_wario_pending_due + s_wario_interval : now);
-  const TimePoint base = s_wario_batch_base;
-  const TimePoint due =
-      base + std::chrono::duration_cast<DT>(std::chrono::duration<double>(delay_seconds));
+  const TimePoint base = s_wario_pending_present ? s_wario_pending_due : s_wario_last_real_present;
+  TimePoint due = base + std::chrono::duration_cast<DT>(std::chrono::duration<double>(delay_seconds));
+  if (!m_wario_pending_mids.empty())
+    due = std::max(due, m_wario_pending_mids.back().due + s_wario_interval);
+  due = std::max(due, now);
   m_wario_pending_mids.push_back(
       {std::move(entry), fb_width, fb_height, (WarioFpsDebug() & 1) ? now : due});
   const double offset_ms =
@@ -327,8 +328,8 @@ void Presenter::SetNextSwapEstimatedTime(u64 ticks, TimePoint host_time)
 PRESENT_STATIC_OLD = "bool Presenter::FetchXFB(u32 xfb_addr,"
 PRESENT_STATIC_NEW = """// Wario World frame interpolation pacing. The game issues its XFB copy late in each 16.7 ms
 // frame, so in-between frames can only be built just before the next VI. They are queued at
-// equal intervals from the moment they are ready, and the real frame is held back one interval
-// after the last of them (2x: ~8 ms extra latency, 4x: ~12.5 ms, as in Ship of Harkinian's
+// equal intervals after the previous real frame (never earlier than when they are ready), and
+// the real frame is held back one interval after the last of them (2x: ~8 ms extra latency, 4x: ~12.5 ms, as in Ship of Harkinian's
 // interpolation). Nothing sleeps: queued frames are shown from the command loop or from the
 // speed limiter's own sleep once due.
 // MODERNGEKKO_WARIO_FPS_DEBUG bits (diagnostics only): 1 = show in-between frames at once,
@@ -345,7 +346,6 @@ static int WarioFpsDebug()
 static TimePoint s_wario_last_real_present{};
 static TimePoint s_wario_last_mid_present{};
 static DT s_wario_interval = std::chrono::duration_cast<DT>(std::chrono::duration<double>(0.5 / 59.94));
-static TimePoint s_wario_batch_base{};
 static bool s_wario_pending_present = false;
 static TimePoint s_wario_pending_due{};
 static u64 s_wario_pending_ticks = 0;
@@ -450,11 +450,11 @@ static bool WarioFpsEnabled()
 bool g_wario_fps_record = WarioFpsEnabled();
 // Frames per game frame (1 = off, 2-4), switched live by the in-game menu
 // (VideoCommon/OnScreenUI.cpp). MODERNGEKKO_WARIO_FPS=1/on means 2, or give 2-4.
-// Object interpolation on/off (menu "Motion"); off = camera only. MODERNGEKKO_WARIO_FPS_OBJECTS=1
-// turns it on for hidden tests.
+// Object interpolation on/off (menu "Motion"); off = camera only. MODERNGEKKO_WARIO_FPS_OBJECTS=0
+// turns it off for hidden tests. Only matrices the game tags (MATRIX_STACK_HOOKS) are blended.
 std::atomic<bool> g_wario_fps_objects{[] {
   const char* value = std::getenv("MODERNGEKKO_WARIO_FPS_OBJECTS");
-  return value && std::strcmp(value, "1") == 0;
+  return !(value && std::strcmp(value, "0") == 0);
 }()};
 std::atomic<int> g_wario_fps_multiplier{[] {
   if (!WarioFpsEnabled())
@@ -479,6 +479,7 @@ struct WarioMatrixLoad
   u32 address, count;    // XF word address and length
   u32 values_at;         // index into WarioFrameMatrices::values
   u64 key;               // address | count << 12 | occurrence << 20 (match key across frames)
+  bool tagged;           // identity from the game's matrix stack (exact pairing)
   bool main_projection;  // main camera projection was active when it was loaded
 };
 
@@ -488,12 +489,16 @@ struct WarioFrameMatrices
   std::vector<u32> values;
   std::unordered_map<u64, u32> by_key;       // (address, count, occurrence) -> load index
   std::unordered_map<u32, u32> occurrences;  // (address, count) -> loads so far
+  std::unordered_map<u64, u32> tag_occurrences;  // tag -> loads so far
+  std::unordered_map<u64, u32> tag_first;        // tag -> values_at of its first load
   void Clear()
   {
     loads.clear();
     values.clear();
     by_key.clear();
     occurrences.clear();
+    tag_occurrences.clear();
+    tag_first.clear();
   }
 };
 
@@ -505,6 +510,8 @@ struct WarioFpsState
   std::vector<u8> replay;       // commands with interpolated matrix loads
   WarioFrameMatrices matrices, previous_matrices;
   u64 matrices_matched = 0, matrices_unmatched = 0;
+  u64 pending_tag = 0;  // identity marker seen, applies to the next position matrix
+  u64 tags_seen = 0, tagged_loads = 0, tag_repeats = 0, tag_repeat_diff = 0;
   Common::Matrix44 camera_delta = Common::Matrix44::Identity();  // V_N * V_N-1^-1
   std::vector<u8> prologue;
   std::vector<u8> tmem;
@@ -831,29 +838,19 @@ void WarioBuildReplay(float t)
     cursor = load.offset + load.size;
     const bool camera_space = load.main_projection && load.address % 4 == 0 && load.count % 12 == 0;
     const u32* now_values = &now.values[load.values_at];
-    // Same slot first; nearby occurrences only when draw order shifted (culling, spawns).
-    const u64 occurrence = load.key >> 20;
-    const u64 base = load.key & 0xFFFFF;
+    // Only matrices the game tagged with an identity are interpolated, paired exactly by that
+    // identity (the plausibility check stays as a safety net). Untagged loads keep frame N.
     const u32* best = nullptr;
-    float best_score = 0.0f;
-    for (s64 delta : {0, -1, 1, -2, 2})
+    if (load.tagged)
     {
-      const s64 candidate = static_cast<s64>(occurrence) + delta;
-      if (candidate < 0)
-        continue;
-      const auto found = before.by_key.find(base | (u64(candidate) << 20));
-      if (found == before.by_key.end())
-        continue;
-      const u32* values = &before.values[before.loads[found->second].values_at];
-      float score;
-      if (WarioMatchScore(values, now_values, load.count, camera_space, &score) &&
-          (!best || score < best_score))
+      const auto found = before.by_key.find(load.key);
+      if (found != before.by_key.end() && before.loads[found->second].tagged)
       {
-        best = values;
-        best_score = score;
+        const u32* values = &before.values[before.loads[found->second].values_at];
+        float score;
+        if (WarioMatchScore(values, now_values, load.count, camera_space, &score))
+          best = values;
       }
-      if (best && delta == 0)
-        break;
     }
     if (!best)
     {
@@ -919,6 +916,10 @@ void WarioRecordMatrixLoad(const u8* data, u32 size, u32 offset)
   auto& frame = s_wfps.matrices;
   const u32 base_key = address | (count << 12);
   const u32 occurrence = frame.occurrences[base_key]++;
+  const bool tagged = s_wfps.pending_tag != 0 && data[0] == 0x10 && address < 0x78 && count == 12;
+  const u64 tag = s_wfps.pending_tag;
+  if (address < 0x78)
+    s_wfps.pending_tag = 0;  // a marker belongs to the position matrix right after it
   WarioMatrixLoad load{};
   load.offset = offset;
   load.size = size;
@@ -926,6 +927,26 @@ void WarioRecordMatrixLoad(const u8* data, u32 size, u32 offset)
   load.count = count;
   load.values_at = static_cast<u32>(frame.values.size());
   load.key = u64(base_key) | (u64(occurrence) << 20);
+  load.tagged = tagged;
+  if (tagged)
+  {
+    // Same identity drawn twice in a frame (e.g. multi-pass): pair by its own repeat count.
+    const u32 repeat = frame.tag_occurrences[tag]++;
+    const u32* xf_values = reinterpret_cast<const u32*>(&xfmem) + address;
+    if (repeat == 0)
+    {
+      frame.tag_first[tag] = static_cast<u32>(frame.values.size());
+    }
+    else
+    {
+      s_wfps.tag_repeats++;
+      const u32 first = frame.tag_first[tag];
+      if (!std::equal(xf_values, xf_values + count, frame.values.begin() + first))
+        s_wfps.tag_repeat_diff++;
+    }
+    load.key = (tag ^ (u64(repeat) * 0x9E3779B97F4A7C15ull)) | (1ull << 63);
+    s_wfps.tagged_loads++;
+  }
   const auto& raw = xfmem.projection.rawProjection;
   load.main_projection =
       xfmem.projection.type == ProjectionType::Perspective &&
@@ -958,9 +979,13 @@ void WarioWriteStats()
                  s_wfps.offset_count ? s_wfps.offset_sum / s_wfps.offset_count : 0.0,
                  s_wfps.offset_count ? s_wfps.offset_min : 0.0, s_wfps.offset_max,
                  s_wfps.commands.size());
-    std::fprintf(file, "matrices_matched=%llu\nmatrices_unmatched=%llu\n",
+    std::fprintf(file, "matrices_matched=%llu\nmatrices_unmatched=%llu\ntags_seen=%llu\ntagged_loads=%llu\ntag_repeats=%llu\ntag_repeat_diff=%llu\n",
                  static_cast<unsigned long long>(s_wfps.matrices_matched),
-                 static_cast<unsigned long long>(s_wfps.matrices_unmatched));
+                 static_cast<unsigned long long>(s_wfps.matrices_unmatched),
+                 static_cast<unsigned long long>(s_wfps.tags_seen),
+                 static_cast<unsigned long long>(s_wfps.tagged_loads),
+                 static_cast<unsigned long long>(s_wfps.tag_repeats),
+                 static_cast<unsigned long long>(s_wfps.tag_repeat_diff));
     std::fprintf(file, "held_real=%llu\nheld_forced=%llu\nheld_late_ms_avg=%.2f\nheld_late_ms_max=%.2f\n",
                  static_cast<unsigned long long>(g_wario_pending_count),
                  static_cast<unsigned long long>(g_wario_pending_forced),
@@ -1126,7 +1151,8 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
           0);
     }
     const double offset = g_presenter->PresentInterpolated(
-        std::move(frames[i]), dest_stride / 2, height, interval * static_cast<double>(i), interval);
+        std::move(frames[i]), dest_stride / 2, height, interval * static_cast<double>(i + 1),
+        interval);
     if (offset < 0.0)
     {
       s_wfps.skipped_late++;
@@ -1166,8 +1192,20 @@ void WarioFpsRecordCommand(const u8* data, u32 size)
                                  OpcodeDecoder::Opcode::GX_CMD_CALL_DL)
     return;
   s_wfps.commands.insert(s_wfps.commands.end(), data, data + size);
-  if ((data[0] == 0x10 || data[0] == 0x20 || data[0] == 0x30) && size >= 5)
+  // Identity marker from the game's matrix stack (build_rel_bundle.py MATRIX_STACK_HOOKS):
+  // XF write of 2 words to the unused XF memory 0x0FFE.
+  if (data[0] == 0x10 && size >= 13 && data[1] == 0x00 && data[2] == 0x01 && data[3] == 0x0F &&
+      data[4] == 0xFE)
+  {
+    const u32 high = (u32(data[5]) << 24) | (u32(data[6]) << 16) | (u32(data[7]) << 8) | data[8];
+    const u32 low = (u32(data[9]) << 24) | (u32(data[10]) << 16) | (u32(data[11]) << 8) | data[12];
+    s_wfps.pending_tag = (u64(high) << 32) | low;
+    s_wfps.tags_seen++;
+  }
+  else if ((data[0] == 0x10 || data[0] == 0x20 || data[0] == 0x30) && size >= 5)
+  {
     WarioRecordMatrixLoad(data, size, static_cast<u32>(s_wfps.commands.size() - size));
+  }
   if (data[0] == 0x10 && size >= 5 && !s_wfps.current.valid)
   {
     const u32 command = (u32(data[1]) << 24) | (u32(data[2]) << 16) | (u32(data[3]) << 8) | data[4];

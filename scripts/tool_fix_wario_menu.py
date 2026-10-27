@@ -78,10 +78,11 @@ struct Settings
   bool hd_textures = false;
   bool hdr = false;
   int frame_rate = 0;  // index into kFrameRates
-  int motion = 0;      // 0 = camera only, 1 = camera + objects
+  int motion = 1;      // 0 = camera only, 1 = camera + objects
   int volume = 100;
   bool moon_jump = false;
   float moon_speed = 2.0f;
+  float menu_scale = 1.0f;  // 0.6 .. 1.6, on top of Windows display scaling
 };
 
 constexpr const char* kResolutionNames[] = {"Auto (fits window)", "Native 1x (accurate)", "2x",
@@ -90,7 +91,7 @@ constexpr int kResolutionScales[] = {0, 1, 2, 3, 4, 5, 6, 8};
 constexpr const char* kFrameRateNames[] = {"Original 60 (accurate)", "120 (2x)", "180 (3x)",
                                            "240 (4x)", "Auto (match screen)"};
 constexpr const char* kFrameRateKeys[] = {"60", "120", "180", "240", "auto"};
-constexpr const char* kMotionNames[] = {"Camera only (clean)", "Camera + objects (experimental)"};
+constexpr const char* kMotionNames[] = {"Camera only", "Camera + objects (recommended)"};
 constexpr const char* kMotionKeys[] = {"camera", "objects"};
 struct Aspect
 {
@@ -128,10 +129,10 @@ void Save()
     std::fprintf(file,
                  "# Wario World in-game menu settings (Back / Tab in game)\n"
                  "resolution=%d\naspect=%s\nfullscreen=%d\nhd_textures=%d\nhdr=%d\nframe_rate=%s\nmotion=%s\n"
-                 "volume=%d\nmoon_jump=%d\nmoon_speed=%.2f\n",
+                 "volume=%d\nmoon_jump=%d\nmoon_speed=%.2f\nmenu_scale=%.2f\n",
                  kResolutionScales[s.resolution], kAspects[s.aspect].key, s.fullscreen,
                  s.hd_textures, s.hdr, kFrameRateKeys[s.frame_rate], kMotionKeys[s.motion], s.volume, s.moon_jump,
-                 s.moon_speed);
+                 s.moon_speed, s.menu_scale);
     std::fclose(file);
   }
 }
@@ -155,7 +156,6 @@ std::vector<std::string> Load()
     }
   }
   s.frame_rate = std::clamp(g_wario_fps_multiplier.load(), 1, 4) - 1;
-  s.motion = g_wario_fps_objects.load() ? 1 : 0;
   s.hd_textures = Config::Get(Config::GFX_HIRES_TEXTURES);
   s.hdr = Config::Get(Config::GFX_ENHANCE_HDR_OUTPUT);
   s.volume = Config::Get(Config::MAIN_AUDIO_VOLUME);
@@ -205,11 +205,13 @@ std::vector<std::string> Load()
           s.frame_rate = i;
     }
     else if (key == "motion")
-      s.motion = value == "objects" ? 1 : 0;
+      s.motion = value == "camera" ? 0 : 1;
     else if (key == "volume")
       s.volume = std::clamp(number, 0, 100);
     else if (key == "moon_jump")
       s.moon_jump = number != 0;
+    else if (key == "menu_scale")
+      s.menu_scale = std::clamp(static_cast<float>(std::atof(value.c_str())), 0.6f, 1.6f);
     else if (key == "moon_speed")
       s.moon_speed = std::clamp(static_cast<float>(std::atof(value.c_str())), 0.5f, 8.0f);
   }
@@ -442,10 +444,33 @@ void FeedNavigation(const PadState& pad, bool enabled)
     io.AddMouseWheelEvent(0.0f, wheel / 120.0f);
 }
 
+// Text size follows Windows display scaling (like other apps: 18 px at 100 %) times the menu-size
+// setting; the panel is as wide as its content needs, at most half the screen.
+float UiScale()
+{
+  float dpi = 1.0f;
+#ifdef _WIN32
+  if (g_wario_hwnd)
+  {
+    using GetDpiFn = UINT(WINAPI*)(HWND);
+    static const GetDpiFn get_dpi = reinterpret_cast<GetDpiFn>(
+        GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForWindow"));
+    if (get_dpi)
+    {
+      const UINT value = get_dpi(static_cast<HWND>(g_wario_hwnd));
+      if (value >= 48 && value <= 480)
+        dpi = value / 96.0f;
+    }
+  }
+#endif
+  return dpi * s_settings.menu_scale;
+}
+
 void DrawPanel(float width, float height)
 {
   Settings& s = s_settings;
-  const float panel = width * 0.5f;
+  const float font = std::clamp(18.0f * UiScale(), 10.0f, 96.0f);
+  const float panel = std::min(width * 0.5f, font * 26.0f);
   const float t = std::clamp(s_anim, 0.0f, 1.0f);
   const float ease = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
   ImGui::SetNextWindowPos(ImVec2(-panel * (1.0f - ease), 0.0f));
@@ -457,32 +482,32 @@ void DrawPanel(float width, float height)
     s_focus_next = false;
   }
   ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(panel * 0.06f, height * 0.04f));
-  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(panel * 0.02f, height * 0.012f));
-  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(panel * 0.015f, height * 0.008f));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(font * 1.2f, font * 1.0f));
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(font * 0.5f, font * 0.42f));
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(font * 0.4f, font * 0.25f));
   ImGui::PushStyleVar(ImGuiStyleVar_Alpha, std::max(ease, 0.01f));
   const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                                  ImGuiWindowFlags_NoSavedSettings;
   if (ImGui::Begin("##wario_menu", nullptr, flags))
   {
-    const float font = std::clamp(height * 0.032f, 14.0f, 64.0f);
     ImGui::PushFont(nullptr, font * 1.6f);
     ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.1f, 1.0f), "WARIO WORLD");
     ImGui::PopFont();
     ImGui::PushFont(nullptr, font);
     ImGui::TextDisabled("Settings apply immediately and are saved.");
     ImGui::Spacing();
-    const float label = panel * 0.38f;
-    const float field = panel * 0.82f - label;
+    const float inner = panel - font * 2.4f;  // minus window padding
+    const float label = inner * 0.36f;
+    const float field = inner - label;
     const auto row = [&](const char* text) {
       ImGui::AlignTextToFramePadding();
       ImGui::TextUnformatted(text);
-      ImGui::SameLine(label + panel * 0.06f);
+      ImGui::SameLine(label + font * 1.2f);
       ImGui::SetNextItemWidth(field);
     };
     bool changed = false;
-    if (ImGui::Button("Resume", ImVec2(panel * 0.88f, 0.0f)))
+    if (ImGui::Button("Resume", ImVec2(inner, 0.0f)))
       SetOpen(false);
 
     ImGui::SeparatorText("Display");
@@ -562,9 +587,15 @@ void DrawPanel(float width, float height)
       changed = true;
     ImGui::EndDisabled();
 
+    ImGui::SeparatorText("Menu");
+    row("Menu size");
+    ImGui::SliderFloat("##menu_scale", &s.menu_scale, 0.6f, 1.6f, "%.1fx");
+    if (ImGui::IsItemDeactivatedAfterEdit())
+      changed = true;
+
     ImGui::Spacing();
     ImGui::Separator();
-    if (ImGui::Button("Quit game", ImVec2(panel * 0.88f, 0.0f)))
+    if (ImGui::Button("Quit game", ImVec2(inner, 0.0f)))
       Quit();
     ImGui::Spacing();
     ImGui::TextDisabled("Back / B: close    A: select    D-pad / stick: move");
@@ -622,6 +653,17 @@ void WarioMenuDraw(u32 width, u32 height)
   g_wario_menu_open.store(s_open || s_anim > 0.0f);
   FeedNavigation(pad, s_open);
   MoonJump(dt, (pad.buttons & PAD_A) != 0 || KeyDown('X'));
+#ifdef _WIN32
+  // The game module tags its matrices only while object interpolation is wanted, so the default
+  // GX command stream stays exactly the original.
+  static volatile s32* const tagging = [] {
+    HMODULE module = GetModuleHandleW(L"gGWWE01_recomp.dll");
+    return module ? reinterpret_cast<volatile s32*>(GetProcAddress(module, "wario_fps_tagging"))
+                  : nullptr;
+  }();
+  if (tagging)
+    *tagging = (g_wario_fps_multiplier.load() > 1 && g_wario_fps_objects.load()) ? 1 : 0;
+#endif
   static float auto_timer = 0.0f;
   if (s_settings.frame_rate == 4 && (auto_timer += dt) > 2.0f)
   {

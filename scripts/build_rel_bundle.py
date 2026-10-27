@@ -101,6 +101,35 @@ FULLSCREEN_QUAD_X = (0x80062C3C, 0x80062C50, 0x800708C8, 0x800708DC, 0x800728B0,
 quad_sites = 0
 
 
+# FPS object tagging (docs/modding/FPS_UNLOCK.md, "game-level interpolation"). The engine
+# draws every model through one matrix stack (object at [0x801FDA38]: +4 base of 0x30-byte
+# matrices, +8 top index). Its methods get an entry hook that keeps a shadow identity per stack
+# level (wario_mtx_hook in module_export.c):
+#   fn_80047990 push (copy top up), fn_800479F4 set top from r4, fn_80047A5C top *= r4,
+#   fn_80047A90/B44/C18/CEC load stack[top - r4] into GX matrix slot r5 (GXLoadPosMtxImm).
+# A load writes the identity into the GX stream as a 2-word XF write to the unused XF memory at
+# 0x0FFE just before the matrix, so the video side pairs matrices between frames exactly. Inert
+# (no extra GX commands) unless the runtime sets wario_fps_tagging.
+MATRIX_STACK_HOOKS = {0x80047990: 1, 0x800479F4: 2, 0x80047A5C: 3,
+                      0x80047A90: 4, 0x80047B44: 4, 0x80047C18: 4, 0x80047CEC: 4}
+mtx_sites = 0
+
+
+def hook_matrix_stack(text):
+    global mtx_sites
+    for address, kind in MATRIX_STACK_HOOKS.items():
+        old = "label_%08X:\n    ctx->pc = 0x%08Xu;\n" % (address, address)
+        if old in text:
+            if text.count(old) != 1:
+                raise SystemExit(f"matrix stack hook {address:08X}: unexpected generated code")
+            text = text.replace(old, old + "    wario_mtx_hook(ctx, %d);\n" % kind)
+            mtx_sites += 1
+    if "wario_mtx_hook(ctx," in text:
+        text = text.replace('#include "../generated.h"',
+                            '#include "../generated.h"\nvoid wario_mtx_hook(CPUState* ctx, int kind);', 1)
+    return text
+
+
 def widen_fullscreen_quads(text):
     global quad_sites
     for address in FULLSCREEN_QUAD_X:
@@ -108,6 +137,7 @@ def widen_fullscreen_quads(text):
         text, count = pattern.subn(r"\1(u32)(s32)(\3wario_fullscreen_half_width);", text)
         quad_sites += count
     text = anchor_hud_edges(text)
+    text = hook_matrix_stack(text)
     if any(name in text for name in ("wario_fullscreen_half_width", "WARIO_HUD_DX", "wario_hud_edge", "wario_quad_half", "wario_sync_2d_ortho")):
         text = text.replace('#include "../generated.h"',
                             '#include "../generated.h"\nextern volatile s32 wario_fullscreen_half_width;' +
@@ -227,6 +257,8 @@ if quad_sites != len(FULLSCREEN_QUAD_X):
     raise SystemExit(f"expected {len(FULLSCREEN_QUAD_X)} full-screen quad sites, patched {quad_sites}")
 if hud_sites != len(HUD_EDGE_SITES):
     raise SystemExit(f"expected {len(HUD_EDGE_SITES)} HUD edge sites, patched {hud_sites}")
+if mtx_sites != len(MATRIX_STACK_HOOKS):
+    raise SystemExit(f"expected {len(MATRIX_STACK_HOOKS)} matrix stack hooks, patched {mtx_sites}")
 for model in models:
     mid, name = model["module_id"], model["name"]
     write_changed(destination / f"rel_bridge_{mid}.c",
@@ -326,6 +358,143 @@ static const StaticRecompModuleDesc s_desc = {
 WARIO_REL_EXPORT const StaticRecompModuleDesc* staticrecomp_get_module(void) { return &s_desc; }
 WARIO_REL_EXPORT int wario_runtime_pc_module(void) { return 1; }
 WARIO_REL_EXPORT volatile s32 wario_fullscreen_half_width = 320; /* WS-005; 320 = original */
+/* FPS object tagging (scripts/build_rel_bundle.py MATRIX_STACK_HOOKS). Shadow identity per
+   matrix-stack level: set/multiply mix in the source matrix address (persistent per object or
+   bone) and the call site; when the source is a temporary on the guest stack, the caller's
+   non-volatile registers that hold heap pointers (r14-r31: `this`, node, loop iterators) are used. */
+WARIO_REL_EXPORT volatile s32 wario_fps_tagging = 0; /* set by the runtime; 0 = original stream */
+#define WARIO_MTX_LEVELS 64
+static u32 wario_mtx_stack_object;
+static u64 wario_mtx_ids[WARIO_MTX_LEVELS];
+static u32 wario_mtx_site[WARIO_MTX_LEVELS]; /* last set/multiply call site per level (debug) */
+static u64 wario_mtx_mix(u64 h, u64 v) {
+    h ^= v + 0x9E3779B97F4A7C15ull + (h << 6) + (h >> 2);
+    return h * 0xBF58476D1CE4E5B9ull;
+}
+static u64 wario_mtx_source(CPUState* ctx, u32 source) {
+    u64 h = wario_mtx_mix(0, ctx->lr);
+    const u32 sp = ctx->gpr[1];
+    if (source - sp < 0x4000u || sp - source < 0x100u) {
+        for (int r = 14; r <= 31; ++r) {
+            const u32 v = ctx->gpr[r];
+            if (v >= 0x80000000u && v < 0x81800000u && (v - sp >= 0x4000u))
+                h = wario_mtx_mix(h, v);
+        }
+        return h;
+    }
+    return wario_mtx_mix(h, source);
+}
+/* Diagnostics: WARIO_MTX_DEBUG=<file> writes a histogram of hook call sites
+   (kind, return address, source on the stack, r29-r31) every 100000 calls. */
+#include <stdio.h>
+#include <stdlib.h>
+typedef struct { u32 lr, kind, temp, r29, r30, r31, count; } WarioMtxSite;
+static WarioMtxSite wario_mtx_sites[4096];
+static int wario_mtx_debug_on;
+static u64 wario_mtx_seen_id[8192];
+static u32 wario_mtx_seen_hash[8192], wario_mtx_seen_frame;
+static void wario_mtx_count(u32 lr, u32 kind, u32 temp) {
+    u32 h = (lr * 2654435761u ^ kind * 97u ^ temp) & 4095u;
+    for (int probe = 0; probe < 4096; ++probe, h = (h + 1u) & 4095u) {
+        WarioMtxSite* s = &wario_mtx_sites[h];
+        if (s->count == 0) { s->lr = lr; s->kind = kind; s->temp = temp; }
+        if (s->lr == lr && s->kind == kind && s->temp == temp) { s->count++; return; }
+    }
+}
+static void wario_mtx_collision(CPUState* ctx, u32 level, u64 id, u32 matrix) {
+    const u32 frame = mem_read32(ctx, 0x801FD934u); /* T009 frame counter */
+    if (frame != wario_mtx_seen_frame) {
+        wario_mtx_seen_frame = frame;
+        for (int i = 0; i < 8192; ++i) wario_mtx_seen_id[i] = 0;
+    }
+    u32 hash = 2166136261u;
+    for (u32 i = 0; i < 12; ++i) hash = (hash ^ mem_read32(ctx, matrix + 4u * i)) * 16777619u;
+    u32 slot = (u32)(id ^ (id >> 29)) & 8191u;
+    for (int probe = 0; probe < 64; ++probe, slot = (slot + 1u) & 8191u) {
+        if (wario_mtx_seen_id[slot] == 0) { wario_mtx_seen_id[slot] = id; wario_mtx_seen_hash[slot] = hash; return; }
+        if (wario_mtx_seen_id[slot] == id) {
+            if (wario_mtx_seen_hash[slot] != hash) wario_mtx_count(wario_mtx_site[level], 9u, 0u);
+            return;
+        }
+    }
+}
+static void wario_mtx_debug(CPUState* ctx, int kind) {
+    static int mode = -1;
+    static const char* path;
+    static u32 calls;
+    if (mode < 0) { path = getenv("WARIO_MTX_DEBUG"); mode = path && *path ? 1 : 0; wario_mtx_debug_on = mode; }
+    if (!mode) return;
+    const u32 sp = ctx->gpr[1], src = ctx->gpr[4];
+    const u32 temp = (kind == 2 || kind == 3) && (src - sp < 0x4000u || sp - src < 0x100u);
+    u32 h = (ctx->lr * 2654435761u ^ (u32)kind * 97u ^ temp) & 4095u;
+    for (int probe = 0; probe < 4096; ++probe, h = (h + 1u) & 4095u) {
+        WarioMtxSite* s = &wario_mtx_sites[h];
+        if (s->count == 0) { s->lr = ctx->lr; s->kind = (u32)kind; s->temp = temp;
+            s->r29 = ctx->gpr[29]; s->r30 = ctx->gpr[30]; s->r31 = ctx->gpr[31]; }
+        if (s->lr == ctx->lr && s->kind == (u32)kind && s->temp == temp) { s->count++; break; }
+    }
+    if (++calls % 100000u == 0) {
+        FILE* f = fopen(path, "w");
+        if (!f) return;
+        for (int i = 0; i < 4096; ++i)
+            if (wario_mtx_sites[i].count)
+                fprintf(f, "%u %08X %u %u %08X %08X %08X\\n", wario_mtx_sites[i].kind, wario_mtx_sites[i].lr,
+                        wario_mtx_sites[i].temp, wario_mtx_sites[i].count, wario_mtx_sites[i].r29,
+                        wario_mtx_sites[i].r30, wario_mtx_sites[i].r31);
+        fclose(f);
+    }
+}
+void wario_mtx_hook(CPUState* ctx, int kind) {
+    if (!wario_fps_tagging)
+        return;
+    wario_mtx_debug(ctx, kind);
+    const u32 stack = ctx->gpr[3];
+    if (stack != wario_mtx_stack_object) {
+        wario_mtx_stack_object = stack;
+        for (int i = 0; i < WARIO_MTX_LEVELS; ++i)
+            wario_mtx_ids[i] = 0;
+    }
+    const u32 top = mem_read32(ctx, stack + 8u);
+    if (top >= WARIO_MTX_LEVELS)
+        return;
+    switch (kind) {
+    case 1: /* push */
+        if (top + 1u < WARIO_MTX_LEVELS) {
+            wario_mtx_ids[top + 1u] = wario_mtx_ids[top];
+            wario_mtx_site[top + 1u] = wario_mtx_site[top];
+        }
+        break;
+    case 2: /* set top */
+        wario_mtx_ids[top] = wario_mtx_source(ctx, ctx->gpr[4]);
+        wario_mtx_site[top] = ctx->lr;
+        break;
+    case 3: { /* top *= m */
+        u64 source = wario_mtx_source(ctx, ctx->gpr[4]);
+        /* fn_80047F2C (model node renderer) builds every node's matrix in one global scratch
+           buffer (0x801CF2C8): the node is identified by the current model [0x801FDA7C] and
+           the node counter [0x801FDA74] instead. */
+        if (ctx->lr == 0x80047F7Cu)
+            source = wario_mtx_mix(wario_mtx_mix(source, mem_read32(ctx, 0x801FDA7Cu)),
+                                   mem_read32(ctx, 0x801FDA74u));
+        wario_mtx_ids[top] = wario_mtx_mix(wario_mtx_ids[top], source);
+        wario_mtx_site[top] = ctx->lr;
+        break;
+    }
+    case 4: { /* load stack[top - depth] */
+        const u32 level = top - ctx->gpr[4];
+        if (level >= WARIO_MTX_LEVELS)
+            return;
+        const u64 id = wario_mtx_ids[level] | 1ull; /* never 0 */
+        if (wario_mtx_debug_on)
+            wario_mtx_collision(ctx, level, id, mem_read32(ctx, stack + 4u) + level * 0x30u);
+        mem_write8(ctx, 0xCC008000u, 0x10u);
+        mem_write32(ctx, 0xCC008000u, (1u << 16) | 0x0FFEu);
+        mem_write32(ctx, 0xCC008000u, (u32)(id >> 32));
+        mem_write32(ctx, 0xCC008000u, (u32)id);
+        break;
+    }
+    }
+}
 JOURNAL_GLOBALS
 '''
 journal_globals = ("u64 wario_instruction_count=0;\n"

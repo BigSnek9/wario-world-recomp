@@ -42,7 +42,7 @@ def main():
                 env["MODERNGEKKO_WARIO_FPS"] = multiplier
                 env["MODERNGEKKO_WARIO_FPS_STATS"] = str(stats)
             command = [sys.executable, str(ROOT / "scripts/smoke_boot.py"), "--module",
-                       str(ROOT / "build/module-full-vectors-clang-pgo/gGWWE01_recomp.dll"), "--full", "--vectors",
+                       str(ROOT / os.environ.get("FPS_MATRIX_MODULE", str(ROOT / "build/module-full-vectors-clang-pgo/gGWWE01_recomp.dll"))), "--full", "--vectors",
                        "--seconds", str(args.seconds), *map(str, SCENES[scene]), "--graphics", "OpenGL",
                        "--runner", str(args.runner)]
             output = subprocess.run(command, capture_output=True, text=True, env=env, timeout=600).stdout
@@ -57,7 +57,7 @@ def main():
                 for line in stats.read_text().splitlines():
                     key, _, value = line.partition("=")
                     if key in ("interpolated", "skipped_late", "gaps_6_10", "gaps_lt4", "gaps_4_6", "gaps_10_12",
-                               "gaps_12_15", "gaps_ge15", "matrices_matched", "matrices_unmatched"):
+                               "gaps_12_15", "gaps_ge15", "matrices_matched", "matrices_unmatched", "tagged_loads", "tag_repeats", "tag_repeat_diff"):
                         fields[key] = value
             print(f"{multiplier}x {scene}: speed={summary.get('min_speed')} slow={summary.get('slow_samples')} "
                   f"run={run.name if run else None} {fields}", flush=True)

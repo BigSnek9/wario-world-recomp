@@ -49,18 +49,36 @@ between each pair of real frames with the camera halfway between them.
    cannot see it.
 4. **Copy.** The replayed EFB is copied into a private texture-cache entry
    (no guest RAM write, not registered by address), then presented.
-5. **Objects.** Every XF matrix-memory load of the real frame (immediate
-   writes and indexed loads to 0x000-0x0FF: GX position and texture matrices)
-   is recorded with its values. Loads are matched with frame N-1 by
-   (address, length, occurrence). A matched load is replaced in the replay by
-   an immediate write of the halfway matrix (element-wise lerp). A pair is
-   rejected, so frame N's value is kept, when the rotation part changes by
-   >35% or the translation by >25% + 0.5 units. That catches different objects
-   and wrapped texture scrolls. Position matrices (PNMTX slots, XF 0x00-0x77)
-   loaded under the main camera are pre-multiplied by C^-1, so the projection's
-   camera correction cancels and the result is exactly the halfway modelview.
-   Greenhorn: 96.5% of loads matched; boss CB41: 99.6% (~300 loads per frame).
-   `MODERNGEKKO_WARIO_FPS_OBJECTS=0` interpolates the camera only.
+5. **Objects (game-level identities).** The engine draws every model through one
+   matrix stack (object at `[0x801FDA38]`; methods fn_80047990 push, fn_800479E4 pop,
+   fn_800479F4 set, fn_80047A5C multiply, fn_80047A90/B44/C18/CEC load into a GX
+   slot via GXLoadPosMtxImm fn_8019B270). The recompiled module hooks those
+   methods (scripts/build_rel_bundle.py `MATRIX_STACK_HOOKS`, helper
+   `wario_mtx_hook` in module_export.c) and keeps a shadow identity per stack
+   level:
+   - push copies the identity;
+   - set and multiply mix in the source matrix's address (persistent per object
+     or bone) and the call site;
+   - the model node renderer fn_80047F2C builds every node in one global scratch
+     buffer, so there the current model `[0x801FDA7C]` and node counter
+     `[0x801FDA74]` are mixed in;
+   - sources on the guest stack use the caller's non-volatile pointer registers.
+   On each load the identity is written into the GX stream as a 2-word XF write
+   to unused XF memory (0x0FFE) right before the matrix. The video side pairs
+   matrices between frames by that identity (plus its repeat count within the
+   frame) instead of guessing. Untagged matrices keep frame N (camera only).
+   Tagging is off unless the runtime sets the module export
+   `wario_fps_tagging`, so the default GX stream is the original.
+   Matched main-camera matrices load `lerp_t(D * MV_N-1, MV_N)`
+   (D = V_N * V_N-1^-1), so a static object gets exactly MV_N. Texture
+   matrices are never blended.
+   Measured: all position-matrix loads tagged in the hub, boss and Greenhorn.
+   Identities repeating within a frame with different matrices: 0 in the boss
+   and Greenhorn, 1.8% in the hub (one effect drawing the same object several
+   times per frame in a fixed loop, where repeat order pairs correctly).
+   Diagnostics: `WARIO_MTX_DEBUG=<file>` (module call-site histogram and
+   collision sites), scripts/fps_flicker_check.py (blob outliers vs
+   camera-only), scripts/fps_matrix.py.
 6. **Pacing.** Wario World issues its XFB copy late in each 16.7 ms frame
    (measured: about 15 ms after the previous VI), so the in-between frame can
    only be built just before the next VI. The real frame from that VI is held
@@ -102,8 +120,9 @@ between each pair of real frames with the camera halfway between them.
 
 ## Known limits
 
-- Objects are interpolated through their matrices. Geometry the CPU writes
-  directly into vertex buffers (if any particles do this) stays at 60 Hz.
+- Objects are interpolated through their tagged matrices. Geometry the CPU writes
+  directly into vertex buffers (if any particles do this), and anything drawn
+  without the matrix stack, stays at 60 Hz.
 - Normal matrices (lighting) use frame N.
 - Objects drawn with the main projection but not in world space (for example a
   3D HUD model, if any) move with the camera correction in the in-between

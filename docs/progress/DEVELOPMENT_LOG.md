@@ -2,6 +2,23 @@
 
 Newest first. Earlier history (2026-10-24..26 morning): ../PROGRESS.md and ../HANDOFF.md.
 
+## 2026-10-27 (night): game-level object interpolation
+
+- Replaced heuristic matrix pairing (flickered on moving objects) with
+  identities from the game's own matrix stack: entry hooks in the recompiled
+  module, shadow identity per stack level, in-band XF marker (0x0FFE) before
+  each loaded matrix. Inert unless `wario_fps_tagging` is set (menu Motion =
+  camera + objects).
+- The first identity recipe collided for ~50% of loads (the node renderer
+  fn_80047F2C uses one global scratch matrix); mixing the model/node globals
+  in brought collisions to 0 (boss, Greenhorn) / 1.8% (hub, legit repeats).
+- Blob-outlier check (eroded) vs camera-only: hub 0.000, boss 0.004, Greenhorn
+  0.019 % (largest: a fast camera swing, coherent). Speed 1.0x at 2x/4x.
+- Pacing anchored to the previous real frame again (copy-time anchoring
+  bunched frames in the hub, where the game finishes early).
+- Menu: size follows Windows display scaling plus a Menu size slider; panel
+  as wide as its content (max half the screen).
+
 ## 2026-10-27: "21:9 shows 4:3" was the menu resetting non-preset ratios
 
 - Custom 21x9 / 7:3 / 22:9 / 23:9 presented ~4:3 while 64:27, 16:10, 16:9 and
