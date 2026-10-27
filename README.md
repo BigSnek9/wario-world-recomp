@@ -55,14 +55,16 @@ it builds; the finished install is about 0.5 GB.
 What it does: downloads the pinned DolRecomp and ModernGekko sources, applies this
 project's fixes, builds the tools and the runtime, extracts your disc, translates the
 game's code to C and compiles it into a game module, then copies the runtime, module,
-game files and starter into the install folder and adds desktop / Start-menu
-shortcuts. Everything runs from that folder: your saves and settings are in `user\`,
-logs in `data\`. Start the game with the shortcut or `Play Wario World.cmd`.
-Running the installer again on the same folder rebuilds it and keeps your saves.
+game files and starter into the install folder, makes a game icon from your disc's
+banner and adds desktop / Start-menu shortcuts. The build files are deleted when it
+finishes. Everything runs from the install folder: your saves and settings are in
+`user\`, logs in `data\`. Start the game with the shortcut or `Play Wario World.cmd`.
+Running the installer again on the same folder with your disc rebuilds it and keeps your
+saves; without the disc, **Update** just remakes the icon and shortcuts.
 
 Without the window: `python installer\wario_installer.pyw --no-gui --iso <your.iso>
 --install-dir <folder> [--desktop-shortcut] [--start-menu-shortcut]` (`--check` only
-checks the prerequisites). Manual build steps: [docs/START_HERE.md](docs/START_HERE.md).
+checks the prerequisites; `--refresh` only remakes the icon and shortcuts). Manual build steps: [docs/START_HERE.md](docs/START_HERE.md).
 
 ## Status
 

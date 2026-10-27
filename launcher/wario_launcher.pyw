@@ -26,6 +26,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +44,7 @@ if INSTALLED:
     MODULES = (ROOT / "module/gGWWE01_recomp.dll",)
     TEXTURE_OUT = ROOT / "Extracted Textures"
     WINDOW_TITLE = "Wario World Recomp"
+    ICON = ROOT / "WarioWorld.ico"  # made by the installer from the player's own disc banner
 else:
     RUNNER = ROOT / "build/moderngekko/Release/moderngekko-run.exe"
     GAME = ROOT / "original/GWWE01"
@@ -53,6 +56,7 @@ else:
                ROOT / "build/module-full-vectors-clang/gGWWE01_recomp.dll")
     TEXTURE_OUT = ROOT.parent / "Extracted Textures"
     WINDOW_TITLE = "Wario World Recomp - Test Build"
+    ICON = None
 OLD_SETTINGS = ROOT / "private/launcher.json"
 MENU_SETTINGS = USER / "Config/WarioWorld.ini"
 RESTART_MARKER = USER / "Config/WarioWorld.restart"
@@ -164,6 +168,47 @@ def environment():
     return env
 
 
+def set_window_icon(pid, icon, timeout=60.0):
+    """Give the runner's window (class DolphinNoGUI, owned by pid) the game icon via WM_SETICON."""
+    user32 = ctypes.windll.user32
+    from ctypes import wintypes
+    user32.LoadImageW.restype = wintypes.HANDLE
+    user32.LoadImageW.argtypes = (wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT, ctypes.c_int, ctypes.c_int,
+                                  wintypes.UINT)
+    user32.SendMessageW.restype = ctypes.c_ssize_t
+    user32.SendMessageW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+    user32.GetClassNameW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+    user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows.argtypes = (callback_type, wintypes.LPARAM)
+    found = []
+
+    def match(hwnd, _):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid:
+            name = ctypes.create_unicode_buffer(64)
+            user32.GetClassNameW(hwnd, name, 64)
+            if name.value == "DolphinNoGUI":
+                found.append(hwnd)
+        return True
+    callback = callback_type(match)
+    deadline = time.monotonic() + timeout
+    while not found and time.monotonic() < deadline:
+        user32.EnumWindows(callback, 0)
+        if not found:
+            time.sleep(0.25)
+    if not found:
+        return False
+    # LR_LOADFROMFILE; big = SM_CXICON (11), small = SM_CXSMICON (49). The HICONs live for the session.
+    for which, metric in ((1, 11), (0, 49)):
+        size = user32.GetSystemMetrics(metric)
+        handle = user32.LoadImageW(None, str(icon), 1, size, size, 0x10)
+        if handle:
+            user32.SendMessageW(found[0], 0x0080, which, handle)  # WM_SETICON
+    return True
+
+
 def run_once(module, env):
     menu = read_menu_settings()
     backend = "Vulkan" if migrate_backend(menu) == "vulkan" else "OpenGL"
@@ -195,6 +240,8 @@ def run_once(module, env):
                  "--graphics", backend, "--no-mods", "--automation-dir", str(CONTROL),
                  "--title", WINDOW_TITLE],
                 cwd=RUNNER.parent, stdout=log, stderr=subprocess.STDOUT, env=env, creationflags=NO_WINDOW)
+            if ICON and ICON.is_file():
+                threading.Thread(target=set_window_icon, args=(process.pid, ICON), daemon=True).start()
             return process.wait()
     finally:
         tracker.stop()

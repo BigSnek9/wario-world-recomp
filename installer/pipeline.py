@@ -35,6 +35,7 @@ STARTER_SCRIPTS = ("texture_tools.py", "configure_controls.py", "configure_basel
 MODULE_BUILD = "module-full-vectors-clang"  # build_rel_bundle.py --vectors --clean --clang (no PGO)
 NEEDED_GB = 5.0  # build files (3.5 GB measured) plus the install (0.4 GB), with some headroom
 REGIONS = {"E": "USA", "P": "Europe", "J": "Japan"}
+ICON_NAME = "WarioWorld.ico"  # made from the player's disc banner; only ever written to the install folder
 
 
 class InstallError(Exception):
@@ -272,6 +273,7 @@ STAGES = (
     ("prepare", "Prepare the REL and vector sources"),
     ("module", "Build the game module (clang)"),
     ("install", "Copy the game into the install folder"),
+    ("icon", "Make the game icon from your disc's banner"),
     ("shortcuts", "Create shortcuts"),
     ("cleanup", "Remove the build files"),
 )
@@ -524,6 +526,33 @@ class Installer:
             module_sha256=sha256_file(dest / "module/gGWWE01_recomp.dll")), indent=2) + "\n", encoding="utf-8")
         self.log(f"  installed {_size(dest, exclude=self.work):.2f} GB to {dest}")
 
+    def stage_icon(self):
+        from banner_icon import find_banner, write_icon
+        banner = find_banner(self.install / "game" / DISC_ID)
+        if not banner:
+            self.log("  no opening.bnr in the game files; the shortcuts use the runtime's icon")
+            return
+        try:
+            icon = write_icon(banner, self.install / ICON_NAME)
+            self.log(f"  {icon}")
+        except (OSError, ValueError) as error:  # never fatal: the game works without it
+            self.log(f"  could not make the icon ({error}); the shortcuts use the runtime's icon")
+
+    def shortcut_icon(self):
+        icon = self.install / ICON_NAME
+        return icon if icon.is_file() else self.install / "runtime/moderngekko-run.exe"
+
+    def refresh(self):
+        """Remake the icon and shortcuts of an existing install (no build, no ISO needed)."""
+        if not (self.install / "install.json").is_file():
+            raise InstallError(f"No installed game in {self.install}")
+        self.log(f"=== {_now()} updating the icon and shortcuts in {self.install}")
+        self._progress(STAGE_KEYS.index("icon"), "icon", dict(STAGES)["icon"])
+        self.stage_icon()
+        self._progress(STAGE_KEYS.index("shortcuts"), "shortcuts", dict(STAGES)["shortcuts"])
+        self.stage_shortcuts()
+        self.log("=== Done.")
+
     def stage_shortcuts(self):
         targets = []
         if self.shortcut_dir:
@@ -535,7 +564,7 @@ class Installer:
         for folder in targets:
             link = folder / "Wario World Recomp.lnk"
             create_shortcut(link, _pythonw(), f'"{self.install / "launcher/wario_launcher.pyw"}"',
-                            self.install, self.install / "runtime/moderngekko-run.exe")
+                            self.install, self.shortcut_icon())
             self.log(f"  {link}")
         if not targets:
             self.log("  none requested")
@@ -649,7 +678,20 @@ def main(argv=None):
     parser.add_argument("--keep-build", action="store_true", help="Keep the build files (faster reinstall)")
     parser.add_argument("--restart-from", choices=STAGE_KEYS, help="Redo this stage and the ones after it")
     parser.add_argument("--check", action="store_true", help="Only check the prerequisites (and the ISO, if given)")
+    parser.add_argument("--refresh", action="store_true",
+                        help="Only remake the icon and the requested shortcuts of an existing install")
     args = parser.parse_args(argv)
+    if args.refresh:
+        if not args.install_dir:
+            parser.error("--install-dir is required")
+        installer = Installer(args.install_dir, desktop_shortcut=args.desktop_shortcut,
+                              start_menu_shortcut=args.start_menu_shortcut, shortcut_dir=args.shortcut_dir)
+        try:
+            installer.refresh()
+        except InstallError as error:
+            print(f"ERROR: {error}")
+            return 1
+        return 0
     if not args.no_gui and not args.check:
         from gui import run_gui
         return run_gui(args)

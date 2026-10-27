@@ -31,3 +31,4 @@
 *.pdb
 __pycache__/
 *.pyc
+*.ico
