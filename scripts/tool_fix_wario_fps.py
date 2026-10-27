@@ -107,6 +107,12 @@ TC_AFTER_NEW = """    entry->SetHashes(hash, hash);
     }
     m_textures_by_address.emplace(dstAddr, std::move(entry));"""
 
+# The frame-copy records hold cache entries; release them while the cache still exists (the
+# vector member would otherwise outlive g_texture_cache and trip "Texture cache destroyed before
+# TCacheEntry was destroyed" on quit).
+TC_SHUTDOWN_OLD = "  // Clear pending EFB copies first, so we don't try to flush them.\n  m_pending_efb_copies.clear();\n"
+TC_SHUTDOWN_NEW = TC_SHUTDOWN_OLD + "  m_wario_frame_copies.clear();\n"
+
 TC_SWAP_OLD = "void TextureCacheBase::FlushStaleBinds()\n"
 TC_SWAP_NEW = """void TextureCacheBase::WarioSwapFrameCopies(bool to_frame_start)
 {
@@ -1542,6 +1548,7 @@ def apply(replace, runtime):
     replace(video / "TextureCacheBase.cpp", TC_RECORD_OLD, TC_RECORD_NEW)
     replace(video / "TextureCacheBase.cpp", TC_AFTER_OLD, TC_AFTER_NEW)
     replace(video / "TextureCacheBase.cpp", TC_SWAP_OLD, TC_SWAP_NEW)
+    replace(video / "TextureCacheBase.cpp", TC_SHUTDOWN_OLD, TC_SHUTDOWN_NEW)
     replace(video / "TextureCacheBase.cpp", TC_CAPTURE_OLD, TC_CAPTURE_NEW)
     replace(video / "TextureCacheBase.cpp", TC_GUARD_OLD, TC_GUARD_NEW)
     replace(video / "Present.h", PRESENT_DECL_OLD, PRESENT_DECL_NEW)
