@@ -1,6 +1,6 @@
 # Agent handoff
 
-Canonical project: F:/AI Projects/Recomp/Wario World/Recomp.
+Canonical project: this repository (the folder holding AGENTS.md).
 Input: ../Game/Wario World (USA).iso (GWWE01 rev 0). Started 2026-10-24.
 Rules: ../AGENTS.md. Master brief: ../../READ ME AGENTS.txt.
 
@@ -38,7 +38,7 @@ content published. User asked about sharing: public tree excludes game material.
 Since then: the owner started the FPS project (frame generation is an optional,
 presentation-side layer; the simulation still runs at 59.94 Hz), approved
 subagents (2026-10-26) and the ShadowRecomp-style release model (2026-10-27).
-The repository is a private GitHub repo; nothing has been published.
+The repository is public on GitHub (2026-10-27) with release v1.0.
 
 ## Verified baseline
 

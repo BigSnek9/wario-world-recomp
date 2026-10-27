@@ -12,11 +12,10 @@ KNOWN_ISSUES.md.
 2. **Confirm WS-009 / WS-010 on screen (KI-008).** Save a state with a speech
    board open and one on a stage results screen (F12 or the play tracker), then
    compare 16:9 against 4:3 captures.
-3. **GPL source before any public release (KI-010).** Attach
-   `WarioWorldRecomp-vX.Y-source.zip` or make the repository public, keep the
-   upstream pins in SOURCE.txt reachable, and do the full Dolphin / ModernGekko
-   / DolRecomp / third-party credits and licence pass. Upload only when the
-   owner asks (../PUBLISHING.md).
+3. **Each new release:** attach `WarioWorldRecomp-vX.Y-source.zip`, keep the
+   upstream pins in SOURCE.txt reachable and the credits current. Upload only
+   when the owner asks (../PUBLISHING.md). (KI-010, GPL source, closed: public
+   since 2026-10-27.)
 4. **Voice slider (KI-009).** Needs a listening pass to list Wario's voice SFX
    ids (../engine/AUDIO.md AU-005); the mixer table is ready.
 5. **Wide-aspect HUD leftovers.** Boss HP bars and minigame timers at

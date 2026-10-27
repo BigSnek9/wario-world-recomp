@@ -9,7 +9,6 @@ IDs here are stable. Older accuracy items A001-A019 live in ../ACCURACY_ISSUES.m
 | KI-007 | Trapdoor glow flicker | Open. Needs an F12 bug-report snapshot from the spot to reproduce hidden. |
 | KI-008 | Widescreen speech board figure (WS-009) and stage results paper icons (WS-010) | Fixed in code, not yet confirmed on screen: no savestate with a board open or a results screen exists. |
 | KI-009 | No Voice slider | Parked. Wario's voice clips are ordinary SFX with unidentified ids; needs a listening pass (../engine/AUDIO.md AU-005). |
-| KI-010 | GPL source for a public release | The runtime is GPL. Before any public release the corresponding source must be available (source zip or public repo). The repository is private. ../PUBLISHING.md. |
 | KI-004 | Capture commands lost during long pad holds | Test-harness limitation, below. |
 
 Also not checked in a hidden capture: boss HP bars and minigame timers at wide
@@ -62,3 +61,9 @@ luma 107.8 vs 107.7).
   PGO lockstep twin passed (TEST_RESULTS.md) and the PGO module is now the
   default. Further gains would need DolRecomp emitter changes (registers kept
   in ctx, per-instruction pc stores) with lockstep re-validation.
+
+## KI-010 GPL source for a public release - closed
+
+The runtime is GPL. Closed 2026-10-27: the repository is public, each release
+attaches its source zip, and the licence notices of every linked component ship
+in the zip (../PUBLISHING.md).

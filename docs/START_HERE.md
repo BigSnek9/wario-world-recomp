@@ -1,6 +1,6 @@
 # Resume quickly
 
-Work in F:/AI Projects/Recomp/Wario World/Recomp. Rules: ../AGENTS.md (all
+Work in the repository root. Rules: ../AGENTS.md (all
 tests hidden and muted, ask before new installs, keep game-derived material
 private, preserve private/playtest-user, the owner's saves).
 

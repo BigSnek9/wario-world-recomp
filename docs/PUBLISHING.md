@@ -2,8 +2,8 @@
 
 The repository is intended to contain build/analysis scripts, authored patches,
 configuration, hashes, and explanatory documentation. A user provides their own
-disc. The repository is on GitHub as a private repo (BigSnek9/wario-world-recomp,
-2026-10-27).
+disc. The repository is public on GitHub (BigSnek9/wario-world-recomp), made
+public by the owner on 2026-10-27 after a personal-data, junk and credits review.
 
 Releases (decided by the owner on 2026-10-27, the same model as ShadowRecomp,
 Zelda 64: Recompiled and Unleashed Recompiled): a release zip may contain the
@@ -21,8 +21,9 @@ into Git. Do not place a ROM in Git LFS.
 
 GPL note: the runtime is GPL-licensed (Dolphin-derived); a public binary release
 must make the corresponding source available (this repository plus the pinned
-upstream commits) and keep the licence notices in the zip. Open before going
-public (progress/KNOWN_ISSUES.md KI-010), together with a full credits pass. .gitignore does not remove files already
+upstream commits) and keep the licence notices in the zip. Done for v1.0: the repository is public, the
+source zip is attached, and README credits plus LICENSES\ cover every linked
+component (header-only ones included, make_release.py HEADER_ONLY_EXTERNALS). .gitignore does not remove files already
 in history; review the actual index, history and release archive before posting.
 
 Run scripts/check_public_tree.py before staging/releasing and inspect the staged

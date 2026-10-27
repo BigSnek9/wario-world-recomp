@@ -101,11 +101,30 @@ Found a bug? Press **F12** where it happens and include the snapshot from
 
 ## Credits and licences
 
-- Built on [DolRecomp](https://github.com/ExpansionPak/DolRecomp) and
-  [ModernGekko](https://github.com/ExpansionPak/ModernGekko), which includes code from
-  the [Dolphin](https://dolphin-emu.org/) emulator (GPLv2 or later).
-- This project's scripts and patches are GPLv3 ([LICENSE](LICENSE)). Upstream
-  components keep their own licences, included in the release zip under `LICENSES\`.
-- Wario World is © Nintendo. This is an unofficial fan project, not affiliated with
-  or endorsed by Nintendo. Neither this repository nor the release zip contains any
-  game files: the graphics, sound and data all come from your own disc.
+This project stands on a lot of other people's work. Thank you to:
+
+- **[DolRecomp](https://github.com/ExpansionPak/DolRecomp)** (GPLv3), the GameCube
+  static recompiler that translates the game's code to C.
+- **[ModernGekko](https://github.com/ExpansionPak/ModernGekko)** (GPLv3), the runtime
+  the recompiled game runs on.
+- **[Dolphin](https://dolphin-emu.org/)** (GPLv2 or later), the GameCube and Wii
+  emulator that ModernGekko is built from: its graphics, audio, input and hardware
+  code does most of the heavy lifting here. Huge thanks to the Dolphin team and
+  contributors.
+- The libraries bundled with Dolphin and compiled into the runtime, including
+  SDL, Dear ImGui, cubeb, glslang, SPIRV-Cross, Vulkan-Headers,
+  VulkanMemoryAllocator, fmt, zstd, zlib-ng, lz4, xxHash, mbedTLS, libspng, curl,
+  pugixml and others. Every one is listed, with its full licence text, in the release
+  zip's `LICENSES\` folder.
+- [decomp-toolkit](https://github.com/encounter/decomp-toolkit) and
+  [Ghidra](https://ghidra-sre.org/) for analysing the game during development (not
+  shipped).
+
+This project's own scripts and patches are GPLv3 ([LICENSE](LICENSE)). The release
+zip contains GPL software; its complete source is this repository plus the pinned
+upstream commits named in the zip's `SOURCE.txt` (also attached to each release as
+`-source.zip`).
+
+Wario World is © Nintendo. This is an unofficial fan project, not affiliated with or
+endorsed by Nintendo. Neither this repository nor the release zip contains any game
+files: the graphics, sound and data all come from your own disc.

@@ -5,7 +5,7 @@
 The game is complete: main.dol and all eight RELs run as native code (no
 interpreter or JIT on the tested routes), the owner has played it start to
 finish, and the optional enhancements live in the in-game menu. A release zip
-(ShadowRecomp style) is uploaded to the private repo as v1.0. The build-from-ISO
+(ShadowRecomp style) is released as v1.0; the repository is public (2026-10-27). The build-from-ISO
 installer was removed on 2026-10-27 (owner: nobody needs it).
 Current state, builds and commands: progress/CURRENT_STATUS.md. Open items:
 progress/KNOWN_ISSUES.md. Index of all docs: README.md.
@@ -243,7 +243,7 @@ source has a [wario-exi]/[wario-mc] diagnostic fprintf set (in patches).
 ## 2026-10-26 - Workspace overlay checkpoint
 
 The current authored updates are in the chat workspace work/project, because
-F:/AI Projects/Recomp/Wario World/Recomp remains read-only under this session's
+the main project folder remains read-only under this session's
 actual permissions. Do not overwrite the newer F tree with an old staging copy.
 User consent to project-folder access was received, but the permission tool did
 not grant it. No system installation is required for the current work.
@@ -283,7 +283,7 @@ negative named-symbol scan; audit other RELs for similar arithmetic/counters.
 ## 2026-10-26 - Integrated silent testing and save creation
 
 Main project access is now granted and the workspace fixes have been integrated
-at F:/AI Projects/Recomp/Wario World/Recomp. Earlier read-only/overlay notes
+at the main project folder. Earlier read-only/overlay notes
 below describe history. User requires all further tests
 to remain invisible and inaudible; smoke_boot.py rejects --windowed and always
 passes --mute. Do not launch standalone Dolphin GUI for testing.
@@ -416,7 +416,7 @@ or publication was performed. Historical checkpoints follow below.
 
 User said to keep working without waiting for their later playtest. No user input
 is currently required. All tests remain hidden and muted, no new installation.
-Main project is F:/AI Projects/Recomp/Wario World/Recomp; access granted this turn.
+Main project is the main project folder; access granted this turn.
 
 The first playable stage, Excitement Central / Greenhorn Forest, now loads.
 Transition run private/runs/20261026T111939310041Z-8d4aab64:

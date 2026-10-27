@@ -124,7 +124,12 @@ def externals_built(runtime_build):
     names = sorted(p.name for p in folder.iterdir() if p.is_dir()) if folder.is_dir() else []
     if not names:
         raise SystemExit(f"Cannot list the runtime's linked components (no {folder})")
-    return names
+    # Header-only externals have no build folder but are compiled into the runner
+    # (the Vulkan backend and Common/JsonUtil.cpp include them).
+    return sorted(set(names) | set(HEADER_ONLY_EXTERNALS))
+
+
+HEADER_ONLY_EXTERNALS = ("Vulkan-Headers", "VulkanMemoryAllocator", "picojson")
 
 
 LICENSE_NAMES = ("license", "licence", "copying", "notice")
