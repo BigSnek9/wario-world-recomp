@@ -138,7 +138,7 @@ def widen_fullscreen_quads(text):
         quad_sites += count
     text = anchor_hud_edges(text)
     text = hook_matrix_stack(text)
-    if any(name in text for name in ("wario_fullscreen_half_width", "WARIO_HUD_DX", "wario_hud_edge", "wario_quad_half", "wario_sync_2d_ortho")):
+    if any(name in text for name in ("wario_fullscreen_half_width", "WARIO_HUD_DX", "wario_hud_edge", "wario_quad_half", "wario_sync_2d_ortho", "wario_sync_screen_perspective")):
         text = text.replace('#include "../generated.h"',
                             '#include "../generated.h"\nextern volatile s32 wario_fullscreen_half_width;' +
                             HUD_EDGE_HELPERS, 1)
@@ -196,6 +196,18 @@ HUD_EDGE_SITES = {
     0x8007FAA4: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _QUAD_I),
     0x8006F978: ("ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(20);",
                  "ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(20);\n    wario_sync_2d_ortho(ctx, ctx->gpr[3]);"),
+    # WS-007 fixed-size screen cameras built by fn_8007DF18 next to the 2D layer:
+    # fn_80067AA8 (C_MTXOrtho +-320 x +-224, applied by fn_80067C34) and
+    # fn_80067D50 (C_MTXPerspective 30 deg, aspect = viewport 512/448, applied
+    # by fn_80067F44). They draw the hint/message boards and the 3D figures in
+    # them, which a wide screen stretched. At their GXSetProjection(obj+0x10)
+    # m[0][0] follows the live half width: ortho as the 2D layer above,
+    # perspective m00 = m11 / (aspect * half/320) (C_MTXPerspective computes
+    # m00 = cot / aspect with m11 = cot, so 4:3 restores the exact value).
+    0x80067D14: ("ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(16);",
+                 "ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(16);\n    wario_sync_2d_ortho(ctx, ctx->gpr[3]);"),
+    0x80068014: ("ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(16);",
+                 "ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(16);\n    wario_sync_screen_perspective(ctx, ctx->gpr[3]);"),
 }
 HUD_EDGE_HELPERS = """
 #define WARIO_HUD_DX ((s32)wario_fullscreen_half_width - 320)
@@ -210,15 +222,29 @@ static inline f64 wario_hud_edge_f(f64 x) {
 static inline s32 wario_quad_half(s32 x) {
     return x == 320 ? (s32)wario_fullscreen_half_width : x;
 }
+static int wario_wide_seen;
 static inline void wario_sync_2d_ortho(CPUState* ctx, u32 m00_address) {
-    static int wide_seen;
     union { u32 u; float f; } half, m00;
     if (wario_fullscreen_half_width != 320)
-        wide_seen = 1;
-    if (!wide_seen)
+        wario_wide_seen = 1;
+    if (!wario_wide_seen)
         return;
     half.u = mem_read32(ctx, 0x801FE6CCu);
     m00.f = 2.0f * (1.0f / (half.f - -half.f));
+    if (mem_read32(ctx, m00_address) != m00.u)
+        mem_write32(ctx, m00_address, m00.u);
+}
+static inline void wario_sync_screen_perspective(CPUState* ctx, u32 m00_address) {
+    union { u32 u; float f; } half, m11, width, height, m00;
+    if (wario_fullscreen_half_width != 320)
+        wario_wide_seen = 1;
+    if (!wario_wide_seen)
+        return;
+    half.u = mem_read32(ctx, 0x801FE6CCu);
+    m11.u = mem_read32(ctx, m00_address + 0x14u);
+    width.u = mem_read32(ctx, 0x801FDA20u);
+    height.u = mem_read32(ctx, 0x801FDA24u);
+    m00.f = m11.f / ((width.f / height.f) * (half.f / 320.0f));
     if (mem_read32(ctx, m00_address) != m00.u)
         mem_write32(ctx, m00_address, m00.u);
 }"""

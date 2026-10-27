@@ -78,3 +78,17 @@ and the 2D half-width (WS-002) still need their own changes.
   widths replaced by 16:9 constants) compensate an anamorphic stretch and are
   not needed with the widened ortho. Verified hidden at 16:9 and 32:9 with the
   conditional elements forced visible; 4:3 HUD positions unchanged.
+- WS-007 message boards (2026-10-27): fn_8007DF18 builds two more screen
+  cameras next to the 2D layer, and they ignored the widened half width:
+  - fn_80067AA8: C_MTXOrtho, +-320 x +-224; applied by fn_80067C34.
+  - fn_80067D50: C_MTXPerspective, 30 degrees, aspect = viewport 512/448;
+    applied by fn_80067F44.
+  They draw the hint/message boards (parchment, text and the 3D figure), which
+  a wide screen stretched across the whole width. At their
+  GXSetProjection(obj+0x10) calls (0x80067D14 and 0x80068014, HUD_EDGE_SITES):
+  - the ortho gets the 2D layer's m[0][0];
+  - the perspective gets m00 = m11 / (aspect * half/320).
+  Boards keep their 4:3 shape, centred. The fix is inert until the adapter
+  widens anything, and 4:3 restores the exact original values. Not yet seen
+  in a hidden run (no state with a board open); full-screen draws through
+  these cameras, if any, would now cover only the centre 4:3.

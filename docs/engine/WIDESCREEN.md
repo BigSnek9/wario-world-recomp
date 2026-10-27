@@ -83,6 +83,25 @@ widescreen mod must keep aspect (+0x44) = displayed width/height; a higher host
 internal resolution scales this 512x448 target. 2D layout uses a separate
 640-based space (WS-002).
 
+## WS-007 Fixed screen cameras (confirmed code, probable role)
+
+fn_8007DF18 (which also builds the two 2D cameras via fn_8006F7CC) creates:
+- fn_80067AA8(f1, f2): C_MTXOrtho, top 224, left -320, near 1, far 256
+  (lbl_801FE580/584/57C/588); called twice with depth ranges (0.75, 1.0) and
+  (0, 0.25) stored at +0x50/+0x54. Vtable lbl_801BEB28; apply fn_80067C34
+  (GXSetViewport from the viewport globals, then GXSetProjection(obj+0x10) at
+  0x80067D1C).
+- fn_80067D50: C_MTXPerspective(fovy 30, aspect = lbl_801FDA20 / lbl_801FDA24
+  = 512/448, near 1, far 256). Vtable lbl_801BEAF8; apply fn_80067F44
+  (GXSetProjection at 0x8006801C).
+Neither reads HC-0007, so in a wide aspect anything drawn through them
+stretches horizontally. The hint/message boards (parchment, text and the 3D
+figure in them) are drawn this way (human screenshot, 2026-10-27).
+C_MTXPerspective (fn_8019C618) stores m11 = cot(fovy/2) and m00 = m11 / aspect.
+
+A third C_MTXPerspective call (fn_8015C8C8, caller fn_800302CC) uses fixed
+fovy 50 and aspect 4/3 (lbl_80201928..34); its role is unknown.
+
 ## Open questions
 
 - Which code writes camera `+0x44` besides fn_80068250 (cutscenes, bosses)?

@@ -116,6 +116,8 @@ bool s_loaded = false;
 bool s_open = false;
 float s_anim = 0.0f;  // 0 closed .. 1 open
 bool s_focus_next = false;
+bool s_focus_resume = false;  // nav cursor starts on Resume each time the menu opens
+float s_quit_armed = 0.0f;     // seconds left to confirm Quit with a second press
 unsigned s_previous_buttons = 0;
 bool s_previous_tab = false;
 
@@ -417,8 +419,9 @@ void SetOpen(bool open)
   if (open == s_open)
     return;
   s_open = open;
+  s_quit_armed = 0.0f;
   if (open)
-    s_focus_next = true;
+    s_focus_next = s_focus_resume = true;
   else
     Save();
 }
@@ -510,6 +513,11 @@ void DrawPanel(float width, float height)
       ImGui::SetNextItemWidth(field);
     };
     bool changed = false;
+    if (s_focus_resume)
+    {
+      ImGui::SetKeyboardFocusHere();
+      s_focus_resume = false;
+    }
     if (ImGui::Button("Resume", ImVec2(inner, 0.0f)))
       SetOpen(false);
 
@@ -600,8 +608,20 @@ void DrawPanel(float width, float height)
 
     ImGui::Spacing();
     ImGui::Separator();
-    if (ImGui::Button("Quit game", ImVec2(inner, 0.0f)))
-      Quit();
+    // Quit needs a second press within 3 s, so a stray A on the last item never closes the game.
+    s_quit_armed = std::max(s_quit_armed - ImGui::GetIO().DeltaTime, 0.0f);
+    const bool armed = s_quit_armed > 0.0f;
+    if (armed)
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.65f, 0.12f, 0.1f, 1.0f));
+    if (ImGui::Button(armed ? "Press again to quit###quit" : "Quit game###quit", ImVec2(inner, 0.0f)))
+    {
+      if (armed)
+        Quit();
+      else
+        s_quit_armed = 3.0f;
+    }
+    if (armed)
+      ImGui::PopStyleColor();
     ImGui::Spacing();
     ImGui::PushTextWrapPos(inner + font * 1.2f);
     ImGui::TextDisabled("Back / B: close   A: select   D-pad / stick: move. Mouse works too; "
