@@ -66,6 +66,7 @@ std::atomic<float> g_wario_aspect_target{WarioAspectFromEnv()};  // 0 = 4:3, < 0
 std::atomic<int> g_wario_mouse_wheel{0};                         // 1/120 notches
 void* g_wario_hwnd = nullptr;
 extern std::atomic<int> g_wario_fps_multiplier;  // VideoCommon/BPStructs.cpp (1 = off)
+extern std::atomic<bool> g_wario_fps_objects;     // false = camera only
 
 namespace WarioMenu
 {
@@ -77,6 +78,7 @@ struct Settings
   bool hd_textures = false;
   bool hdr = false;
   int frame_rate = 0;  // index into kFrameRates
+  int motion = 0;      // 0 = camera only, 1 = camera + objects
   int volume = 100;
   bool moon_jump = false;
   float moon_speed = 2.0f;
@@ -88,6 +90,8 @@ constexpr int kResolutionScales[] = {0, 1, 2, 3, 4, 5, 6, 8};
 constexpr const char* kFrameRateNames[] = {"Original 60 (accurate)", "120 (2x)", "180 (3x)",
                                            "240 (4x)", "Auto (match screen)"};
 constexpr const char* kFrameRateKeys[] = {"60", "120", "180", "240", "auto"};
+constexpr const char* kMotionNames[] = {"Camera only (clean)", "Camera + objects (experimental)"};
+constexpr const char* kMotionKeys[] = {"camera", "objects"};
 struct Aspect
 {
   const char* name;
@@ -123,10 +127,10 @@ void Save()
     const Settings& s = s_settings;
     std::fprintf(file,
                  "# Wario World in-game menu settings (Back / Tab in game)\n"
-                 "resolution=%d\naspect=%s\nfullscreen=%d\nhd_textures=%d\nhdr=%d\nframe_rate=%s\n"
+                 "resolution=%d\naspect=%s\nfullscreen=%d\nhd_textures=%d\nhdr=%d\nframe_rate=%s\nmotion=%s\n"
                  "volume=%d\nmoon_jump=%d\nmoon_speed=%.2f\n",
                  kResolutionScales[s.resolution], kAspects[s.aspect].key, s.fullscreen,
-                 s.hd_textures, s.hdr, kFrameRateKeys[s.frame_rate], s.volume, s.moon_jump,
+                 s.hd_textures, s.hdr, kFrameRateKeys[s.frame_rate], kMotionKeys[s.motion], s.volume, s.moon_jump,
                  s.moon_speed);
     std::fclose(file);
   }
@@ -151,6 +155,7 @@ std::vector<std::string> Load()
     }
   }
   s.frame_rate = std::clamp(g_wario_fps_multiplier.load(), 1, 4) - 1;
+  s.motion = g_wario_fps_objects.load() ? 1 : 0;
   s.hd_textures = Config::Get(Config::GFX_HIRES_TEXTURES);
   s.hdr = Config::Get(Config::GFX_ENHANCE_HDR_OUTPUT);
   s.volume = Config::Get(Config::MAIN_AUDIO_VOLUME);
@@ -199,6 +204,8 @@ std::vector<std::string> Load()
         if (value == kFrameRateKeys[i])
           s.frame_rate = i;
     }
+    else if (key == "motion")
+      s.motion = value == "objects" ? 1 : 0;
     else if (key == "volume")
       s.volume = std::clamp(number, 0, 100);
     else if (key == "moon_jump")
@@ -293,6 +300,7 @@ void QueueFps()
 {
   const int choice = s_settings.frame_rate;
   g_wario_fps_multiplier.store(choice == 4 ? AutoMultiplier() : choice + 1);
+  g_wario_fps_objects.store(s_settings.motion == 1);
 }
 
 void ToggleFullscreen()
@@ -526,6 +534,14 @@ void DrawPanel(float width, float height)
       QueueFps();
       changed = true;
     }
+    ImGui::BeginDisabled(s.frame_rate == 0);
+    row("Motion");
+    if (ImGui::Combo("##motion", &s.motion, kMotionNames, static_cast<int>(std::size(kMotionNames))))
+    {
+      QueueFps();
+      changed = true;
+    }
+    ImGui::EndDisabled();
     ImGui::TextDisabled("Extra frames are interpolated; game speed is unchanged.");
     ImGui::TextDisabled("Adds ~8-12 ms delay. Pick no more than your screen's refresh rate.");
 
@@ -585,7 +601,7 @@ void WarioMenuDraw(u32 width, u32 height)
       QueueHdr();
     if (has("volume"))
       QueueVolume();
-    if (has("frame_rate") || has("fps"))
+    if (has("frame_rate") || has("fps") || has("motion"))
       QueueFps();
   }
   ImGuiIO& io = ImGui::GetIO();

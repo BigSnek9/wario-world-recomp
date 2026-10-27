@@ -450,6 +450,12 @@ static bool WarioFpsEnabled()
 bool g_wario_fps_record = WarioFpsEnabled();
 // Frames per game frame (1 = off, 2-4), switched live by the in-game menu
 // (VideoCommon/OnScreenUI.cpp). MODERNGEKKO_WARIO_FPS=1/on means 2, or give 2-4.
+// Object interpolation on/off (menu "Motion"); off = camera only. MODERNGEKKO_WARIO_FPS_OBJECTS=1
+// turns it on for hidden tests.
+std::atomic<bool> g_wario_fps_objects{[] {
+  const char* value = std::getenv("MODERNGEKKO_WARIO_FPS_OBJECTS");
+  return value && std::strcmp(value, "1") == 0;
+}()};
 std::atomic<int> g_wario_fps_multiplier{[] {
   if (!WarioFpsEnabled())
     return 1;
@@ -1029,13 +1035,10 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
 
   // Diagnostics: MODERNGEKKO_WARIO_FPS_DUMP=<dir> saves two consecutive real/in-between pairs every
   // 120 frames; MODERNGEKKO_WARIO_FPS_IDENTITY=1 replays without any change (must match the real
-  // frame); MODERNGEKKO_WARIO_FPS_OBJECTS=0 interpolates the camera only.
+  // frame). Object interpolation is g_wario_fps_objects (menu "Motion").
   static const char* dump_dir = std::getenv("MODERNGEKKO_WARIO_FPS_DUMP");
   static const bool identity = std::getenv("MODERNGEKKO_WARIO_FPS_IDENTITY") != nullptr;
-  static const bool objects = [] {
-    const char* value = std::getenv("MODERNGEKKO_WARIO_FPS_OBJECTS");
-    return !(value && std::strcmp(value, "0") == 0);
-  }();
+  const bool objects = g_wario_fps_objects.load(std::memory_order_relaxed);
   const bool dump = dump_dir && *dump_dir && s_wfps.interpolated % 120 <= 1;
   const auto private_copy = [&] {
     g_wario_private_xfb_copy = true;
