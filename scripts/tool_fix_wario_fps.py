@@ -271,6 +271,8 @@ bool Presenter::WarioNextPresentDue(TimePoint* due) const
 
 void Presenter::WarioFlushPendingPresent(bool force)
 {
+  if (m_wario_pending_mids.empty() && !s_wario_pending_present)
+    return;  // called every 16 GPU commands: no clock read when nothing is queued
   for (;;)
   {
     const auto now = Clock::now();

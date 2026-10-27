@@ -90,3 +90,14 @@ Regression suite --quick with FPS off (prof runner): ALL PASS
 | Release runner, 16:9, FPS on, boot -> hub (Vulkan) | 0.873 (title boot dip, same as off) | no loading-coin trails; fade full width |
 | Regression --quick, FPS off, new module | ALL PASS | reports/regression-20261026T233143Z.json |
 | Hub A/B (prof): FPS off / on with sleep / no sleep | 0.998 / 0.954 / 1.000 | mid-frame sleep was the cost |
+
+## 2026-10-27 early morning: game-level FPS interpolation
+
+| Check | Result |
+|---|---|
+| Full regression incl. lockstep, hooked modules | ALL PASS; lockstep 12599/0, 14235/0 |
+| Blob flicker (eroded), 2x camera + objects | boss 0.000, hub 0.000, Greenhorn 0.002, lava CF43 0.14 (camera-only 0.32) |
+| Identity collisions (repeat with different matrix) | 0 in boss/Greenhorn/CF22/CF41; castle ribbon loop repeats are order-stable |
+| World sweep, 46 play-tracker states (2x, objects) | reports/fps-world-sweep.json |
+| 4x speed, heaviest areas (AR42, CF22, AR21, CTT, CF51, CF43), no dumps | 0.998-1.000 (AR42 1.000 after skipping idle clock reads) |
+| Menu snapshot (MODERNGEKKO_WARIO_MENU_TEST) | renders; text follows display scaling, nothing clipped |

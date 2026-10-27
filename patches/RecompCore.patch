@@ -383,10 +383,10 @@ index d084fea..a2a5dc7 100644
    std::vector<u64> m_effective_chunk_hashes;
    u64 m_rel_mapping_generation = 0;
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
-index 7b3d845..5ef0df6 100644
+index 7b3d845..073877c 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
-@@ -13,6 +13,326 @@
+@@ -13,6 +13,334 @@
  #include "Common/Logging/Log.h"
  
  #include <cstdio>
@@ -710,10 +710,18 @@ index 7b3d845..5ef0df6 100644
 +#include <cstring>
 +#include "Core/CoreTiming.h"
 +#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
  
  namespace
  {
-@@ -367,6 +687,13 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -367,6 +695,13 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
    auto* core = static_cast<StaticRecompCore*>(cpu->external_user_data);
    cia = core->TranslateRelAddress(cia);
    ++core->m_hook_fallback_instructions;
@@ -727,7 +735,7 @@ index 7b3d845..5ef0df6 100644
  
    // Lockstep: a block that fell back to the interpreter for an unmodeled
    // instruction (DMA mtspr, cache op, ...) performed side effects not captured
-@@ -397,6 +724,7 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -397,6 +732,7 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
          ppc.iCache.Invalidate(system.GetMemory(), system.GetJitInterface(), ea);
        else
          system.GetJitInterface().InvalidateICacheLine(ea);
@@ -735,7 +743,7 @@ index 7b3d845..5ef0df6 100644
        // These bypass SingleStepInner, so charge Dolphin's PPCTables cost
        // here (icbi 4, dcbf/dcbst/dcbi 5); their emitted block cost is zero.
        ppc.downcount -= (xo == 982u) ? 4 : 5;
-@@ -405,12 +733,102 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -405,12 +741,102 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
      }
    }
  
@@ -3040,7 +3048,7 @@ index fc6f896..b57d913 100644
    }
  
 diff --git a/Source/Core/VideoCommon/Present.cpp b/Source/Core/VideoCommon/Present.cpp
-index 7c62730..fba8074 100644
+index 7c62730..2b9c54c 100644
 --- a/Source/Core/VideoCommon/Present.cpp
 +++ b/Source/Core/VideoCommon/Present.cpp
 @@ -3,6 +3,9 @@
@@ -3159,7 +3167,7 @@ index 7c62730..fba8074 100644
      ProcessFrameDumping(ticks);
  
      video_events.after_present_event.Trigger(present_info);
-@@ -249,6 +327,118 @@ void Presenter::ImmediateSwap(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_
+@@ -249,6 +327,120 @@ void Presenter::ImmediateSwap(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_
    video_events.after_present_event.Trigger(present_info);
  }
  
@@ -3224,6 +3232,8 @@ index 7c62730..fba8074 100644
 +
 +void Presenter::WarioFlushPendingPresent(bool force)
 +{
++  if (m_wario_pending_mids.empty() && !s_wario_pending_present)
++    return;  // called every 16 GPU commands: no clock read when nothing is queued
 +  for (;;)
 +  {
 +    const auto now = Clock::now();
@@ -3278,7 +3288,7 @@ index 7c62730..fba8074 100644
  void Presenter::SetNextSwapEstimatedTime(u64 ticks, TimePoint host_time)
  {
    m_next_swap_estimated_ticks = ticks;
-@@ -949,6 +1139,26 @@ void Presenter::Present(PresentInfo* present_info)
+@@ -949,6 +1141,26 @@ void Presenter::Present(PresentInfo* present_info)
      if (backbuffer_bound)
        m_onscreen_ui->DrawImGui();
    }
