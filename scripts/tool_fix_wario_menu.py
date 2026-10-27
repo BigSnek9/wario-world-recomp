@@ -1949,7 +1949,8 @@ void DrawPanel(float width, float height)
         }
         if (confirm)
           ImGui::PopStyleColor();
-        hint("Permanent once you save the game.");
+        hint("Permanent once you save the game. Re-enter the hub to see the doors and the final "
+             "chest update.");
         if (state == 1)
           hint("Waiting: applies once a save file is loaded and Wario is in the world.");
         else if (state == 2)
@@ -1958,7 +1959,8 @@ void DrawPanel(float width, float height)
       one_shot(0, "Unlock all stages", s_cheat_unlock);
       hint("Every stage and world opens; the final boss stays uncleared.");
       one_shot(1, "Mark all collectables as grabbed", s_cheat_collect);
-      hint("Treasures, red diamonds, Spritelings and statue parts in every stage.");
+      hint("Treasures, red diamonds, Spritelings and statue parts in every stage. The final chest "
+           "also needs every stage cleared.");
       ImGui::EndDisabled();
       if (!s_cheat_exports)
         hint("Cheats need the newer game module.");

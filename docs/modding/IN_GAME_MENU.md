@@ -99,7 +99,10 @@ and saves the game picture with the menu on top once.
   saved without `hdr_warmth`. A test copy without the HDR-only guard raised the
   game area's mean saturation from 67 to 101 at vibrance +100.
 - Cheats one-shots: the first press arms the button for 3 s ("Press again to
-  apply", red); each carries "Permanent once you save the game."
+  apply", red); each carries "Permanent once you save the game. Re-enter the hub to
+  see the doors and the final chest update." (the hub reads the progress mask only when
+  it loads). "Mark all collectables" also notes that the final chest needs every stage
+  cleared (module fix e7aeedb).
 - The menu pushes the option values each frame from `Presenter::Present`
   (`ApplyHdrGrading`), so sliders apply live and survive shader reloads.
 - Verified 2026-10-27 in hidden runs: the menu loads the shader on Vulkan and
