@@ -41,11 +41,15 @@ OSUI_INCLUDE_NEW = OSUI_INCLUDE_OLD + r"""
 #include <string>
 #include <vector>
 
+#include <fmt/format.h>
 #include <imgui_internal.h>
 
 #include "AudioCommon/AudioCommon.h"
+#include "Common/Config/Config.h"
+#include "Common/Config/Layer.h"
 #include "Common/StringUtil.h"
 #include "Core/HW/Memmap.h"
+#include "VideoCommon/AbstractFramebuffer.h"
 #include "VideoCommon/PostProcessing.h"
 
 #ifdef _WIN32
@@ -79,6 +83,42 @@ static float WarioAspectFromEnv()
 std::atomic<bool> g_wario_menu_open{false};
 std::atomic<float> g_wario_aspect_target{WarioAspectFromEnv()};  // 0 = 4:3, < 0 = window
 std::atomic<int> g_wario_mouse_wheel{0};                         // 1/120 notches
+// HDR brightness of the ImGui overlay. Dolphin draws ImGui in scRGB with 1.0 = 80 nits, so 80 is
+// its own look; the menu's "Menu brightness" sets it and DrawImGui rebuilds the pipeline.
+std::atomic<float> g_wario_menu_nits{80.0f};
+static float s_wario_menu_nits_built = 80.0f;
+// Colour format the ImGui pipeline is built for: the framebuffer DrawImGui really draws into.
+// Presenter::GetBackbufferFormat() goes stale when Vulkan recreates the swap chain as RGBA16F for
+// HDR switched on at runtime (VKGfx::OnSwapChainResized passes only the new size), which left the
+// overlay with an SDR pipeline in HDR, so the menu brightness never applied.
+static AbstractTextureFormat s_wario_imgui_format = AbstractTextureFormat::Undefined;
+static AbstractTextureFormat s_wario_imgui_built_format = AbstractTextureFormat::Undefined;
+
+static AbstractTextureFormat WarioImGuiFormat()
+{
+  s_wario_imgui_built_format = s_wario_imgui_format != AbstractTextureFormat::Undefined ?
+                                   s_wario_imgui_format :
+                                   g_presenter->GetBackbufferFormat();
+  return s_wario_imgui_built_format;
+}
+
+// FramebufferShaderGen's ImGui pixel shader, with the linear (HDR) output scaled to the menu
+// brightness. At 80 nits, or if Dolphin's shader text ever changes, it is returned unchanged.
+static std::string WarioImGuiPixelShader(bool linear_output)
+{
+  std::string code = FramebufferShaderGen::GenerateImGuiPixelShader(linear_output);
+  const float nits = g_wario_menu_nits.load();
+  s_wario_menu_nits_built = nits;
+  static const std::string gamma_to_linear = "pow(v_col0, float4(2.2f, 2.2f, 2.2f, 1.0f))";
+  const size_t at = code.find(gamma_to_linear);
+  if (!linear_output || nits == 80.0f || at == std::string::npos)
+    return code;
+  const float scale = nits / 80.0f;
+  code.replace(at, gamma_to_linear.size(),
+               fmt::format("({} * float4({:.4f}f, {:.4f}f, {:.4f}f, 1.0f))", gamma_to_linear, scale, scale,
+                           scale));
+  return code;
+}
 // Diagnostics: MODERNGEKKO_WARIO_MENU_TEST=<png> opens the menu after 6 s and saves the
 // game picture with the menu on top once (Presenter::Present renders it offscreen).
 std::atomic<bool> g_wario_menu_snapshot{false};
@@ -108,8 +148,10 @@ struct Settings
   float menu_scale = 1.0f;  // 0.6 .. 1.6, on top of Windows display scaling
   int style = 0;            // index into kThemes
   int backend = 0;          // index into kBackendKeys; used by the starter at the next launch
+  bool performance = false;  // dual core (Dolphin [Core] CPUThread), set by the starter at launch
   // HDR tuning (Vulkan HDR output only). Every default is the untouched picture.
   float hdr_paper_white = 203.0f;  // nits; Config::GFX_CC_HDR_PAPER_WHITE_NITS
+  float hdr_menu_nits = 80.0f;     // brightness of this menu in HDR (g_wario_menu_nits)
   float hdr_peak = 1000.0f;        // nits; the highlight boost stretches up to this
   int hdr_boost = 0;               // %, 0 = off
   int hdr_saturation = 100;        // %
@@ -122,6 +164,7 @@ struct Settings
 constexpr const char* kBackendNames[] = {"OpenGL", "Vulkan"};
 constexpr const char* kBackendKeys[] = {"opengl", "vulkan"};
 int s_backend_running = 0;  // backend of this session
+bool s_performance_running = false;  // dual core in this session
 
 // Grading shader (Data/Sys/Shaders/WarioHDR.glsl) and whatever post shader the session had.
 constexpr const char kHdrShader[] = "WarioHDR";
@@ -223,12 +266,13 @@ void Save()
                  "resolution=%d\naspect=%s\nfullscreen=%d\nhd_textures=%d\nhdr=%d\nframe_rate=%s\nmotion=%s\n"
                  "volume=%d\nmoon_jump=%d\nmoon_speed=%.2f\nmenu_scale=%.2f\nmenu_style=%s\n"
                  "hdr_paper_white=%.0f\nhdr_peak=%.0f\nhdr_boost=%d\nhdr_saturation=%d\n"
-                 "hdr_warmth=%d\nhdr_contrast=%d\nhdr_gamma=%.2f\nhdr_black=%d\nbackend=%s\nvsync=%s\n",
+                 "hdr_warmth=%d\nhdr_contrast=%d\nhdr_gamma=%.2f\nhdr_black=%d\nhdr_menu_nits=%.0f\n"
+                 "backend=%s\nvsync=%s\nperformance=%d\n",
                  kResolutionScales[s.resolution], kAspects[s.aspect].key, s.fullscreen,
                  s.hd_textures, s.hdr, kFrameRateKeys[s.frame_rate], kMotionKeys[s.motion], s.volume, s.moon_jump,
                  s.moon_speed, s.menu_scale, kThemes[s.style].key, s.hdr_paper_white, s.hdr_peak,
                  s.hdr_boost, s.hdr_saturation, s.hdr_warmth, s.hdr_contrast, s.hdr_gamma, s.hdr_black,
-                 kBackendKeys[s.backend], kVsyncKeys[s.vsync]);
+                 s.hdr_menu_nits, kBackendKeys[s.backend], kVsyncKeys[s.vsync], s.performance);
     for (const std::string& line : s_other_lines)
       std::fprintf(file, "%s\n", line.c_str());
     std::fclose(file);
@@ -258,6 +302,8 @@ std::vector<std::string> Load()
   s.hdr = Config::Get(Config::GFX_ENHANCE_HDR_OUTPUT);
   s.hdr_paper_white = Config::Get(Config::GFX_CC_HDR_PAPER_WHITE_NITS);
   s_backend_running = Config::Get(Config::MAIN_GFX_BACKEND) == "Vulkan" ? 1 : 0;
+  s_performance_running = Config::Get(Config::MAIN_CPU_THREAD);
+  s.performance = s_performance_running;
   s.backend = s_backend_running;
   s.volume = Config::Get(Config::MAIN_AUDIO_VOLUME);
   const int scale = Config::Get(Config::GFX_EFB_SCALE);
@@ -338,8 +384,12 @@ std::vector<std::string> Load()
       s.hdr_gamma = std::clamp(static_cast<float>(std::atof(value.c_str())), 0.7f, 1.3f);
     else if (key == "hdr_black")
       s.hdr_black = std::clamp(number, -10, 10);
+    else if (key == "hdr_menu_nits")
+      s.hdr_menu_nits = std::clamp(static_cast<float>(std::atof(value.c_str())), 80.0f, 400.0f);
     else if (key == "vsync")
       s.vsync = value == "off" ? 1 : 0;
+    else if (key == "performance")
+      s.performance = number != 0;
     else if (key == "backend")
       s.backend = value == "vulkan" ? 1 : 0;
     else if (key == "menu_style")
@@ -355,6 +405,19 @@ std::vector<std::string> Load()
   return saved;
 }
 
+// Config::SetCurrent for per-frame code (pending changes, HDR grading): while the core shuts down
+// the CurrentRun layer is removed and SetCurrent would dereference null (the exit crash in
+// Config::Layer::Set). Holding the layer also covers a removal on the host thread mid-write.
+template <typename InfoT, typename ValueT>
+void SetRunning(const Config::Info<InfoT>& info, const ValueT& value)
+{
+  if (const std::shared_ptr<Config::Layer> layer = Config::GetLayer(Config::LayerType::CurrentRun))
+  {
+    if (layer->Set(info, value))
+      Config::OnConfigChanged();
+  }
+}
+
 bool IsVulkan()
 {
   return Config::Get(Config::MAIN_GFX_BACKEND) == "Vulkan";
@@ -363,7 +426,7 @@ bool IsVulkan()
 void QueueResolution()
 {
   const int scale = kResolutionScales[s_settings.resolution];
-  s_pending.push_back([scale] { Config::SetCurrent(Config::GFX_EFB_SCALE, scale); });
+  s_pending.push_back([scale] { SetRunning(Config::GFX_EFB_SCALE, scale); });
 }
 
 void QueueAspect()
@@ -373,17 +436,17 @@ void QueueAspect()
     g_wario_aspect_target.store(aspect.ratio);
     if (aspect.ratio < 0.0f)
     {
-      Config::SetCurrent(Config::GFX_ASPECT_RATIO, AspectMode::Stretch);
+      SetRunning(Config::GFX_ASPECT_RATIO, AspectMode::Stretch);
     }
     else if (aspect.ratio == 0.0f)
     {
-      Config::SetCurrent(Config::GFX_ASPECT_RATIO, AspectMode::ForceStandard);
+      SetRunning(Config::GFX_ASPECT_RATIO, AspectMode::ForceStandard);
     }
     else
     {
-      Config::SetCurrent(Config::GFX_CUSTOM_ASPECT_RATIO_WIDTH, aspect.width);
-      Config::SetCurrent(Config::GFX_CUSTOM_ASPECT_RATIO_HEIGHT, aspect.height);
-      Config::SetCurrent(Config::GFX_ASPECT_RATIO, AspectMode::Custom);
+      SetRunning(Config::GFX_CUSTOM_ASPECT_RATIO_WIDTH, aspect.width);
+      SetRunning(Config::GFX_CUSTOM_ASPECT_RATIO_HEIGHT, aspect.height);
+      SetRunning(Config::GFX_ASPECT_RATIO, AspectMode::Custom);
     }
   });
 }
@@ -391,19 +454,19 @@ void QueueAspect()
 void QueueHd()
 {
   const bool hd = s_settings.hd_textures;
-  s_pending.push_back([hd] { Config::SetCurrent(Config::GFX_HIRES_TEXTURES, hd); });
+  s_pending.push_back([hd] { SetRunning(Config::GFX_HIRES_TEXTURES, hd); });
 }
 
 void QueueHdr()
 {
   const bool hdr = s_settings.hdr && IsVulkan();
-  s_pending.push_back([hdr] { Config::SetCurrent(Config::GFX_ENHANCE_HDR_OUTPUT, hdr); });
+  s_pending.push_back([hdr] { SetRunning(Config::GFX_ENHANCE_HDR_OUTPUT, hdr); });
 }
 
 void QueuePaperWhite()
 {
   const float nits = s_settings.hdr_paper_white;
-  s_pending.push_back([nits] { Config::SetCurrent(Config::GFX_CC_HDR_PAPER_WHITE_NITS, nits); });
+  s_pending.push_back([nits] { SetRunning(Config::GFX_CC_HDR_PAPER_WHITE_NITS, nits); });
 }
 
 void ResetHdr()
@@ -418,6 +481,8 @@ void ResetHdr()
   s.hdr_contrast = defaults.hdr_contrast;
   s.hdr_gamma = defaults.hdr_gamma;
   s.hdr_black = defaults.hdr_black;
+  s.hdr_menu_nits = defaults.hdr_menu_nits;
+  g_wario_menu_nits.store(s.hdr_menu_nits);
   QueuePaperWhite();
 }
 
@@ -435,16 +500,18 @@ bool HdrGradingActive()
 void ApplyHdrGrading()
 {
   const Settings& s = s_settings;
+  if (!Config::GetLayer(Config::LayerType::CurrentRun))
+    return;  // shutting down
   const bool want = s_loaded && s.hdr && IsVulkan() && HdrGradingActive();
   const std::string current = Config::Get(Config::GFX_ENHANCE_POST_SHADER);
   if (want && current != kHdrShader)
   {
     s_saved_post_shader = current;
-    Config::SetCurrent(Config::GFX_ENHANCE_POST_SHADER, std::string(kHdrShader));
+    SetRunning(Config::GFX_ENHANCE_POST_SHADER, std::string(kHdrShader));
   }
   else if (!want && current == kHdrShader)
   {
-    Config::SetCurrent(Config::GFX_ENHANCE_POST_SHADER, s_saved_post_shader);
+    SetRunning(Config::GFX_ENHANCE_POST_SHADER, s_saved_post_shader);
   }
   if (!want || !g_presenter || !g_presenter->GetPostProcessor())
     return;
@@ -468,7 +535,7 @@ void QueueVolume()
 {
   const int volume = s_settings.volume;
   s_pending.push_back([volume] {
-    Config::SetCurrent(Config::MAIN_AUDIO_VOLUME, volume);
+    SetRunning(Config::MAIN_AUDIO_VOLUME, volume);
     AudioCommon::UpdateSoundStream(Core::System::GetInstance());
   });
 }
@@ -1146,6 +1213,13 @@ void DrawPanel(float width, float height)
         if (ImGui::SliderFloat("##hdr_paper_white", &s.hdr_paper_white, 80.0f, 500.0f, "%.0f nits"))
           QueuePaperWhite();
         edited();
+        if (hdr_on)
+        {
+          row("Menu brightness");
+          if (stepped("##hdr_menu_nits", s.hdr_menu_nits, 10.0f, 80.0f, 400.0f, "%.0f nits"))
+            g_wario_menu_nits.store(s.hdr_menu_nits);
+          edited();
+        }
         row("Highlight boost");
         ImGui::SliderInt("##hdr_boost", &s.hdr_boost, 0, 100, s.hdr_boost == 0 ? "Off" : "%d%%");
         edited();
@@ -1273,10 +1347,15 @@ void DrawPanel(float width, float height)
       {
         changed = true;
       }
+      if (ImGui::Checkbox("Performance mode (multithreaded)", &s.performance))
+        changed = true;
       ImGui::PushTextWrapPos(inner + pad);
+      ImGui::TextDisabled("Runs GPU emulation on its own thread so heavy scenes and HD textures "
+                          "don't slow the game. Slightly less timing-accurate than the default.");
       if (s.hdr && s.backend != 1)
         ImGui::TextDisabled("HDR output needs Vulkan.");
-      if (s.backend != s_backend_running)
+      // Both are read by the starter at launch (backend=, performance= -> Dolphin.ini).
+      if (s.backend != s_backend_running || s.performance != s_performance_running)
       {
         ImGui::TextDisabled("Applies after restart.");
         if (ImGui::Button("Restart now", ImVec2(inner, 0.0f)))
@@ -1424,6 +1503,7 @@ void WarioMenuDraw(u32 width, u32 height)
     if (has("hdr_paper_white"))
       QueuePaperWhite();
     VideoCommon::g_wario_vsync_mode.store(s_settings.vsync);
+    g_wario_menu_nits.store(s_settings.hdr_menu_nits);
     if (has("volume"))
       QueueVolume();
     if (has("frame_rate") || has("fps") || has("motion"))
@@ -1509,6 +1589,9 @@ void WarioMenuApplyPending()
 {
   std::vector<std::function<void()>> pending;
   pending.swap(WarioMenu::s_pending);
+  // Shutting down: drop the changes (they are in WarioWorld.ini already, or will be on close).
+  if (!Config::GetLayer(Config::LayerType::CurrentRun))
+    return;
   for (auto& apply : pending)
     apply();
   WarioMenu::ApplyHdrGrading();
@@ -1520,6 +1603,46 @@ OSUI_DRAW_OLD = "  DrawChallengesAndLeaderboards();\n  ImGui::Render();"
 OSUI_DRAW_NEW = ("  DrawChallengesAndLeaderboards();\n"
                  "  WarioMenuDraw(m_backbuffer_width, m_backbuffer_height);\n"
                  "  ImGui::Render();")
+
+OSUI_PIXEL_OLD = "FramebufferShaderGen::GenerateImGuiPixelShader(linear_space_output)"
+OSUI_PIXEL_NEW = "WarioImGuiPixelShader(linear_space_output)"
+
+OSUI_REBUILD_OLD = """void OnScreenUI::DrawImGui()
+{
+  ImDrawData* draw_data = ImGui::GetDrawData();
+  if (!draw_data)
+    return;
+"""
+OSUI_REBUILD_NEW = OSUI_REBUILD_OLD + """
+  // Wario menu (scripts/tool_fix_wario_menu.py): rebuild the ImGui pipeline when the framebuffer
+  // it draws into changes format (HDR switched on or off) or the HDR menu brightness changes.
+  if (const AbstractFramebuffer* target = g_gfx->GetCurrentFramebuffer())
+  {
+    const AbstractTextureFormat format = target->GetColorFormat();
+    const float nits = g_wario_menu_nits.load();
+    if (format != AbstractTextureFormat::Undefined &&
+        (format != s_wario_imgui_built_format ||
+         (format == AbstractTextureFormat::RGBA16F && nits != s_wario_menu_nits_built)))
+    {
+      s_wario_imgui_format = format;
+      RecompileImGuiPipeline();
+      static const bool log = std::getenv("MODERNGEKKO_WARIO_MENU_TEST") != nullptr;
+      if (log)
+      {
+        std::fprintf(stderr, "wario-menu: ImGui pipeline rebuilt for %s, menu brightness %.0f nits\\n",
+                     format == AbstractTextureFormat::RGBA16F ? "RGBA16F (HDR)" : "SDR", nits);
+      }
+    }
+  }
+"""
+
+OSUI_LINEAR_OLD = """  const bool linear_space_output =
+      g_presenter->GetBackbufferFormat() == AbstractTextureFormat::RGBA16F;
+"""
+OSUI_LINEAR_NEW = "  const bool linear_space_output = WarioImGuiFormat() == AbstractTextureFormat::RGBA16F;\n"
+
+OSUI_FORMAT_OLD = "  pconfig.framebuffer_state.color_texture_format = g_presenter->GetBackbufferFormat();\n"
+OSUI_FORMAT_NEW = "  pconfig.framebuffer_state.color_texture_format = s_wario_imgui_built_format;\n"
 
 PRESENT_DECL_OLD = '#include "VideoCommon/VideoEvents.h"\n'
 PRESENT_DECL_NEW = (PRESENT_DECL_OLD + "\n// Wario World in-game menu (scripts/tool_fix_wario_menu.py).\n"
@@ -1736,6 +1859,10 @@ def apply(replace, runtime):
         shader.write_text(HDR_SHADER, encoding="utf-8", newline="\n")
     replace(dolphin / "VideoCommon/OnScreenUI.cpp", OSUI_INCLUDE_OLD, OSUI_INCLUDE_NEW)
     replace(dolphin / "VideoCommon/OnScreenUI.cpp", OSUI_DRAW_OLD, OSUI_DRAW_NEW)
+    replace(dolphin / "VideoCommon/OnScreenUI.cpp", OSUI_PIXEL_OLD, OSUI_PIXEL_NEW)
+    replace(dolphin / "VideoCommon/OnScreenUI.cpp", OSUI_REBUILD_OLD, OSUI_REBUILD_NEW)
+    replace(dolphin / "VideoCommon/OnScreenUI.cpp", OSUI_LINEAR_OLD, OSUI_LINEAR_NEW)
+    replace(dolphin / "VideoCommon/OnScreenUI.cpp", OSUI_FORMAT_OLD, OSUI_FORMAT_NEW)
     replace(dolphin / "VideoCommon/Present.cpp", PRESENT_DECL_OLD, PRESENT_DECL_NEW)
     replace(dolphin / "VideoCommon/Present.cpp", PRESENT_APPLY_OLD, PRESENT_APPLY_NEW)
     replace(dolphin / "Core/HW/GCPad.cpp", PAD_DECL_OLD, PAD_DECL_NEW)

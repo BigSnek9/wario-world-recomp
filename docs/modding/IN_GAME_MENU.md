@@ -58,6 +58,7 @@ and saves the game picture with the menu on top once.
 | HD textures | Config `GFX_HIRES_TEXTURES` |
 | HDR output | Config `GFX_ENHANCE_HDR_OUTPUT` (Vulkan only) |
 | HDR paper white (80-500 nits, default 203) | Config `GFX_CC_HDR_PAPER_WHITE_NITS` |
+| HDR menu brightness (80-400 nits, default 80; shown only while HDR is on) | `g_wario_menu_nits`: the ImGui pixel shader's linear output is scaled by nits / 80 (Dolphin draws ImGui in scRGB, 1.0 = 80 nits); `DrawImGui` rebuilds the ImGui pipeline when it changes; saved as `hdr_menu_nits` |
 | HDR highlight boost (Off-100 %), peak brightness (400-4000 nits, default 1000), saturation, warmth, contrast, gamma, black level | `WarioHDR` post-process shader (below) |
 | VSync Auto (on with frame gen) / Off | `VideoCommon::g_wario_vsync_mode` (VideoCommon/Present.cpp, from tool_fix_wario_fps.py), live; saved as `vsync=auto` / `off` |
 | Frame rate 60 / 120 / 180 / 240 / Auto | `g_wario_fps_multiplier` (Auto = monitor refresh / 59.94, max 4), switched at the next XFB copy |
@@ -65,6 +66,7 @@ and saves the game picture with the menu on top once.
 | Moon jump + rise speed | while A / X is held: player actor `[0x801C5820]` y (+0x18) rises |
 | UI style, menu size | menu only |
 | Graphics (OpenGL / Vulkan) | saved as `backend=opengl` / `vulkan` for the starter; applies after a restart |
+| Performance mode (multithreaded) | saved as `performance=0` / `1`; the starter writes Dolphin.ini [Core] CPUThread at launch (dual core: GPU emulation on its own thread); applies after a restart |
 | Quit game | posts WM_CLOSE |
 
 ## HDR tuning
@@ -72,7 +74,7 @@ and saves the game picture with the menu on top once.
 - The HDR section holds the HDR output switch. Its tuning shows on All only
   while HDR output is on; the HDR tab always lists it, disabled with a hint
   when HDR is off or the backend is not Vulkan. "Reset HDR to defaults"
-  restores every tuning value (not the switch).
+  restores every tuning value, menu brightness included (not the switch).
 - Every default is the untouched picture. The grading shader is set as the
   post-process shader only while HDR output is on and a grading value differs
   from its default; otherwise the session's own post shader (normally none)
@@ -130,3 +132,15 @@ no window) launches the runner and passes paths in environment variables.
 - **Environment variables:** `MODERNGEKKO_WARIO_ASPECT` and
   `MODERNGEKKO_WARIO_FPS` still set the starting values for hidden tests,
   which never draw the menu.
+- Overlay pipeline format: the ImGui pipeline is built for the colour format
+  of the framebuffer `DrawImGui` really draws into, and rebuilt when that
+  changes. `Presenter::GetBackbufferFormat()` goes stale when HDR is switched
+  on at runtime on Vulkan: the swap chain is recreated as RGBA16F scRGB but
+  `VKGfx::OnSwapChainResized` passes only the new size. The overlay then kept
+  its SDR pipeline in HDR (gamma values written as linear light) and the menu
+  brightness never applied (user report 2026-10-27).
+- Verified 2026-10-27 in hidden Vulkan runs with HDR on (this machine gets an
+  RGBA16F swap chain even hidden): with `hdr_menu_nits` at 80 and at 200 the
+  runner logs `ImGui pipeline rebuilt for RGBA16F (HDR)` (the SDR / HDR pair
+  after it is the menu snapshot's RGBA8 texture). The brightness itself was
+  not measured on screen.
