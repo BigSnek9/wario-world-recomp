@@ -463,6 +463,7 @@ std::atomic<int> g_wario_fps_multiplier{[] {
   return value >= 2 && value <= 4 ? value : 2;
 }()};
 bool g_wario_fps_replaying = false;
+bool g_wario_fps_state_loaded = false;  // set by VideoCommon_DoState on load
 
 namespace
 {
@@ -511,7 +512,7 @@ struct WarioFpsState
   WarioFrameMatrices matrices, previous_matrices;
   u64 matrices_matched = 0, matrices_unmatched = 0;
   u64 pending_tag = 0;  // identity marker seen, applies to the next position matrix
-  u64 tags_seen = 0, tagged_loads = 0, tag_repeats = 0, tag_repeat_diff = 0;
+  u64 tags_seen = 0, tagged_loads = 0, tag_repeats = 0, tag_repeat_diff = 0, screen_locked = 0, camera_locked = 0;
   Common::Matrix44 camera_delta = Common::Matrix44::Identity();  // V_N * V_N-1^-1
   std::vector<u8> prologue;
   std::vector<u8> tmem;
@@ -750,11 +751,12 @@ bool WarioMatchScore(const u32* before, const u32* now, u32 count, bool position
   float worst = 0.0f;
   for (u32 block = 0; block < count; block += 12)
   {
-    float max_rot = 0.0f, rot_diff = 0.0f, dt2 = 0.0f;
+    float max_rot = 0.0f, rot_diff = 0.0f, dt2 = 0.0f, raw_rot = 0.0f, raw2 = 0.0f;
     for (int r = 0; r < 3; ++r)
     {
       for (int c = 0; c < 4; ++c)
       {
+        const float previous = WarioBitsToFloat(before[block + r * 4 + c]);
         float predicted = d.data[r * 4 + 0] * WarioBitsToFloat(before[block + 0 * 4 + c]) +
                           d.data[r * 4 + 1] * WarioBitsToFloat(before[block + 1 * 4 + c]) +
                           d.data[r * 4 + 2] * WarioBitsToFloat(before[block + 2 * 4 + c]);
@@ -766,17 +768,27 @@ bool WarioMatchScore(const u32* before, const u32* now, u32 count, bool position
         if (c == 3)
         {
           dt2 += (actual - predicted) * (actual - predicted);
+          raw2 += (actual - previous) * (actual - previous);
         }
         else
         {
           max_rot = std::max(max_rot, std::abs(actual));
           rot_diff = std::max(rot_diff, std::abs(actual - predicted));
+          raw_rot = std::max(raw_rot, std::abs(actual - previous));
         }
       }
     }
-    if (rot_diff > 0.3f * std::max(max_rot, 1e-3f) || dt2 > 40.0f * 40.0f)
+    // Plausible as the same object in world space, or (camera-locked effects) in camera space.
+    const float limit = 0.3f * std::max(max_rot, 1e-3f);
+    const bool world_ok = rot_diff <= limit && dt2 <= 40.0f * 40.0f;
+    const bool camera_ok = raw_rot <= limit && raw2 <= 40.0f * 40.0f;
+    if (!world_ok && !camera_ok)
       return false;
-    worst = std::max(worst, std::sqrt(dt2) + rot_diff * 10.0f);
+    const float world_score = std::sqrt(dt2) + rot_diff * 10.0f;
+    const float camera_score = std::sqrt(raw2) + raw_rot * 10.0f;
+    worst = std::max(worst, world_ok && camera_ok ? std::min(world_score, camera_score) :
+                            world_ok              ? world_score :
+                                                    camera_score);
   }
   *score = worst;
   return true;
@@ -830,6 +842,47 @@ void WarioBuildReplay(float t)
   u32 cursor = 0;
   float result[16];
   float predicted[16];
+  // Screen-locked geometry (heat haze, overlays drawn with the 3D camera): its matrix is identical
+  // in N-1 and N although the camera moved; it gets C^-1 * MV so the correction leaves it in place.
+  const Common::Matrix44 inverse = WarioRigidInverse(g_wario_view_correction);
+  float camera_motion = 0.0f;
+  for (int i = 0; i < 12; ++i)
+    camera_motion = std::max(camera_motion, std::abs(s_wfps.camera_delta.data[i] - (i % 5 == 0 ? 1.0f : 0.0f)));
+  const bool camera_moved = camera_motion > 1e-4f;
+  const auto emit = [&](const WarioMatrixLoad& load, const float* values) {
+    PutU8(out, 0x10);
+    PutU32(out, ((load.count - 1) << 16) | load.address);
+    for (u32 i = 0; i < load.count; ++i)
+      PutU32(out, WarioFloatToBits(values[i]));
+  };
+  const auto screen_locked = [&](const WarioMatrixLoad& load, const u32* now_values) -> bool {
+    if (!camera_moved)
+      return false;
+    const auto found = before.by_key.find(load.key);
+    if (found == before.by_key.end() || before.loads[found->second].count != load.count)
+      return false;
+    const u32* old_values = &before.values[before.loads[found->second].values_at];
+    if (!std::equal(now_values, now_values + load.count, old_values))
+      return false;
+    for (u32 block = 0; block < load.count; block += 12)
+    {
+      for (int r = 0; r < 3; ++r)
+      {
+        for (int c = 0; c < 4; ++c)
+        {
+          float value = inverse.data[r * 4 + 0] * WarioBitsToFloat(now_values[block + 0 * 4 + c]) +
+                        inverse.data[r * 4 + 1] * WarioBitsToFloat(now_values[block + 1 * 4 + c]) +
+                        inverse.data[r * 4 + 2] * WarioBitsToFloat(now_values[block + 2 * 4 + c]);
+          if (c == 3)
+            value += inverse.data[r * 4 + 3];
+          result[block + r * 4 + c] = value;
+        }
+      }
+    }
+    emit(load, result);
+    s_wfps.screen_locked++;
+    return true;
+  };
   for (const WarioMatrixLoad& load : now.loads)
   {
     if (load.address >= 0x78 || load.count % 4 != 0)
@@ -838,6 +891,8 @@ void WarioBuildReplay(float t)
     cursor = load.offset + load.size;
     const bool camera_space = load.main_projection && load.address % 4 == 0 && load.count % 12 == 0;
     const u32* now_values = &now.values[load.values_at];
+    if (camera_space && screen_locked(load, now_values))
+      continue;
     // Only matrices the game tagged with an identity are interpolated, paired exactly by that
     // identity (the plausibility check stays as a safety net). Untagged loads keep frame N.
     const u32* best = nullptr;
@@ -882,16 +937,56 @@ void WarioBuildReplay(float t)
       for (u32 i = 0; i < load.count; ++i)
         predicted[i] = WarioBitsToFloat(best[i]);
     }
-    for (u32 i = 0; i < load.count; ++i)
+    // Interpolate in the frame of reference the object moves less in: world space (static and
+    // world-moving objects) or camera space (effects that follow the camera, e.g. heat haze, which
+    // would otherwise be dragged along by the camera correction and ghost).
+    bool camera_locked = false;
+    if (camera_space)
     {
-      const float b = WarioBitsToFloat(now_values[i]);
-      result[i] = predicted[i] + t * (b - predicted[i]);
+      float world2 = 0.0f, raw2 = 0.0f;
+      for (u32 i = 3; i < load.count; i += 4)
+      {
+        const float now_t = WarioBitsToFloat(now_values[i]);
+        world2 += (now_t - predicted[i]) * (now_t - predicted[i]);
+        raw2 += (now_t - WarioBitsToFloat(best[i])) * (now_t - WarioBitsToFloat(best[i]));
+      }
+      camera_locked = raw2 < 0.25f * world2;
+    }
+    if (camera_locked)
+    {
+      float blended[16];
+      for (u32 i = 0; i < load.count; ++i)
+      {
+        const float a = WarioBitsToFloat(best[i]);
+        blended[i] = a + t * (WarioBitsToFloat(now_values[i]) - a);
+      }
+      for (u32 block = 0; block < load.count; block += 12)
+      {
+        for (int r = 0; r < 3; ++r)
+        {
+          for (int c = 0; c < 4; ++c)
+          {
+            float value = inverse.data[r * 4 + 0] * blended[block + 0 * 4 + c] +
+                          inverse.data[r * 4 + 1] * blended[block + 1 * 4 + c] +
+                          inverse.data[r * 4 + 2] * blended[block + 2 * 4 + c];
+            if (c == 3)
+              value += inverse.data[r * 4 + 3];
+            result[block + r * 4 + c] = value;
+          }
+        }
+      }
+      s_wfps.camera_locked++;
+    }
+    else
+    {
+      for (u32 i = 0; i < load.count; ++i)
+      {
+        const float b = WarioBitsToFloat(now_values[i]);
+        result[i] = predicted[i] + t * (b - predicted[i]);
+      }
     }
     s_wfps.matrices_matched++;
-    PutU8(out, 0x10);
-    PutU32(out, ((load.count - 1) << 16) | load.address);
-    for (u32 i = 0; i < load.count; ++i)
-      PutU32(out, WarioFloatToBits(result[i]));
+    emit(load, result);
   }
   out.insert(out.end(), commands + cursor, commands + s_wfps.commands.size());
 }
@@ -979,13 +1074,15 @@ void WarioWriteStats()
                  s_wfps.offset_count ? s_wfps.offset_sum / s_wfps.offset_count : 0.0,
                  s_wfps.offset_count ? s_wfps.offset_min : 0.0, s_wfps.offset_max,
                  s_wfps.commands.size());
-    std::fprintf(file, "matrices_matched=%llu\nmatrices_unmatched=%llu\ntags_seen=%llu\ntagged_loads=%llu\ntag_repeats=%llu\ntag_repeat_diff=%llu\n",
+    std::fprintf(file, "matrices_matched=%llu\nmatrices_unmatched=%llu\ntags_seen=%llu\ntagged_loads=%llu\ntag_repeats=%llu\ntag_repeat_diff=%llu\nscreen_locked=%llu\ncamera_locked=%llu\n",
                  static_cast<unsigned long long>(s_wfps.matrices_matched),
                  static_cast<unsigned long long>(s_wfps.matrices_unmatched),
                  static_cast<unsigned long long>(s_wfps.tags_seen),
                  static_cast<unsigned long long>(s_wfps.tagged_loads),
                  static_cast<unsigned long long>(s_wfps.tag_repeats),
-                 static_cast<unsigned long long>(s_wfps.tag_repeat_diff));
+                 static_cast<unsigned long long>(s_wfps.tag_repeat_diff),
+                 static_cast<unsigned long long>(s_wfps.screen_locked),
+                 static_cast<unsigned long long>(s_wfps.camera_locked));
     std::fprintf(file, "held_real=%llu\nheld_forced=%llu\nheld_late_ms_avg=%.2f\nheld_late_ms_max=%.2f\n",
                  static_cast<unsigned long long>(g_wario_pending_count),
                  static_cast<unsigned long long>(g_wario_pending_forced),
@@ -1027,6 +1124,18 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
   }
   if (!g_wario_fps_record)
     return;
+  if (g_wario_fps_state_loaded)
+  {
+    // Savestate loaded: what was recorded belongs to the old state; start over.
+    g_wario_fps_state_loaded = false;
+    s_wfps.frame_valid = false;
+    s_wfps.reset_pending = true;
+    s_wfps.current.valid = false;
+    s_wfps.previous.valid = false;
+    s_wfps.matrices.Clear();
+    s_wfps.previous_matrices.Clear();
+    return;
+  }
   const bool had_frame = s_wfps.frame_valid;
   s_wfps.reset_pending = true;
   s_wfps.frames++;
@@ -1257,6 +1366,20 @@ BP_HOOK_NEW = """        system.GetVideoEvents().after_frame_event.Trigger(syste
 """
 
 
+VS_EXTERN_OLD = '#include "VideoCommon/XFStateManager.h"\n'
+VS_EXTERN_NEW = (VS_EXTERN_OLD + "\n// Wario World frame interpolation: a loaded state invalidates the recorded frame.\n"
+                 "extern bool g_wario_fps_state_loaded;\n")
+VS_RESET_OLD = """    BPReload();
+    VertexLoaderManager::MarkAllDirty();
+  }
+}"""
+VS_RESET_NEW = """    BPReload();
+    VertexLoaderManager::MarkAllDirty();
+    g_wario_fps_state_loaded = true;
+  }
+}"""
+
+
 def apply(replace, runtime):
     video = runtime / "vendor/dolphin/Source/Core/VideoCommon"
     replace(video / "OpcodeDecoding.cpp", OPCODE_DECL_OLD, OPCODE_DECL_NEW)
@@ -1282,6 +1405,8 @@ def apply(replace, runtime):
     replace(video / "Present.cpp", PRESENT_VI_OLD, PRESENT_VI_NEW)
     replace(video / "Present.cpp", PRESENT_VI_FLUSH_OLD, PRESENT_VI_FLUSH_NEW)
     replace(video / "BPStructs.cpp", BP_INCLUDE_OLD, BP_INCLUDE_NEW)
+    replace(video / "VideoState.cpp", VS_EXTERN_OLD, VS_EXTERN_NEW)
+    replace(video / "VideoState.cpp", VS_RESET_OLD, VS_RESET_NEW)
     replace(video / "BPStructs.cpp", BP_INCLUDE2_OLD, BP_INCLUDE2_NEW)
     replace(video / "BPStructs.cpp", BP_FUNC_OLD, BP_FUNC_NEW)
     replace(video / "BPStructs.cpp", BP_SUPPRESS_OLD, BP_SUPPRESS_NEW)

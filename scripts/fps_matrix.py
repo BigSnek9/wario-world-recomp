@@ -21,6 +21,9 @@ SCENES = {
              "--seed-user", ENTRY / "user", "--probe-file", ROOT / "config/probes/walk_punch.json"],
     "greenhorn": ["--load-state", ENTRY / "control/checkpoint.savestate", "--seed-user", ENTRY / "user",
                   "--probe-file", ROOT / "config/probes/walk_punch.json"],
+    # World 4 lava field (heat haze that follows the camera).
+    "lava": ["--load-state", ROOT / "private/play-sessions/20261026T235718Z/states/000855_CF43.sav",
+             "--seed-user", ENTRY / "user", "--probe-file", ROOT / "config/probes/walk_punch.json"],
 }
 
 

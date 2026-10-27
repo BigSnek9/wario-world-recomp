@@ -361,7 +361,8 @@ WARIO_REL_EXPORT volatile s32 wario_fullscreen_half_width = 320; /* WS-005; 320 
 /* FPS object tagging (scripts/build_rel_bundle.py MATRIX_STACK_HOOKS). Shadow identity per
    matrix-stack level: set/multiply mix in the source matrix address (persistent per object or
    bone) and the call site; when the source is a temporary on the guest stack, the caller's
-   non-volatile registers that hold heap pointers (r14-r31: `this`, node, loop iterators) are used. */
+   non-volatile registers r14-r31 holding heap pointers (`this`, node) or small integers (loop
+   counters / item offsets) are used. */
 WARIO_REL_EXPORT volatile s32 wario_fps_tagging = 0; /* set by the runtime; 0 = original stream */
 #define WARIO_MTX_LEVELS 64
 static u32 wario_mtx_stack_object;
@@ -377,8 +378,9 @@ static u64 wario_mtx_source(CPUState* ctx, u32 source) {
     if (source - sp < 0x4000u || sp - source < 0x100u) {
         for (int r = 14; r <= 31; ++r) {
             const u32 v = ctx->gpr[r];
-            if (v >= 0x80000000u && v < 0x81800000u && (v - sp >= 0x4000u))
-                h = wario_mtx_mix(h, v);
+            /* heap pointers (owner, node) and small loop counters/offsets (item index) */
+            if ((v >= 0x80000000u && v < 0x81800000u && (v - sp >= 0x4000u)) || v < 0x10000u)
+                h = wario_mtx_mix(h, ((u64)r << 32) | v);
         }
         return h;
     }

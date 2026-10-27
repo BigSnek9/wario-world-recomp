@@ -2,6 +2,23 @@
 
 Newest first. Earlier history (2026-10-24..26 morning): ../PROGRESS.md and ../HANDOFF.md.
 
+## 2026-10-27 (early morning): world sweep, identity and haze fixes
+
+- scripts/fps_world_sweep.py ran all 46 play-tracker states (worlds 1-5) with
+  2x camera + objects: collisions, blobs and speed per state
+  (reports/fps-world-sweep.json).
+- Collisions: World 2 items built in a stack temporary inside a loop (owner
+  r23, offset r27). Small integers in r14-r31 are now mixed in for stack
+  sources, giving 0 collisions in CF22/CF41. The castle ribbon effect repeats
+  identities in a fixed loop order (float loop variable), which repeat order
+  pairs correctly.
+- Lava level (CF43) ghosting: heat haze follows the camera. Matrices are now
+  interpolated in the frame of reference they move less in (world or camera),
+  and the plausibility guard accepts either. Blob score: lava 0.14% vs 0.32%
+  camera-only; boss/hub 0.000, Greenhorn 0.002.
+- Savestate loads reset the interpolation state (VideoCommon_DoState hook).
+- Full regression incl. lockstep (12599/0, 14235/0) passes.
+
 ## 2026-10-27 (night): game-level object interpolation
 
 - Replaced heuristic matrix pairing (flickered on moving objects) with

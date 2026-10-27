@@ -1,68 +1,73 @@
-# Current status (2026-10-26, late night)
+# Current status (2026-10-27, night)
 
 Read this first, then NEXT_ACTIONS.md, KNOWN_ISSUES.md, ../START_HERE.md.
 
 ## Works (evidence in TEST_RESULTS.md)
 
-- Boot, title, new save, hub, World 1 entry, Greenhorn Forest movement.
-- Human: Xbox controller, stage one cleared and saved; half of stage 2 played
-  with no issues via launcher/wario_launcher.pyw (2026-10-26 evening).
-- Loading the human's progressed save (copy) from the file menu reaches the hub.
-- Water animates at the first Greenhorn river in hidden tests.
+- **Human playthrough:** Xbox controller via launcher/wario_launcher.pyw. Worlds 1-3
+  done, World 4 in progress, no gameplay bugs reported. Play tracker states for
+  every area are in private/play-sessions.
+- **Boot to hub:** boot, title, file select and hub load from the progressed
+  save.
+- **Regression:** scripts/regression_suite.py passes (boot, no
+  interpreter/JIT, Greenhorn speed, river animation, two lockstep routes with
+  0 reports).
 
 ## Static-recomp status
 
-All game code (main.dol + 8 RELs) is compiled to native code. As of
-2026-10-26 night no game instruction runs in Dolphin's interpreter or JIT on
-the tested routes (hook_interp=0, JIT 0). Release and profiling runners both
-have it.
+All game code (main.dol + 8 RELs) is compiled to native code. On the tested
+routes no game instruction runs in Dolphin's interpreter or JIT
+(hook_interp=0, JIT 0).
 
-## Optional enhancements (all off for accuracy via "Original" / unchecked)
+## Optional enhancements
 
-All settings now live in the in-game menu (Back / Tab; ../modding/IN_GAME_MENU.md)
-and apply instantly; the launcher only picks build and backend.
+All are off or "Original" for accuracy, and all are in the in-game menu (Back on
+the controller, or Tab). Changes apply live and are saved to
+`<user>/Config/WarioWorld.ini`. See ../modding/IN_GAME_MENU.md.
 
-- Auto resolution and any-aspect widescreen (launcher default Auto): Hor+ with
-  culling widened; transition fade and loading-coin afterimage widened too
-  (WS-005/WS-006 fixed); WIDESCREEN_SUPPORT.md.
-- Smooth 120 FPS (launcher checkbox, default off): each frame's GPU commands
-  are replayed with the camera and every matched object matrix halfway;
-  ../modding/FPS_UNLOCK.md.
-- Moon-jump cheat window (launcher/cheats.pyw), live volume, play tracker.
+- **Resolution:** Auto (fits the window), 1x-8x.
+- **Aspect ratio:** Auto / 16:9 / 16:10 / 21:9 / 32:9.
+  - Hor+ with culling widened.
+  - Edge HUD anchored to the real screen edges; fades and afterimage widened.
+  - See ../modding/WIDESCREEN_SUPPORT.md.
+- **Frame rate:** 60 / 120 / 180 / 240 / Auto (monitor refresh). Each game frame
+  is re-rendered with the camera and objects in between. Objects carry exact
+  identities from the game's own matrix stack (module hooks), so there is no
+  guessing. See ../modding/FPS_UNLOCK.md.
+- **Other:** HD textures, HDR (Vulkan), volume, moon-jump cheat, menu size.
+- **Launcher:** now only build, backend, Play and texture tools.
 
 ## Broken / open
 
-- KI-001 slowdowns: resolved per human (half of stage 2 with zero issues on the
-  launcher's clang build). Lockstep-validated.
-- KI-002 frozen water: not reproduced at 1x; location unknown.
-- Second half of stage 2, World 1 boss, worlds 2-4, ending: untested.
+- KI-002 frozen water: not reproduced; the human says the water is not meant
+  to animate there.
+- **FPS pacing at 3x/4x** follows the game's own frame-time irregularity (some
+  frames take two refreshes). At 2x, 97-99% of gaps are on pace in steady
+  scenes.
+- **HUD anchoring:** boss HP bars, minigame timers and the pause menu are
+  unchecked in wide aspects.
+- World 4 and the ending: human playthrough in progress.
 
 ## Latest builds
 
 | Artifact | Path | Status |
 |---|---|---|
-| Release runner | build/moderngekko/Release/moderngekko-run.exe | launcher; dispatch fixes (2026-10-26 17:26); previous copy private/moderngekko-run.before-20261026-dispatch.exe |
-| Profiling runner (PDB, same /O2) | build/moderngekko-prof/RelWithDebInfo/moderngekko-run.exe | same source as release |
-| Clean module, clang | build/module-full-vectors-clang/gGWWE01_recomp.dll | launcher default |
-| Clean module, MSVC | build/module-full-vectors/Release/gGWWE01_recomp.dll | fallback (set WARIO_MODULE=msvc) |
-| Lockstep twin, clang | build/module-rel-bundle-vectors-clang/gGWWE01_recomp.dll | validated, 0 reports |
+| Release runner | build/moderngekko/Release/moderngekko-run.exe | launcher; FPS, menu, aspect, state-load reset |
+| Profiling runner (PDB, same /O2) | build/moderngekko-prof/RelWithDebInfo/moderngekko-run.exe | same source; used by hidden tests |
+| Clean module, clang PGO | build/module-full-vectors-clang-pgo/gGWWE01_recomp.dll | launcher default; HUD/overlay sites, matrix-stack hooks |
+| Lockstep twin, clang PGO | build/module-rel-bundle-vectors-clang-pgo/gGWWE01_recomp.dll | 12557/0, 14242/0 (2026-10-27) |
 
 ## Reproduce
 
 ```powershell
-python scripts/build_rel_bundle.py --clean --vectors --clang   # clang clean module
-python scripts/build_rel_bundle.py --vectors --clang           # clang lockstep twin
-python scripts/smoke_boot.py --module build/module-full-vectors-clang/gGWWE01_recomp.dll --full --vectors --graphics OpenGL --seconds 40 --load-state <checkpoint> --seed-user <run>/user --profile-at 25 --profile-ms 8000
-python scripts/run_summary.py private/runs/<run>
+python scripts/apply_tool_fixes.py                                  # runtime source fixes
+python scripts/build_rel_bundle.py --vectors --clean --clang --pgo-use private/pgo/merged.profdata
+python scripts/build_rel_bundle.py --vectors --clang --pgo-use private/pgo-twin/merged.profdata
+python scripts/regression_suite.py                                  # add --quick to skip lockstep
+python scripts/fps_matrix.py --multipliers 2 4 --scenes hub boss greenhorn
+python scripts/fps_flicker_check.py --scene boss --objects
+python scripts/fps_world_sweep.py                                   # every play-tracker state
 ```
 
-Water checkpoint: private/runs/20261026T162519351895Z-ac6873d6 (control/checkpoint.savestate + user/).
-Progressed-save seed: private/seeds/progress-save (copy of the human's GCI).
-
-## Regression suite
-
-`python scripts/regression_suite.py` (~7 min, hidden/muted; `--quick` ~3 min):
-boot -> save load -> hub, Greenhorn walk+punch speed, river water animation,
-and two lockstep routes. Last run 2026-10-26 17:39 UTC: ALL PASS
-(reports/regression-20261026T173902Z.json). Run it after every runtime or
-module change.
+Progressed-save seed: private/seeds/progress-save. Hub savestate:
+private/runs/20261026T232050303943Z-da9e08f9.

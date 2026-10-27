@@ -69,7 +69,13 @@ between each pair of real frames with the camera halfway between them.
    frame) instead of guessing. Untagged matrices keep frame N (camera only).
    Tagging is off unless the runtime sets the module export
    `wario_fps_tagging`, so the default GX stream is the original.
-   Matched main-camera matrices load `lerp_t(D * MV_N-1, MV_N)`
+   Each matched main-camera matrix is interpolated in the frame of reference it
+   moves less in. World space (static and world-moving objects) loads
+   `lerp_t(D * MV_N-1, MV_N)`. Camera space (heat haze and other effects that
+   follow the camera) loads `C^-1 * lerp_t(MV_N-1, MV_N)`, so the camera
+   correction does not drag it along. Matrices identical in N-1 and N while the
+   camera moved, tagged or not, are screen-locked and stay in place.
+   For world space, matched main-camera matrices load `lerp_t(D * MV_N-1, MV_N)`
    (D = V_N * V_N-1^-1), so a static object gets exactly MV_N. Texture
    matrices are never blended.
    Measured: all position-matrix loads tagged in the hub, boss and Greenhorn.
@@ -124,9 +130,6 @@ between each pair of real frames with the camera halfway between them.
   directly into vertex buffers (if any particles do this), and anything drawn
   without the matrix stack, stays at 60 Hz.
 - Normal matrices (lighting) use frame N.
-- Objects drawn with the main projection but not in world space (for example a
-  3D HUD model, if any) move with the camera correction in the in-between
-  frame.
 - Screen-copy effects (afterimage, blur) are isolated: the replay sees the
   start-of-frame copies and the real copies are restored afterwards.
 - If the game changes a buffer that frame N used (indexed matrices, vertex
