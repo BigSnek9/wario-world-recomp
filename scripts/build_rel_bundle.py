@@ -356,14 +356,16 @@ hud_sites = 0
 #   SFX / voice / pause-menu music: all are MusyX synth SFX (sndFXStartEx and the
 #     3D emitters both reach fxStart fn_801741F8). sndPushGroup forces every SFX's
 #     volume group byte (entry +9) to 31 (fn_80178C88), so the game has one SFX
-#     group. While any setting differs from the original, fxStart (0x80174254,
-#     where it reads the group byte into r28) routes the pause-menu music (SFX
-#     0x3BF, fn_8006CC58) to unused group 29 and the voice clips (wario_audio_voice_fid
-#     bit set) to unused group 30; other SFX stay in 31. MusyX multiplies each
-#     voice's volume by its group's float (fn_8017334C), so the synth tick entry
-#     (fn_80173EAC) keeps groups 29/30/31 (0x801E28AC/28DC/290C: +0 current, +4 target)
-#     at the menu values. Groups 29..31 hold 1.0 in the original and nothing else
-#     changes them after sndInit, so default settings never write guest memory.
+#     group. On every start (whatever the settings, so a pause book opened at
+#     defaults still follows a later change), fxStart (0x80174254, where it reads
+#     the group byte into r28) routes the pause-menu music (SFX 0x3BF, fn_8006CC58)
+#     to unused group 29 and the voice clips (wario_audio_voice_fid bit set) to
+#     unused group 30; other SFX stay in 31. MusyX multiplies each voice's volume
+#     by its group's float (fn_8017334C), so the synth tick entry (fn_80173EAC)
+#     keeps groups 29/30/31 (0x801E28AC/28DC/290C: +0 current, +4 target) at the
+#     menu values. Groups 29..31 hold 1.0 (+0 and +0x14) in the original and nothing
+#     else changes them after sndInit, so at defaults the routed voices compute the
+#     same volume and the tick never writes guest memory.
 #   The menu percent is an amplitude: MusyX's DSP volume follows the square of the
 #   volume value, so the factor written is sqrt(pct / 100) (1.0 exactly at 100).
 AUDIO_SITES = {
@@ -727,27 +729,27 @@ static void wario_audio_env(void) {
         state = 0;
     }
 }
-static int wario_audio_default(void) {
-    return wario_audio_pct(&wario_audio_music) == 100 && wario_audio_pct(&wario_audio_sfx) == 100 &&
-           wario_audio_pct(&wario_audio_voice) == 100 && !wario_audio_mute_pause_music;
-}
 /* 0x80057008: fn_80056FE8 -> sndStreamMixParameterEx(stid, r4 = volume 0..127, ...). */
 void wario_audio_stream_mix(CPUState* ctx) {
     const s32 music = wario_audio_pct(&wario_audio_music);
     if (music != 100)
         ctx->gpr[4] = (u32)((float)(ctx->gpr[4] & 0xFFu) * wario_audio_factor(&wario_audio_music) + 0.5f);
 }
-/* 0x80174254: fxStart read the SFX entry's volume group into r28 (r3 = entry, +0 = SFX id). */
+/* 0x80174254: fxStart read the SFX entry's volume group into r28 (r3 = entry, +0 = SFX id).
+   The pause music and voice ids are routed on every start, whatever the settings, so a voice
+   started while the settings were default still follows a later Music / mute change (the
+   voice's group byte is fixed at start; macro child voices inherit it, fn_80179E10). At
+   defaults groups 29/30 equal group 31 (+0 current and +0x14 factor 1.0, nothing ramps
+   them) and the group byte is read only by the volume product in fn_8017334C, so the
+   output is unchanged. */
 void wario_audio_fx_group(CPUState* ctx) {
     static FILE* trace;
     static int trace_state = -1;
     const u32 fid = mem_read16(ctx, ctx->gpr[3]);
-    if (!wario_audio_default()) {
-        if (fid == WARIO_AUDIO_PAUSE_MUSIC_FID)
-            ctx->gpr[28] = 29u;
-        else if (fid < 1024u && (wario_audio_voice_fid[fid >> 5] >> (fid & 31u) & 1u))
-            ctx->gpr[28] = 30u;
-    }
+    if (fid == WARIO_AUDIO_PAUSE_MUSIC_FID)
+        ctx->gpr[28] = 29u;
+    else if (fid < 1024u && (wario_audio_voice_fid[fid >> 5] >> (fid & 31u) & 1u))
+        ctx->gpr[28] = 30u;
     if (trace_state < 0) {
         const char* path = getenv("WARIO_AUDIO_TRACE");
         trace = path && *path ? fopen(path, "a") : NULL;

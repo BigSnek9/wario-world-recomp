@@ -123,7 +123,7 @@ Exported module variables (GetProcAddress on the game DLL, like
 | `wario_audio_voice_fid` | u32[32] bitmap of SFX ids | empty | voice table |
 
 Hooks: 0x80057008 (stream volume byte x factor), 0x80174254 (fxStart group byte:
-while any setting is non-default, 0x3BF -> group 29, voice ids -> group 30),
+on every start, whatever the settings, 0x3BF -> group 29, voice ids -> group 30),
 fn_80173EAC entry (synth tick: groups 29/30/31 +0/+4 = mute ? 0 : music, voice, sfx
 factors), 0x801738D0 / 0x80173950 (aux terms scaled by the voice's group factor
 for groups 29..31 when it is not 1.0). Values are clamped; the runtime may write them
@@ -131,24 +131,54 @@ at any time (every frame or on change). Dolphin's MAIN_AUDIO_VOLUME still scales
 the final mix on top.
 
 Properties:
-- Inert at defaults: all factors are exactly 1.0, nothing is routed and no guest
-  memory is written. Measured: idle-stage DSP dump identical to the stock module
-  (474248+ frames, bit-exact).
+- Inert at defaults: all factors are exactly 1.0 and the tick writes no guest memory.
+  The only guest difference is the routed voices' group byte (synth voice +0x11E =
+  29/30 instead of 31). That byte is read only by the volume product in
+  `fn_8017334C` (0x801734E0) and copied to macro child voices (`fn_80179E10` ->
+  macStart, stored back at 0x8017B6A0); groups 29/30/31 all hold +0 = 1.0 and
+  +0x14 = 1.0 (MEM1 snapshots) and nothing ramps them after sndInit, so the routed
+  voice computes the same float. Measured: idle-stage DSP dump identical to the
+  stock module (474248+ frames, bit-exact); 2026-10-27 the always-routing module
+  (`module-audio-fix`) vs `module-audio-test` idle dump: identical after the boot
+  offset (37.0 s overlap, bit-exact). Pause runs cannot be compared bit for bit
+  (pad-command timing differs run to run); the routing itself is in the trace.
 - Live: groups are re-applied every synth tick and voices recompute their volume
   from the group (0x80173548 change test), the stream byte on every refill.
   Measured: SFX set to 0 at 8 s -> identical to the original before, identical to the
   SFX=0 run after.
 - Savestates: the applied state lives in guest memory (group floats, voice group
-  bytes); after a load the tick re-applies the current settings. A voice started while
-  routing was off stays in group 31 (SFX slider) until it ends; the pause music only
-  follows the mute checkbox if a setting was non-default when the book opened.
+  bytes); after a load the tick re-applies the current settings. A pause music voice
+  saved by a module built before the fix (routing only while a setting was
+  non-default) stays in group 31 until the book closes; it is routed from the next
+  opening.
+- Pause music bug (user report 2026-10-27, fixed): "mute pause menu doesn't work" and
+  "pause menu music follows the SFX slider". Cause: fxStart routed 0x3BF to group 29
+  only while a setting was non-default, and the group byte is fixed when the voice
+  starts. A book opened at default settings (or before the menu's first writes)
+  kept its music in group 31, so the music then followed the SFX slider and ignored
+  the mute checkbox until the book was reopened. Fix: route on every start.
+  `fn_8006CC58` is the only start of 0x3BF per opening (trace) and the music is one
+  macro voice tree, so no other id needs routing; `fn_8006EB74`'s sndFXCtrl(7)
+  toggle is the voice's own volume controller and multiplies with the group.
 - Separation measured (idle stage, 20 s): music=0 and sfx=0 dumps sum exactly to
   the original minus the all-zero dump; all-zero dump is a constant DC offset
   (DSP output, also present in the original) with no AC signal.
 - Pause probe: with the mute checkbox the paused interval drops from about 2000 RMS
   to the DC level while book SFX before/after remain; with music=0 the pause music
   is silent too.
+- Mid-pause probe (2026-10-27, hidden, `--dump-audio`, state
+  `private/runs/20261026T112414167280Z-ff64d01b/control/checkpoint.savestate`, probe
+  Start at 1200 / 1800 from `probe_frame_origin`, settings changed by
+  `WARIO_AUDIO_TEST` at 27 s, about 5 s into the open book; AC RMS per second):
+
+  | Change at 27 s | Old module (`module-audio-test`) | Fixed (`module-audio-fix`) |
+  |---|---|---|
+  | none | 0x3BF in group 31, about 1500..2400 | 0x3BF in group 29, same level |
+  | mute = 1 | unchanged (1561..2420) | 8 until the book closes |
+  | sfx = 0 | 5 (music followed SFX) | music continues (1364..2344) |
+  | music = 0 | unchanged (1357..2345) | 18 until the book closes |
 
 Diagnostics: `WARIO_AUDIO_TEST="music,sfx,voice,mute[,delay_ms]"` sets the variables
 after a delay; `WARIO_AUDIO_TRACE=<file>` logs every fxStart (frame, fid, group,
-return addresses with saved words). Test module: `--build-dir module-audio-test`.
+return addresses with saved words). Test modules: `--build-dir module-audio-test`
+(before the fix), `--build-dir module-audio-fix` (always routes).
