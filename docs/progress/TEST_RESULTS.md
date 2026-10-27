@@ -101,3 +101,26 @@ Regression suite --quick with FPS off (prof runner): ALL PASS
 | World sweep, 46 play-tracker states (2x, objects) | reports/fps-world-sweep.json |
 | 4x speed, heaviest areas (AR42, CF22, AR21, CTT, CF51, CF43), no dumps | 0.998-1.000 (AR42 1.000 after skipping idle clock reads) |
 | Menu snapshot (MODERNGEKKO_WARIO_MENU_TEST) | renders; text follows display scaling, nothing clipped |
+
+## 2026-10-27 evening: release zip v1.0 (clean-folder test)
+
+`python scripts/make_release.py --version 1.0` (commit 6ad89d2): dist/WarioWorldRecomp-v1.0.zip,
+46.3 MB (2683 files, 168 MB unpacked: runner, Sys, VC++ runtime DLLs, PGO module, starter,
+licences). Release check passed (no disc-derived file by content hash, no sources/PDBs/logs/
+user data); a negative test flagged a copied REL, boot.bin, a .c file and a user/ folder.
+
+`python release/test_release.py --iso <USA iso> --seconds 30 --smoke` (hidden, muted), report
+private/runs/20261027T193650560431Z-25169418-release-test/report.json:
+
+| Check | Result |
+|---|---|
+| First-run setup (`--iso --setup-only --quiet`: hash 1.46 GB, extract, verify, config, icon) | 0.94 s, warm file cache; uncached read of the ISO on this NVMe drive 0.5 s |
+| Extraction vs original/GWWE01 (250 files) and pinned DOL/REL hashes | byte-equal; all pinned hashes match; ISO size/mtime unchanged |
+| Coin icon, C++ vs installer/coin_icon.py | byte-identical |
+| config.ini, GFX.ini, Logger.ini, Dolphin.ini, GCPadNew.ini vs the Python starter | equal (parsed) |
+| Wrong-disc paths (not GC, .rvz, PAL, rev 1, wrong size, same size + wrong hash) | clear messages, exit 5, existing game kept |
+| Hidden boot through the starter (`--hidden-test 30`, OpenGL headless, muted) | exit 0; black at 10/15 s, title screen at 20/25 s |
+| smoke_boot.py on the release runner/module/game (30 s, OpenGL) | exit 0, fps 59.94, speed 1.000 |
+
+Not covered: the interactive dialogs (intro, file picker, progress, errors) and the window /
+taskbar icon need a visible session; a machine without the VC++ runtime installed.

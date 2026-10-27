@@ -13,6 +13,17 @@ Read this first, then NEXT_ACTIONS.md, KNOWN_ISSUES.md, ../START_HERE.md.
   interpreter/JIT, Greenhorn speed, river animation, two lockstep routes with
   0 reports).
 
+## Release package (2026-10-27)
+
+- `WarioWorldRecomp.exe` (release/launcher, native C++): first run checks and extracts
+  the player's disc, then starts the game like launcher/wario_launcher.pyw (no play
+  tracker). `scripts/make_release.py` builds dist/WarioWorldRecomp-vX.Y.zip (46 MB for
+  v1.0); `release/test_release.py` is the clean-folder test. Checklist:
+  ../PUBLISHING.md. Notes draft: ../release/v1.0.md. Not uploaded.
+- Game icon (starter and installer): the gold W coin texture from the player's disc
+  (ATT.RSC 0x1148A0, 32x32 CMPR, tex1_32x32_m_5b7df270a43b0ca3_14); the exe's own icon is
+  an original coin drawing.
+
 ## Static-recomp status
 
 All game code (main.dol + 8 RELs) is compiled to native code. On the tested
