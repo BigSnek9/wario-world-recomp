@@ -572,9 +572,10 @@ void wario_cheat_tick(CPUState* ctx) {
                         wario_cheat_f32(mem_read32(ctx, ctx->gpr[3] + 0x20Cu)));
     if (wario_cheat_unlock_stages == 1) {
         /* G-0011: progress+8 u16, bit world*3+stage set when that stage is cleared; a stage is
-           open when its prerequisites' bits are set. 0x07FF = every stage of the four worlds
-           and their bosses; bit 11 (the last boss) is left for the player. */
-        wario_cheat_or16(ctx, WARIO_PROGRESS + 0x8u, 0x07FFu);
+           open when its prerequisites' bits are set. 0x0FFF = every stage and boss of the four
+           worlds, the value a finished save holds (the hub opens the final-boss chest only when
+           all 12 bits are set, WWUSPF 0xE998). */
+        wario_cheat_or16(ctx, WARIO_PROGRESS + 0x8u, 0x0FFFu);
         wario_cheat_unlock_stages = 2;
         WARIO_CHEAT_LOG("frame %u unlock_stages mask %04X\n", mem_read32(ctx, 0x801FD934u),
                         mem_read16(ctx, WARIO_PROGRESS + 0x8u));
@@ -593,8 +594,12 @@ void wario_cheat_tick(CPUState* ctx) {
                 wario_cheat_or16(ctx, r + 0xAu, 0x00FFu);
                 wario_cheat_or16(ctx, r + 0xCu, 0x00FFu);
             }
+        /* The four world bosses' clear bits (2, 5, 8, 11) are the pieces the hub's final-boss
+           chest counts; set them as the boss-clear code does (fn_800308F0). */
+        wario_cheat_or16(ctx, WARIO_PROGRESS + 0x8u, 0x0924u);
         wario_cheat_collect_all = 2;
-        WARIO_CHEAT_LOG("frame %u collect_all\n", mem_read32(ctx, 0x801FD934u));
+        WARIO_CHEAT_LOG("frame %u collect_all mask %04X\n", mem_read32(ctx, 0x801FD934u),
+                        mem_read16(ctx, WARIO_PROGRESS + 0x8u));
     }
 }
 /* 0x8012A2E4 / 0x8012A448 (fn_8012A2A0, r30 = sphere collider, r1 frame: +0x2C hit normal). */

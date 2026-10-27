@@ -32,8 +32,10 @@ accessors fn_800308F0..fn_80030CB0 and memory dumps of hub states from three pla
 
 Progress+8 (0x801CE3AC) u16, bit world*3 + stage (stage 2 = world boss), set by
 fn_800308F0 for the current world/stage (called from the stage RELs' clear code), tested by
-fn_80030924. A finished game showed 0x07FF before the final boss; bit 11 is the last
-world's boss. Used by the unlock-stages cheat (docs/modding/CHEATS.md).
+fn_80030924. A finished game showed 0x07FF before the last world boss (F53) and 0x0FFF
+after it (ending state). The hub (WWUSPF 0xE998) sets its object flag +0x16E, which
+enables the final-boss chest, only when (mask & 0xFFF) == 0xFFF. Used by the unlock-stages
+and collect-all cheats (docs/modding/CHEATS.md).
 
 ## G-0012 Per-stage collectable record - CONFIRMED layout
 

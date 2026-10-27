@@ -16,7 +16,7 @@ update, collision and attack code), so the menu can write them at any moment.
 | `wario_cheat_super_punch` | s32, 0 off / 1 on | The first and second combo punches hit with the third (big) combo punch's power and reach. |
 | `wario_cheat_jump_percent` | s32, 0 or 100 = original; clamped to 10..1000 | Jump height in percent of the original full-hold jump. |
 | `wario_cheat_unlock_stages` | s32 request: write 1; module sets 2 when applied | One shot: marks every stage and world boss of the four worlds as cleared, so every stage and world opens. |
-| `wario_cheat_collect_all` | s32 request: write 1; module sets 2 when applied | One shot: marks every per-stage collectable as collected (treasures, red diamonds, Spritelings, statue parts, the stage's special items), which also unlocks every GBA game. |
+| `wario_cheat_collect_all` | s32 request: write 1; module sets 2 when applied | One shot: marks every per-stage collectable as collected (treasures, red diamonds, Spritelings, statue parts, the stage's special items) plus the four world-boss pieces the final-boss chest needs; also unlocks every GBA game. |
 
 One-shot requests are applied at the next player update, i.e. only while a save is
 loaded and Wario exists (hub or stage); a request made on the title screen waits until
@@ -52,16 +52,26 @@ with those constants (bisection), so the percent is a true height ratio for held
 
 **Unlock stages.** Progress block 0x801CE3A4 (+8, u16): bit world*3+stage is set when that
 stage (stage 2 = the world's boss) is cleared (fn_800308F0); the hub opens doors from
-these bits. The cheat ORs in 0x07FF: both stages and the boss of every world, except bit 11
-(the last world's boss). That is the state of a save that has opened everything but not
-yet beaten the final boss; the hub shows newly set bits with its normal door-opening
-handling (it compares against the copy at 0x801CE470).
+these bits. The cheat ORs in 0x0FFF: both stages and the boss of every world (bits 2, 5,
+8 and 11 are the four world bosses). That is the value a finished save holds (the user's
+post-ending state reads 0x0FFF). The hub's final-boss chest needs all 12 bits: when the
+hub is built it sets its flag +0x16E only if (mask & 0xFFF) == 0xFFF (WWUSPF 0xE998).
+The first version set 0x07FF and so left the last world boss's piece missing. The hub
+shows newly set bits with its normal door-opening handling (it compares against the copy
+at 0x801CE470); both checks run when the hub is loaded, so re-enter the hub after applying.
 
 **Collect everything.** Per-stage records at 0x801CE3B0 + world*0x30 + stage*0x10 (stages
 0 and 1). The cheat ORs in: +4 0x1F (five Spritelings), +6 0xFF (eight statue parts; the hub
 unlocks the stage's GBA game when this byte is 0xFF), +8 0xFF (eight treasures), +A and +C
 0xFF (eight red diamonds and the stage's special items). +0/+1 (the stage's own event
-flags) are not touched. These are exactly the values the game's own setters write.
+flags) are not touched. It also ORs in the four world-boss clear bits (0x0924), the pieces
+the hub's final-boss chest counts, as the boss-clear code (fn_800308F0) does. With every
+stage cleared as well (by playing or the unlock cheat) the chest opens. These are exactly
+the values the game's own setters write. Nothing else collectable is stored elsewhere: the
+pause book's eight treasures, three special items, five rings, statue (8/8), red diamonds
+and five Spritelings all come from these records (checked in a capture of Pecan Sands
+with the cheat; applying it in a stage also shows the special-item pickup effect once).
+Progress +0 (coins) and +4 (a running counter, max 99,999) are not collectables.
 
 ## Verification (hidden, muted runs; private evidence under private/runs)
 
@@ -75,7 +85,8 @@ sets the variables after delay_ms; `WARIO_CHEAT_LOG=<file>` logs cheat events an
   on the punch calls and the captures show enemies knocked out (white KO burst, coins,
   red-diamond counter); off, the same punches only push the enemies back.
 - Collect everything + unlock (early save, mask 0x0001): progress block after the request
-  equals the documented values (mask 0x07FF, records 001F/00FF x4); the pause book of
+  equals the documented values (mask 0x07FF in that first version, now 0x0FFF; records
+  001F/00FF x4); the pause book of
   Greenhorn Ruins shows 8/8 statue parts, all treasures and items, red diamonds and five
   Spritelings (without the cheat: one treasure, one Spriteling, 0/8).
 - Walk through walls (Greenhorn Ruins swarm room, stick held into the ivy back wall): off,
@@ -95,8 +106,9 @@ sets the variables after delay_ms; `WARIO_CHEAT_LOG=<file>` logs cheat events an
   Steep slopes count as floor; object collisions (doors, crates, enemies) are unchanged.
 - Super punch covers the grounded punch combo only (not other attacks).
 - Jump height scales only the A-button jump; the percent is exact for full-hold jumps.
-- Hub door animations after unlocking and the GBA shelf were checked in memory only, not
-  watched in a capture; the exact meaning of record fields +0xA / +0xC is unverified.
+- Hub door animations, the GBA shelf and the opened final-boss chest were checked in
+  memory only (late hub save: unlock gives 0x07FF -> 0x0FFF; Pecan Sands save: collect gives
+  0x0BFF, the one missing bit being the uncleared stage itself), not watched in a capture; the exact meaning of record fields +0xA / +0xC is unverified.
 
 ## Note on the menu's existing "Moon jump" (scripts/tool_fix_wario_menu.py)
 
