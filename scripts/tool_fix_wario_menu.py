@@ -10,9 +10,16 @@ is read on the first frame of the next session:
 - resolution (Dolphin EFB scale; 0 = automatic, follows the window)
 - aspect ratio (g_wario_aspect_target -> UpdateWarioAspect in the runtime, plus
   the host aspect mode; "Original 4:3" restores the game's own values)
-- fullscreen, HD textures, HDR output (Vulkan only)
+- fullscreen, HD textures
+- HDR output (Vulkan only) and HDR tuning: paper white (Dolphin's own setting) plus highlight
+  boost / peak brightness, saturation, warmth, contrast, gamma and black level (WarioHDR.glsl,
+  written to Data/Sys/Shaders; loaded only while a value differs from its default, so the
+  defaults leave the picture exactly as it was)
 - frame rate 60/120/180/240/auto (g_wario_fps_multiplier -> scripts/tool_fix_wario_fps.py)
 - volume, moon jump cheat (hold A), quit
+- System: UI style, menu size, graphics backend (saved for the starter; "Restart now" leaves a
+  WarioWorld.restart marker and quits), texture tools and the log (paths from the starter's
+  MODERNGEKKO_WARIO_* environment variables), controls help
 
 Config changes are queued while ImGui is locked and applied right after
 OnScreenUI::Finalize, from Presenter::Present.
@@ -29,11 +36,15 @@ OSUI_INCLUDE_NEW = OSUI_INCLUDE_OLD + r"""
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <initializer_list>
+#include <utility>
 #include <string>
 #include <vector>
 
 #include "AudioCommon/AudioCommon.h"
+#include "Common/StringUtil.h"
 #include "Core/HW/Memmap.h"
+#include "VideoCommon/PostProcessing.h"
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -43,6 +54,8 @@ OSUI_INCLUDE_NEW = OSUI_INCLUDE_OLD + r"""
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <shellapi.h>
+#pragma comment(lib, "shell32.lib")
 #endif
 
 static float WarioAspectFromEnv()
@@ -86,7 +99,67 @@ struct Settings
   bool moon_jump = false;
   float moon_speed = 2.0f;
   float menu_scale = 1.0f;  // 0.6 .. 1.6, on top of Windows display scaling
+  int style = 0;            // index into kThemes
+  int backend = 0;          // index into kBackendKeys; used by the starter at the next launch
+  // HDR tuning (Vulkan HDR output only). Every default is the untouched picture.
+  float hdr_paper_white = 203.0f;  // nits; Config::GFX_CC_HDR_PAPER_WHITE_NITS
+  float hdr_peak = 1000.0f;        // nits; the highlight boost stretches up to this
+  int hdr_boost = 0;               // %, 0 = off
+  int hdr_saturation = 100;        // %
+  int hdr_warmth = 0;              // -100 (cool) .. 100 (warm)
+  int hdr_contrast = 100;          // %
+  float hdr_gamma = 1.0f;
+  int hdr_black = 0;               // -10 (lifted) .. 10 (crushed)
 };
+
+constexpr const char* kBackendNames[] = {"OpenGL", "Vulkan"};
+constexpr const char* kBackendKeys[] = {"opengl", "vulkan"};
+int s_backend_running = 0;  // backend of this session
+
+// Grading shader (Data/Sys/Shaders/WarioHDR.glsl) and whatever post shader the session had.
+constexpr const char kHdrShader[] = "WarioHDR";
+std::string s_saved_post_shader;
+
+// Colour schemes. Classic keeps Dolphin's own ImGui colours (only the panel gradient, header and
+// accent come from here); the others recolour every widget from a handful of base colours.
+struct Theme
+{
+  const char* name;
+  const char* key;
+  bool custom;
+  ImVec4 accent, bg_top, bg_bottom, frame, text, text_dim, title, primary, primary_text;
+};
+const ImVec4 kNoColour{0.0f, 0.0f, 0.0f, 0.0f};
+const Theme kThemes[] = {
+    {"Classic", "classic", false, {0.26f, 0.59f, 0.98f, 1.0f}, {0.10f, 0.11f, 0.14f, 1.0f},
+     {0.04f, 0.04f, 0.05f, 1.0f}, kNoColour, kNoColour, kNoColour, {1.0f, 0.82f, 0.10f, 1.0f},
+     kNoColour, kNoColour},
+    {"Wario (purple & gold)", "wario", true, {1.0f, 0.80f, 0.10f, 1.0f}, {0.24f, 0.10f, 0.33f, 1.0f},
+     {0.09f, 0.03f, 0.13f, 1.0f}, {0.33f, 0.17f, 0.45f, 1.0f}, {1.0f, 0.96f, 0.86f, 1.0f},
+     {0.70f, 0.62f, 0.76f, 1.0f}, {1.0f, 0.84f, 0.12f, 1.0f}, {1.0f, 0.80f, 0.10f, 1.0f},
+     {0.18f, 0.06f, 0.25f, 1.0f}},
+    {"Midnight", "midnight", true, {0.30f, 0.85f, 0.95f, 1.0f}, {0.06f, 0.10f, 0.20f, 1.0f},
+     {0.02f, 0.03f, 0.07f, 1.0f}, {0.10f, 0.16f, 0.28f, 1.0f}, {0.90f, 0.95f, 1.0f, 1.0f},
+     {0.55f, 0.62f, 0.72f, 1.0f}, {0.55f, 0.92f, 1.0f, 1.0f}, {0.20f, 0.62f, 0.78f, 1.0f},
+     {1.0f, 1.0f, 1.0f, 1.0f}},
+    {"Garlic green", "garlic", true, {0.55f, 0.88f, 0.30f, 1.0f}, {0.07f, 0.16f, 0.09f, 1.0f},
+     {0.02f, 0.06f, 0.03f, 1.0f}, {0.12f, 0.24f, 0.14f, 1.0f}, {0.94f, 0.98f, 0.90f, 1.0f},
+     {0.58f, 0.70f, 0.58f, 1.0f}, {1.0f, 0.84f, 0.12f, 1.0f}, {0.48f, 0.80f, 0.26f, 1.0f},
+     {0.04f, 0.12f, 0.04f, 1.0f}},
+    {"Treasure red", "treasure", true, {1.0f, 0.72f, 0.22f, 1.0f}, {0.22f, 0.06f, 0.06f, 1.0f},
+     {0.08f, 0.02f, 0.02f, 1.0f}, {0.34f, 0.11f, 0.10f, 1.0f}, {1.0f, 0.94f, 0.86f, 1.0f},
+     {0.74f, 0.60f, 0.56f, 1.0f}, {1.0f, 0.80f, 0.25f, 1.0f}, {0.95f, 0.68f, 0.18f, 1.0f},
+     {0.22f, 0.05f, 0.04f, 1.0f}},
+    {"Wario yellow (light)", "yellow", true, {0.46f, 0.22f, 0.58f, 1.0f}, {0.99f, 0.93f, 0.68f, 1.0f},
+     {0.94f, 0.83f, 0.50f, 1.0f}, {1.0f, 0.98f, 0.90f, 1.0f}, {0.20f, 0.10f, 0.24f, 1.0f},
+     {0.50f, 0.40f, 0.42f, 1.0f}, {0.44f, 0.18f, 0.56f, 1.0f}, {0.50f, 0.28f, 0.62f, 1.0f},
+     {1.0f, 0.93f, 0.62f, 1.0f}},
+};
+
+// Tabs filter the page (LB / RB or a click); All shows every section, as before tabs existed.
+// Tab i > 0 shows section i only.
+constexpr const char* kTabNames[] = {"All", "Display", "HDR", "Motion", "Audio", "Cheats", "System"};
+constexpr int kTabCount = static_cast<int>(std::size(kTabNames));
 
 constexpr const char* kResolutionNames[] = {"Auto (fits window)", "Native 1x (accurate)", "2x",
                                             "3x", "4x", "5x", "6x", "8x"};
@@ -112,12 +185,17 @@ constexpr Aspect kAspects[] = {{"Auto (fits window)", "auto", -1.0f, 0, 0},
 
 Settings s_settings;
 std::vector<std::function<void()>> s_pending;  // applied outside the ImGui lock
+std::vector<std::string> s_other_lines;  // keys this menu does not know (e.g. the starter's), kept on save
 bool s_loaded = false;
 bool s_open = false;
 float s_anim = 0.0f;  // 0 closed .. 1 open
 bool s_focus_next = false;
 bool s_focus_resume = false;  // nav cursor starts on Resume each time the menu opens
 float s_quit_armed = 0.0f;     // seconds left to confirm Quit with a second press
+int s_tab = 0;                 // index into kTabNames; back to All each time the menu opens
+int s_jump = -1;               // tab whose first item gets focus on the next frame
+bool s_tab_scroll = false;     // scroll to the top after a tab change
+float s_pill[2] = {-1.0f, 0.0f};  // selected-tab highlight, slides between tabs
 unsigned s_previous_buttons = 0;
 bool s_previous_tab = false;
 
@@ -134,10 +212,16 @@ void Save()
     std::fprintf(file,
                  "# Wario World in-game menu settings (Back / Tab in game)\n"
                  "resolution=%d\naspect=%s\nfullscreen=%d\nhd_textures=%d\nhdr=%d\nframe_rate=%s\nmotion=%s\n"
-                 "volume=%d\nmoon_jump=%d\nmoon_speed=%.2f\nmenu_scale=%.2f\n",
+                 "volume=%d\nmoon_jump=%d\nmoon_speed=%.2f\nmenu_scale=%.2f\nmenu_style=%s\n"
+                 "hdr_paper_white=%.0f\nhdr_peak=%.0f\nhdr_boost=%d\nhdr_saturation=%d\n"
+                 "hdr_warmth=%d\nhdr_contrast=%d\nhdr_gamma=%.2f\nhdr_black=%d\nbackend=%s\n",
                  kResolutionScales[s.resolution], kAspects[s.aspect].key, s.fullscreen,
                  s.hd_textures, s.hdr, kFrameRateKeys[s.frame_rate], kMotionKeys[s.motion], s.volume, s.moon_jump,
-                 s.moon_speed, s.menu_scale);
+                 s.moon_speed, s.menu_scale, kThemes[s.style].key, s.hdr_paper_white, s.hdr_peak,
+                 s.hdr_boost, s.hdr_saturation, s.hdr_warmth, s.hdr_contrast, s.hdr_gamma, s.hdr_black,
+                 kBackendKeys[s.backend]);
+    for (const std::string& line : s_other_lines)
+      std::fprintf(file, "%s\n", line.c_str());
     std::fclose(file);
   }
 }
@@ -163,11 +247,21 @@ std::vector<std::string> Load()
   s.frame_rate = std::clamp(g_wario_fps_multiplier.load(), 1, 4) - 1;
   s.hd_textures = Config::Get(Config::GFX_HIRES_TEXTURES);
   s.hdr = Config::Get(Config::GFX_ENHANCE_HDR_OUTPUT);
+  s.hdr_paper_white = Config::Get(Config::GFX_CC_HDR_PAPER_WHITE_NITS);
+  s_backend_running = Config::Get(Config::MAIN_GFX_BACKEND) == "Vulkan" ? 1 : 0;
+  s.backend = s_backend_running;
   s.volume = Config::Get(Config::MAIN_AUDIO_VOLUME);
   const int scale = Config::Get(Config::GFX_EFB_SCALE);
   for (int i = 0; i < static_cast<int>(std::size(kResolutionScales)); ++i)
     if (kResolutionScales[i] == scale)
       s.resolution = i;
+  // Diagnostics: style for menu snapshots (hidden test users have no settings file).
+  if (const char* style = std::getenv("MODERNGEKKO_WARIO_MENU_STYLE"))
+  {
+    for (int i = 0; i < static_cast<int>(std::size(kThemes)); ++i)
+      if (std::strcmp(style, kThemes[i].key) == 0)
+        s.style = i;
+  }
   FILE* file = std::fopen(SettingsPath().c_str(), "r");
   if (!file)
     return saved;
@@ -219,6 +313,32 @@ std::vector<std::string> Load()
       s.menu_scale = std::clamp(static_cast<float>(std::atof(value.c_str())), 0.6f, 1.6f);
     else if (key == "moon_speed")
       s.moon_speed = std::clamp(static_cast<float>(std::atof(value.c_str())), 0.5f, 8.0f);
+    else if (key == "hdr_paper_white")
+      s.hdr_paper_white = std::clamp(static_cast<float>(std::atof(value.c_str())), 80.0f, 500.0f);
+    else if (key == "hdr_peak")
+      s.hdr_peak = std::clamp(static_cast<float>(std::atof(value.c_str())), 400.0f, 4000.0f);
+    else if (key == "hdr_boost")
+      s.hdr_boost = std::clamp(number, 0, 100);
+    else if (key == "hdr_saturation")
+      s.hdr_saturation = std::clamp(number, 0, 200);
+    else if (key == "hdr_warmth")
+      s.hdr_warmth = std::clamp(number, -100, 100);
+    else if (key == "hdr_contrast")
+      s.hdr_contrast = std::clamp(number, 50, 150);
+    else if (key == "hdr_gamma")
+      s.hdr_gamma = std::clamp(static_cast<float>(std::atof(value.c_str())), 0.7f, 1.3f);
+    else if (key == "hdr_black")
+      s.hdr_black = std::clamp(number, -10, 10);
+    else if (key == "backend")
+      s.backend = value == "vulkan" ? 1 : 0;
+    else if (key == "menu_style")
+    {
+      for (int i = 0; i < static_cast<int>(std::size(kThemes)); ++i)
+        if (value == kThemes[i].key)
+          s.style = i;
+    }
+    else if (key != "fps")  // fps: replaced by frame_rate
+      s_other_lines.push_back(key + "=" + value);
   }
   std::fclose(file);
   return saved;
@@ -267,6 +387,70 @@ void QueueHdr()
 {
   const bool hdr = s_settings.hdr && IsVulkan();
   s_pending.push_back([hdr] { Config::SetCurrent(Config::GFX_ENHANCE_HDR_OUTPUT, hdr); });
+}
+
+void QueuePaperWhite()
+{
+  const float nits = s_settings.hdr_paper_white;
+  s_pending.push_back([nits] { Config::SetCurrent(Config::GFX_CC_HDR_PAPER_WHITE_NITS, nits); });
+}
+
+void ResetHdr()
+{
+  const Settings defaults;
+  Settings& s = s_settings;
+  s.hdr_paper_white = Config::GFX_CC_HDR_PAPER_WHITE_NITS.GetDefaultValue();
+  s.hdr_peak = defaults.hdr_peak;
+  s.hdr_boost = defaults.hdr_boost;
+  s.hdr_saturation = defaults.hdr_saturation;
+  s.hdr_warmth = defaults.hdr_warmth;
+  s.hdr_contrast = defaults.hdr_contrast;
+  s.hdr_gamma = defaults.hdr_gamma;
+  s.hdr_black = defaults.hdr_black;
+  QueuePaperWhite();
+}
+
+bool HdrGradingActive()
+{
+  const Settings& s = s_settings;
+  return s.hdr_boost != 0 || s.hdr_saturation != 100 || s.hdr_warmth != 0 ||
+         s.hdr_contrast != 100 || std::abs(s.hdr_gamma - 1.0f) > 0.004f || s.hdr_black != 0;
+}
+
+// Every frame, from Presenter::Present: the grading shader is the post shader only while HDR
+// output is on and a grading value is not at its default (otherwise the session's own post shader,
+// normally none, so the default picture never goes through an extra pass). Its options are pushed
+// each frame, which also covers the frame the shader (re)loads with its file defaults.
+void ApplyHdrGrading()
+{
+  const Settings& s = s_settings;
+  const bool want = s_loaded && s.hdr && IsVulkan() && HdrGradingActive();
+  const std::string current = Config::Get(Config::GFX_ENHANCE_POST_SHADER);
+  if (want && current != kHdrShader)
+  {
+    s_saved_post_shader = current;
+    Config::SetCurrent(Config::GFX_ENHANCE_POST_SHADER, std::string(kHdrShader));
+  }
+  else if (!want && current == kHdrShader)
+  {
+    Config::SetCurrent(Config::GFX_ENHANCE_POST_SHADER, s_saved_post_shader);
+  }
+  if (!want || !g_presenter || !g_presenter->GetPostProcessor())
+    return;
+  VideoCommon::PostProcessingConfiguration* config = g_presenter->GetPostProcessor()->GetConfig();
+  if (config->GetShader() != kHdrShader)
+    return;
+  const auto set = [config](const char* name, float value) {
+    if (config->GetOptions().count(name) != 0)
+      config->SetOptionf(name, 0, value);
+  };
+  set("WW_PEAK_NITS", s.hdr_peak);
+  set("WW_HIGHLIGHTS", s.hdr_boost / 100.0f);
+  set("WW_SATURATION", s.hdr_saturation / 100.0f);
+  set("WW_WARMTH", s.hdr_warmth / 100.0f);
+  set("WW_CONTRAST", s.hdr_contrast / 100.0f);
+  set("WW_GAMMA", s.hdr_gamma);
+  set("WW_BLACK", s.hdr_black / 100.0f);
 }
 
 void QueueVolume()
@@ -326,6 +510,95 @@ void Quit()
 #endif
 }
 
+// Restart now: the starter relaunches the runner when it finds this marker after the exit.
+void Restart()
+{
+  if (FILE* marker = std::fopen((File::GetUserPath(D_CONFIG_IDX) + "WarioWorld.restart").c_str(), "w"))
+    std::fclose(marker);
+  Save();
+  Quit();
+}
+
+// Tools: paths and commands come from the starter's environment; a missing variable hides its
+// button.
+std::string EnvUtf8(const char* name)
+{
+#ifdef _WIN32
+  const std::wstring wide_name = UTF8ToWString(name);
+  const DWORD size = GetEnvironmentVariableW(wide_name.c_str(), nullptr, 0);
+  if (size <= 1)
+    return {};
+  std::wstring value(size, L'\0');
+  value.resize(GetEnvironmentVariableW(wide_name.c_str(), value.data(), size));
+  return WStringToUTF8(value);
+#else
+  const char* value = std::getenv(name);
+  return value ? value : "";
+#endif
+}
+
+// Opens a folder (created first) or file with its Windows handler. Explorer comes forward over the
+// game, as Windows decides.
+void OpenPath(const std::string& path, bool folder)
+{
+#ifdef _WIN32
+  if (folder)
+    File::CreateFullPath(path + "/");
+  ShellExecuteW(static_cast<HWND>(g_wario_hwnd), L"open", UTF8ToWString(path).c_str(), nullptr,
+                nullptr, SW_SHOWNORMAL);
+#endif
+}
+
+// Texture extraction runs as a hidden child process; the menu polls it every frame.
+enum class ExtractState
+{
+  Idle,
+  Running,
+  Finished,
+  Failed,
+};
+ExtractState s_extract_state = ExtractState::Idle;
+unsigned long s_extract_code = 0;
+void* s_extract_process = nullptr;
+
+void StartExtract(const std::string& command)
+{
+#ifdef _WIN32
+  std::wstring line = UTF8ToWString(command);
+  STARTUPINFOW startup{};
+  startup.cb = sizeof(startup);
+  PROCESS_INFORMATION info{};
+  if (!CreateProcessW(nullptr, line.data(), nullptr, nullptr, FALSE,
+                      CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS, nullptr, nullptr, &startup,
+                      &info))
+  {
+    s_extract_state = ExtractState::Failed;
+    s_extract_code = GetLastError();
+    return;
+  }
+  CloseHandle(info.hThread);
+  s_extract_process = info.hProcess;
+  s_extract_state = ExtractState::Running;
+#endif
+}
+
+void PollExtract()
+{
+#ifdef _WIN32
+  if (s_extract_state != ExtractState::Running ||
+      WaitForSingleObject(static_cast<HANDLE>(s_extract_process), 0) != WAIT_OBJECT_0)
+  {
+    return;
+  }
+  DWORD code = 1;
+  GetExitCodeProcess(static_cast<HANDLE>(s_extract_process), &code);
+  CloseHandle(static_cast<HANDLE>(s_extract_process));
+  s_extract_process = nullptr;
+  s_extract_code = code;
+  s_extract_state = code == 0 ? ExtractState::Finished : ExtractState::Failed;
+#endif
+}
+
 // XInput without linking it: any of the four pads.
 struct PadState
 {
@@ -374,7 +647,8 @@ PadState ReadPads()
 }
 
 constexpr unsigned PAD_UP = 0x0001, PAD_DOWN = 0x0002, PAD_LEFT = 0x0004, PAD_RIGHT = 0x0008,
-                   PAD_BACK = 0x0020, PAD_A = 0x1000, PAD_B = 0x2000;
+                   PAD_BACK = 0x0020, PAD_LB = 0x0100, PAD_RB = 0x0200, PAD_A = 0x1000,
+                   PAD_B = 0x2000;
 
 bool WindowFocused()
 {
@@ -420,8 +694,14 @@ void SetOpen(bool open)
     return;
   s_open = open;
   s_quit_armed = 0.0f;
+  s_jump = -1;
   if (open)
+  {
     s_focus_next = s_focus_resume = true;
+    s_tab = 0;
+    s_pill[0] = -1.0f;
+    ImGui::SetNavCursorVisible(true);  // show which item A will press
+  }
   else
     Save();
 }
@@ -472,142 +752,545 @@ float UiScale()
   return dpi * s_settings.menu_scale;
 }
 
+ImVec4 Mix(const ImVec4& a, const ImVec4& b, float t)
+{
+  return ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t,
+                a.w + (b.w - a.w) * t);
+}
+
+ImVec4 WithAlpha(ImVec4 colour, float alpha)
+{
+  colour.w *= alpha;
+  return colour;
+}
+
+// Horizontal rule that fades out towards x1 (colours go through GetColorU32, so the open/close
+// animation's alpha applies).
+void FadeLine(ImDrawList* draw, float x0, float x1, float y, float thickness, const ImVec4& colour)
+{
+  const ImU32 solid = ImGui::GetColorU32(colour), clear = ImGui::GetColorU32(WithAlpha(colour, 0.0f));
+  draw->AddRectFilledMultiColor(ImVec2(x0, y), ImVec2(x1, y + thickness), solid, clear, clear, solid);
+}
+
 void DrawPanel(float width, float height)
 {
   Settings& s = s_settings;
+  const Theme& theme = kThemes[s.style];
+  const bool light = theme.bg_top.x + theme.bg_top.y + theme.bg_top.z > 1.5f;
   const float font = std::clamp(18.0f * UiScale(), 10.0f, 96.0f);
   const float panel = std::min(width * 0.5f, font * 26.0f);
+  const float pad = font * 1.2f;
   const float t = std::clamp(s_anim, 0.0f, 1.0f);
   const float ease = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
   ImGui::SetNextWindowPos(ImVec2(-panel * (1.0f - ease), 0.0f));
   ImGui::SetNextWindowSize(ImVec2(panel, height));
-  ImGui::SetNextWindowBgAlpha(0.9f * ease);
+  ImGui::SetNextWindowBgAlpha(0.0f);  // gradient drawn below
   if (s_focus_next)
   {
     ImGui::SetNextWindowFocus();
     s_focus_next = false;
   }
   ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(font * 1.2f, font * 1.0f));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(pad, font * 1.0f));
   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(font * 0.5f, font * 0.42f));
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(font * 0.4f, font * 0.25f));
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, font * 0.22f);
+  ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, font * 0.18f);
+  ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, font * 0.6f);
+  ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, font * 0.25f);
   ImGui::PushStyleVar(ImGuiStyleVar_Alpha, std::max(ease, 0.01f));
+  int colours = 0;
+  const auto colour = [&](ImGuiCol id, const ImVec4& value) {
+    ImGui::PushStyleColor(id, value);
+    ++colours;
+  };
+  if (theme.custom)
+  {
+    const ImVec4 white(1.0f, 1.0f, 1.0f, 1.0f);
+    colour(ImGuiCol_Text, theme.text);
+    colour(ImGuiCol_TextDisabled, theme.text_dim);
+    colour(ImGuiCol_FrameBg, WithAlpha(theme.frame, 0.85f));
+    colour(ImGuiCol_FrameBgHovered, Mix(theme.frame, theme.accent, 0.25f));
+    colour(ImGuiCol_FrameBgActive, Mix(theme.frame, theme.accent, 0.4f));
+    colour(ImGuiCol_Button, Mix(theme.frame, theme.accent, 0.2f));
+    colour(ImGuiCol_ButtonHovered, Mix(theme.frame, theme.accent, 0.4f));
+    colour(ImGuiCol_ButtonActive, Mix(theme.frame, theme.accent, 0.6f));
+    colour(ImGuiCol_Header, WithAlpha(theme.accent, 0.3f));
+    colour(ImGuiCol_HeaderHovered, WithAlpha(theme.accent, 0.45f));
+    colour(ImGuiCol_HeaderActive, WithAlpha(theme.accent, 0.6f));
+    colour(ImGuiCol_CheckMark, theme.accent);
+    colour(ImGuiCol_SliderGrab, theme.accent);
+    colour(ImGuiCol_SliderGrabActive, Mix(theme.accent, white, 0.3f));
+    colour(ImGuiCol_PopupBg, WithAlpha(theme.bg_bottom, 0.98f));
+    colour(ImGuiCol_Border, WithAlpha(theme.accent, 0.35f));
+    colour(ImGuiCol_ScrollbarGrab, WithAlpha(theme.accent, 0.35f));
+    colour(ImGuiCol_ScrollbarGrabHovered, WithAlpha(theme.accent, 0.55f));
+    colour(ImGuiCol_ScrollbarGrabActive, WithAlpha(theme.accent, 0.75f));
+    colour(ImGuiCol_NavCursor, light ? theme.text : theme.accent);
+  }
   const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                                  ImGuiWindowFlags_NoSavedSettings;
   if (ImGui::Begin("##wario_menu", nullptr, flags))
   {
-    ImGui::PushFont(nullptr, font * 1.6f);
-    ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.1f, 1.0f), "WARIO WORLD");
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImVec2 origin = ImGui::GetWindowPos();
+    const float right = origin.x + panel - pad;
+    {
+      // Panel: vertical gradient, a soft accent glow at the top, an accent edge on the right and a
+      // shadow falling onto the game.
+      const ImVec2 end(origin.x + panel, origin.y + height);
+      ImGui::PushClipRect(origin, end, false);
+      const ImU32 top = ImGui::GetColorU32(WithAlpha(theme.bg_top, 0.94f));
+      const ImU32 bottom = ImGui::GetColorU32(WithAlpha(theme.bg_bottom, 0.97f));
+      draw->AddRectFilledMultiColor(origin, end, top, top, bottom, bottom);
+      const ImU32 glow = ImGui::GetColorU32(WithAlpha(theme.accent, 0.14f));
+      const ImU32 none = ImGui::GetColorU32(WithAlpha(theme.accent, 0.0f));
+      draw->AddRectFilledMultiColor(origin, ImVec2(end.x, origin.y + font * 7.0f), glow, glow, none,
+                                    none);
+      const float edge = std::max(1.0f, font * 0.12f);
+      const ImU32 edge_top = ImGui::GetColorU32(WithAlpha(theme.accent, 0.9f));
+      const ImU32 edge_bottom = ImGui::GetColorU32(WithAlpha(theme.accent, 0.2f));
+      draw->AddRectFilledMultiColor(ImVec2(end.x - edge, origin.y), end, edge_top, edge_top,
+                                    edge_bottom, edge_bottom);
+      ImGui::PopClipRect();
+      const ImU32 shade = ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, 0.45f));
+      const ImU32 clear = ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+      ImGui::GetBackgroundDrawList()->AddRectFilledMultiColor(
+          ImVec2(end.x, origin.y), ImVec2(end.x + font * 1.6f, end.y), shade, clear, clear, shade);
+    }
+
+    // Title with a drop shadow and an accent underline.
+    ImGui::PushFont(nullptr, font * 1.7f);
+    const ImVec2 title = ImGui::GetCursorScreenPos();
+    const float shadow = std::max(1.0f, font * 0.09f);
+    draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(title.x + shadow, title.y + shadow),
+                  ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, light ? 0.15f : 0.6f)), "WARIO WORLD");
+    ImGui::TextColored(theme.title, "WARIO WORLD");
     ImGui::PopFont();
+    FadeLine(draw, title.x, right, ImGui::GetItemRectMax().y + font * 0.1f,
+             std::max(1.0f, font * 0.1f), WithAlpha(theme.accent, 0.8f));
     ImGui::PushFont(nullptr, font);
-    ImGui::TextDisabled("Settings apply immediately and are saved.");
+    ImGui::Dummy(ImVec2(0.0f, font * 0.35f));
     ImGui::Spacing();
-    const float inner = panel - font * 2.4f;  // minus window padding
+    const float inner = panel - pad * 2.0f;
     const float label = inner * 0.36f;
     const float field = inner - label;
     const auto row = [&](const char* text) {
       ImGui::AlignTextToFramePadding();
       ImGui::TextUnformatted(text);
-      ImGui::SameLine(label + font * 1.2f);
+      ImGui::SameLine(label + pad);
       ImGui::SetNextItemWidth(field);
     };
+    // Section header: accent tab, small caps label and a fading rule. A tab change lands on the
+    // section's first item.
+    const auto header = [&](const char* text, int index) {
+      ImGui::Dummy(ImVec2(0.0f, font * 0.12f));
+      ImGui::PushFont(nullptr, font * 0.8f);
+      const ImVec2 pos = ImGui::GetCursorScreenPos();
+      const float line = ImGui::GetTextLineHeight();
+      draw->AddRectFilled(ImVec2(pos.x, pos.y + line * 0.1f),
+                          ImVec2(pos.x + font * 0.18f, pos.y + line * 0.9f),
+                          ImGui::GetColorU32(theme.accent), font * 0.09f);
+      ImGui::SetCursorScreenPos(ImVec2(pos.x + font * 0.55f, pos.y));
+      ImGui::TextColored(theme.accent, "%s", text);
+      ImGui::PopFont();
+      FadeLine(draw, ImGui::GetItemRectMax().x + font * 0.5f, right, pos.y + line * 0.5f,
+               std::max(1.0f, font * 0.06f), WithAlpha(theme.accent, 0.5f));
+      ImGui::Dummy(ImVec2(0.0f, font * 0.05f));
+      if (s_jump == index)
+      {
+        ImGui::SetKeyboardFocusHere();
+        s_jump = -1;
+      }
+    };
+    if (s_tab_scroll)
+    {
+      ImGui::SetScrollY(0.0f);
+      s_tab_scroll = false;
+    }
+    {
+      // Tab strip: a pill track with the selected tab filled; LB / RB chips at the ends.
+      const ImVec2 pos = ImGui::GetCursorScreenPos();
+      ImGui::PushFont(nullptr, font * 0.85f);
+      const float strip = ImGui::GetTextLineHeight() + font * 0.6f;
+      const float chip = font * 1.45f, gap = font * 0.2f;
+      float widths[kTabCount], text_total = 0.0f;
+      for (int i = 0; i < kTabCount; ++i)
+        text_total += widths[i] = ImGui::CalcTextSize(kTabNames[i]).x;
+      const bool chips = text_total + kTabCount * font * 0.45f < inner - 2.0f * (chip + gap);
+      const float x0 = chips ? pos.x + chip + gap : pos.x;
+      const float x1 = chips ? pos.x + inner - chip - gap : pos.x + inner;
+      const float extra = std::max(0.0f, (x1 - x0 - text_total) / kTabCount);
+      draw->AddRectFilled(ImVec2(x0, pos.y), ImVec2(x1, pos.y + strip),
+                          ImGui::GetColorU32(ImGuiCol_FrameBg), strip * 0.5f);
+      const ImVec4 selected =
+          theme.custom ? theme.primary : ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
+      const ImVec4 selected_text =
+          theme.custom ? theme.primary_text : ImGui::GetStyleColorVec4(ImGuiCol_Text);
+      const float inset = font * 0.14f;
+      // The highlight slides towards the selected tab.
+      float x = x0, target[2] = {x0, x0};
+      for (int i = 0; i < kTabCount; ++i)
+      {
+        if (i == s_tab)
+        {
+          target[0] = x + inset;
+          target[1] = x + widths[i] + extra - inset;
+        }
+        x += widths[i] + extra;
+      }
+      if (s_pill[0] < 0.0f)
+      {
+        s_pill[0] = target[0];
+        s_pill[1] = target[1];
+      }
+      const float follow = 1.0f - std::exp(-ImGui::GetIO().DeltaTime * 18.0f);
+      for (int i = 0; i < 2; ++i)
+        s_pill[i] += (target[i] - s_pill[i]) * follow;
+      draw->AddRectFilled(ImVec2(s_pill[0], pos.y + inset), ImVec2(s_pill[1], pos.y + strip - inset),
+                          ImGui::GetColorU32(selected), (strip - inset * 2.0f) * 0.5f);
+      ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);  // tabs are for LB / RB and the mouse
+      x = x0;
+      for (int i = 0; i < kTabCount; ++i)
+      {
+        const float w = widths[i] + extra;
+        ImGui::SetCursorScreenPos(ImVec2(x, pos.y));
+        ImGui::PushID(i);
+        if (ImGui::InvisibleButton("##tab", ImVec2(w, strip)) && i != s_tab)
+        {
+          s_tab = i;
+          s_jump = i;
+          s_tab_scroll = true;
+        }
+        const bool hovered = ImGui::IsItemHovered();
+        ImGui::PopID();
+        if (hovered && i != s_tab)
+        {
+          draw->AddRectFilled(ImVec2(x + inset, pos.y + inset),
+                              ImVec2(x + w - inset, pos.y + strip - inset),
+                              ImGui::GetColorU32(ImGuiCol_HeaderHovered), (strip - inset * 2.0f) * 0.5f);
+        }
+        const ImVec4 text = i == s_tab ? selected_text :
+                            ImGui::GetStyleColorVec4(hovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+        draw->AddText(ImVec2(x + extra * 0.5f, pos.y + (strip - ImGui::GetTextLineHeight()) * 0.5f),
+                      ImGui::GetColorU32(text), kTabNames[i]);
+        x += w;
+      }
+      ImGui::PopItemFlag();
+      if (chips)
+      {
+        const float size = font * 0.7f;
+        const auto bumper = [&](float left, const char* text) {
+          const ImVec2 a(left, pos.y + strip * 0.15f), b(left + chip, pos.y + strip * 0.85f);
+          draw->AddRectFilled(a, b, ImGui::GetColorU32(ImGuiCol_FrameBg), font * 0.25f);
+          const ImVec2 t = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
+          draw->AddText(ImGui::GetFont(), size, ImVec2((a.x + b.x - t.x) * 0.5f, (a.y + b.y - t.y) * 0.5f),
+                        ImGui::GetColorU32(ImGuiCol_TextDisabled), text);
+        };
+        bumper(pos.x, "LB");
+        bumper(pos.x + inner - chip, "RB");
+      }
+      ImGui::PopFont();
+      ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + strip));
+      ImGui::Dummy(ImVec2(inner, font * 0.25f));
+    }
     bool changed = false;
-    if (s_focus_resume)
+    if (s_jump == 2 && !IsVulkan())
+      s_jump = 0;  // nothing in the HDR tab can be used: stay on Resume, never fall onto Quit
+    if (s_focus_resume || s_jump == 0)
     {
       ImGui::SetKeyboardFocusHere();
       s_focus_resume = false;
+      if (s_jump == 0)
+        s_jump = -1;
     }
-    if (ImGui::Button("Resume", ImVec2(inner, 0.0f)))
+    // Resume is the primary action: filled with the theme's strong colour.
+    int primary = 0;
+    if (theme.custom)
+    {
+      const ImVec4 white(1.0f, 1.0f, 1.0f, 1.0f);
+      ImGui::PushStyleColor(ImGuiCol_Button, theme.primary);
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Mix(theme.primary, white, 0.15f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonActive, Mix(theme.primary, white, 0.3f));
+      ImGui::PushStyleColor(ImGuiCol_Text, theme.primary_text);
+      primary = 4;
+    }
+    if (ImGui::Button("Resume", ImVec2(inner, font * 1.6f)))
       SetOpen(false);
+    ImGui::PopStyleColor(primary);
 
-    ImGui::SeparatorText("Display");
-    row("Resolution");
-    if (ImGui::Combo("##resolution", &s.resolution, kResolutionNames,
-                     static_cast<int>(std::size(kResolutionNames))))
+    if (s_tab == 0 || s_tab == 1)
     {
-      QueueResolution();
-      changed = true;
-    }
-    row("Aspect ratio");
-    if (ImGui::BeginCombo("##aspect", kAspects[s.aspect].name))
-    {
-      for (int i = 0; i < static_cast<int>(std::size(kAspects)); ++i)
+      header("DISPLAY", 1);
+      row("Resolution");
+      if (ImGui::Combo("##resolution", &s.resolution, kResolutionNames,
+                       static_cast<int>(std::size(kResolutionNames))))
       {
-        if (ImGui::Selectable(kAspects[i].name, i == s.aspect) && i != s.aspect)
+        QueueResolution();
+        changed = true;
+      }
+      row("Aspect ratio");
+      if (ImGui::BeginCombo("##aspect", kAspects[s.aspect].name))
+      {
+        for (int i = 0; i < static_cast<int>(std::size(kAspects)); ++i)
         {
-          s.aspect = i;
-          QueueAspect();
+          if (ImGui::Selectable(kAspects[i].name, i == s.aspect) && i != s.aspect)
+          {
+            s.aspect = i;
+            QueueAspect();
+            changed = true;
+          }
+        }
+        ImGui::EndCombo();
+      }
+      if (ImGui::Checkbox("Fullscreen", &s.fullscreen))
+      {
+        ToggleFullscreen();
+        changed = true;
+      }
+      if (ImGui::Checkbox("HD textures (from the HD folder)", &s.hd_textures))
+      {
+        QueueHd();
+        changed = true;
+      }
+    }
+
+    if (s_tab == 0 || s_tab == 2)
+    {
+      header("HDR", 2);
+      ImGui::BeginDisabled(!IsVulkan());
+      if (ImGui::Checkbox(IsVulkan() ? "HDR output" : "HDR output (Vulkan only)", &s.hdr))
+      {
+        QueueHdr();
+        changed = true;
+      }
+      ImGui::EndDisabled();
+      // The tuning shows on All only while HDR is on; the HDR tab always lists it.
+      const bool hdr_on = s.hdr && IsVulkan();
+      if (hdr_on || s_tab == 2)
+      {
+        if (!hdr_on)
+        {
+          ImGui::PushTextWrapPos(inner + pad);
+          ImGui::TextDisabled("Turn on HDR output (Vulkan) to adjust these.");
+          ImGui::PopTextWrapPos();
+        }
+        ImGui::BeginDisabled(!hdr_on);
+        const auto edited = [&] {
+          if (ImGui::IsItemDeactivatedAfterEdit())
+            changed = true;
+        };
+        row("Paper white");
+        if (ImGui::SliderFloat("##hdr_paper_white", &s.hdr_paper_white, 80.0f, 500.0f, "%.0f nits"))
+          QueuePaperWhite();
+        edited();
+        row("Highlight boost");
+        ImGui::SliderInt("##hdr_boost", &s.hdr_boost, 0, 100, s.hdr_boost == 0 ? "Off" : "%d%%");
+        edited();
+        ImGui::BeginDisabled(s.hdr_boost == 0);
+        row("Peak brightness");
+        ImGui::SliderFloat("##hdr_peak", &s.hdr_peak, 400.0f, 4000.0f, "%.0f nits");
+        edited();
+        ImGui::EndDisabled();
+        row("Saturation");
+        ImGui::SliderInt("##hdr_saturation", &s.hdr_saturation, 0, 200, "%d%%");
+        edited();
+        row("Warmth");
+        ImGui::SliderInt("##hdr_warmth", &s.hdr_warmth, -100, 100, "%+d");
+        edited();
+        row("Contrast");
+        ImGui::SliderInt("##hdr_contrast", &s.hdr_contrast, 50, 150, "%d%%");
+        edited();
+        row("Gamma");
+        ImGui::SliderFloat("##hdr_gamma", &s.hdr_gamma, 0.7f, 1.3f, "%.2f");
+        edited();
+        row("Black level");
+        ImGui::SliderInt("##hdr_black", &s.hdr_black, -10, 10, "%+d");
+        edited();
+        if (ImGui::Button("Reset HDR to defaults", ImVec2(inner, 0.0f)))
+        {
+          ResetHdr();
           changed = true;
         }
+        ImGui::EndDisabled();
       }
-      ImGui::EndCombo();
     }
-    if (ImGui::Checkbox("Fullscreen", &s.fullscreen))
-    {
-      ToggleFullscreen();
-      changed = true;
-    }
-    if (ImGui::Checkbox("HD textures (from the HD folder)", &s.hd_textures))
-    {
-      QueueHd();
-      changed = true;
-    }
-    ImGui::BeginDisabled(!IsVulkan());
-    if (ImGui::Checkbox(IsVulkan() ? "HDR output" : "HDR output (Vulkan only)",
-                        &s.hdr))
-    {
-      QueueHdr();
-      changed = true;
-    }
-    ImGui::EndDisabled();
 
-    ImGui::SeparatorText("Motion");
-    row("Frame rate");
-    if (ImGui::Combo("##frame_rate", &s.frame_rate, kFrameRateNames,
-                     static_cast<int>(std::size(kFrameRateNames))))
+    if (s_tab == 0 || s_tab == 3)
     {
-      QueueFps();
-      changed = true;
+      header("MOTION", 3);
+      row("Frame rate");
+      if (ImGui::Combo("##frame_rate", &s.frame_rate, kFrameRateNames,
+                       static_cast<int>(std::size(kFrameRateNames))))
+      {
+        QueueFps();
+        changed = true;
+      }
+      ImGui::BeginDisabled(s.frame_rate == 0);
+      row("Motion");
+      if (ImGui::Combo("##motion", &s.motion, kMotionNames, static_cast<int>(std::size(kMotionNames))))
+      {
+        QueueFps();
+        changed = true;
+      }
+      ImGui::EndDisabled();
+      ImGui::PushTextWrapPos(inner + pad);
+      ImGui::TextDisabled("Extra frames are interpolated; game speed is unchanged. Adds ~8-12 ms "
+                          "delay. Pick no more than your screen's refresh rate.");
+      ImGui::PopTextWrapPos();
     }
-    ImGui::BeginDisabled(s.frame_rate == 0);
-    row("Motion");
-    if (ImGui::Combo("##motion", &s.motion, kMotionNames, static_cast<int>(std::size(kMotionNames))))
+
+    if (s_tab == 0 || s_tab == 4)
     {
-      QueueFps();
-      changed = true;
+      header("AUDIO", 4);
+      row("Volume");
+      if (ImGui::SliderInt("##volume", &s.volume, 0, 100, "%d%%"))
+        QueueVolume();
+      if (ImGui::IsItemDeactivatedAfterEdit())
+        changed = true;
     }
-    ImGui::EndDisabled();
-    ImGui::PushTextWrapPos(inner + font * 1.2f);
-    ImGui::TextDisabled("Extra frames are interpolated; game speed is unchanged. Adds ~8-12 ms "
-                        "delay. Pick no more than your screen's refresh rate.");
-    ImGui::PopTextWrapPos();
 
-    ImGui::SeparatorText("Audio");
-    row("Volume");
-    if (ImGui::SliderInt("##volume", &s.volume, 0, 100, "%d%%"))
-      QueueVolume();
-    if (ImGui::IsItemDeactivatedAfterEdit())
-      changed = true;
+    if (s_tab == 0 || s_tab == 5)
+    {
+      header("CHEATS", 5);
+      if (ImGui::Checkbox("Moon jump (hold A / X)", &s.moon_jump))
+        changed = true;
+      ImGui::BeginDisabled(!s.moon_jump);
+      row("Rise speed");
+      ImGui::SliderFloat("##moon", &s.moon_speed, 0.5f, 8.0f, "%.1f");
+      if (ImGui::IsItemDeactivatedAfterEdit())
+        changed = true;
+      ImGui::EndDisabled();
+    }
 
-    ImGui::SeparatorText("Cheats");
-    if (ImGui::Checkbox("Moon jump (hold A / X)", &s.moon_jump))
-      changed = true;
-    ImGui::BeginDisabled(!s.moon_jump);
-    row("Rise speed");
-    ImGui::SliderFloat("##moon", &s.moon_speed, 0.5f, 8.0f, "%.1f");
-    if (ImGui::IsItemDeactivatedAfterEdit())
-      changed = true;
-    ImGui::EndDisabled();
+    if (s_tab == 0 || s_tab == 6)
+    {
+      header("SYSTEM", 6);
+      row("UI style");
+      if (ImGui::BeginCombo("##style", kThemes[s.style].name))
+      {
+        for (int i = 0; i < static_cast<int>(std::size(kThemes)); ++i)
+        {
+          if (ImGui::Selectable(kThemes[i].name, i == s.style) && i != s.style)
+          {
+            s.style = i;
+            changed = true;
+          }
+        }
+        ImGui::EndCombo();
+      }
+      row("Menu size");
+      ImGui::SliderFloat("##menu_scale", &s.menu_scale, 0.6f, 1.6f, "%.1fx");
+      if (ImGui::IsItemDeactivatedAfterEdit())
+        changed = true;
 
-    ImGui::SeparatorText("Menu");
-    row("Menu size");
-    ImGui::SliderFloat("##menu_scale", &s.menu_scale, 0.6f, 1.6f, "%.1fx");
-    if (ImGui::IsItemDeactivatedAfterEdit())
-      changed = true;
+      row("Graphics");
+      if (ImGui::Combo("##backend", &s.backend, kBackendNames,
+                       static_cast<int>(std::size(kBackendNames))))
+      {
+        changed = true;
+      }
+      ImGui::PushTextWrapPos(inner + pad);
+      if (s.hdr && s.backend != 1)
+        ImGui::TextDisabled("HDR output needs Vulkan.");
+      if (s.backend != s_backend_running)
+      {
+        ImGui::TextDisabled("Applies after restart.");
+        if (ImGui::Button("Restart now", ImVec2(inner, 0.0f)))
+          Restart();
+      }
+      ImGui::PopTextWrapPos();
 
-    ImGui::Spacing();
-    ImGui::Separator();
+      static const std::string extract_command = EnvUtf8("MODERNGEKKO_WARIO_EXTRACT_CMD");
+      static const std::string extracted_dir = EnvUtf8("MODERNGEKKO_WARIO_EXTRACTED_DIR");
+      static const std::string log_path = EnvUtf8("MODERNGEKKO_WARIO_LOG");
+      ImGui::Dummy(ImVec2(0.0f, font * 0.1f));
+      if (!extract_command.empty())
+      {
+        const bool running = s_extract_state == ExtractState::Running;
+        ImGui::BeginDisabled(running);
+        if (ImGui::Button(running ? "Extracting textures...###extract" : "Extract all textures###extract",
+                          ImVec2(inner, 0.0f)))
+        {
+          StartExtract(extract_command);
+        }
+        ImGui::EndDisabled();
+        ImGui::PushTextWrapPos(inner + pad);
+        if (running)
+        {
+          ImGui::TextDisabled("Runs in the background, so keep playing. Takes a minute or two.");
+        }
+        else if (s_extract_state == ExtractState::Finished)
+          ImGui::TextDisabled("Textures extracted.");
+        else if (s_extract_state == ExtractState::Failed)
+          ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.3f, 1.0f), "Extraction failed (code %lu).", s_extract_code);
+        ImGui::PopTextWrapPos();
+      }
+      if (!extracted_dir.empty())
+      {
+        if (ImGui::Button("Open extracted textures", ImVec2(inner, 0.0f)))
+          OpenPath(extracted_dir, true);
+      }
+      if (ImGui::Button("Open HD texture folder", ImVec2(inner, 0.0f)))
+        OpenPath(File::GetUserPath(D_HIRESTEXTURES_IDX) + "GWWE01", true);
+      if (!log_path.empty())
+      {
+        if (ImGui::Button("Open last log", ImVec2(inner, 0.0f)))
+          OpenPath(log_path, false);
+      }
+
+      static const bool test_controls = std::getenv("MODERNGEKKO_WARIO_MENU_TEST") != nullptr;
+      if (test_controls && s_tab == 6)
+        ImGui::SetNextItemOpen(true);  // snapshots show the help text
+      if (ImGui::CollapsingHeader("Controls"))
+      {
+        // Key on the left, what it does on the game pad on the right.
+        const auto keys = [&](const char* title, std::initializer_list<std::pair<const char*, const char*>> list) {
+          ImGui::TextColored(theme.accent, "%s", title);
+          for (const auto& [key, action] : list)
+          {
+            ImGui::TextUnformatted(key);
+            ImGui::SameLine(label + pad);
+            ImGui::TextDisabled("%s", action);
+          }
+          ImGui::Spacing();
+        };
+        keys("Xbox controller", {{"A  B  X  Y", "As labelled"},
+                                 {"Left stick", "Move"},
+                                 {"Right stick", "C-stick"},
+                                 {"Menu", "Start"},
+                                 {"RB", "Z"},
+                                 {"LT  RT", "L  R"}});
+        keys("Keyboard", {{"Arrows", "Move"},
+                          {"Enter", "Start"},
+                          {"X  Z", "A  B"},
+                          {"C  S  D", "X  Y  Z"},
+                          {"Q  W", "L  R"},
+                          {"I  J  K  L", "C-stick"},
+                          {"T  F  G  H", "D-pad"}});
+        ImGui::PushTextWrapPos(inner + pad);
+        ImGui::TextDisabled("Yes / No menus use the stick, not the D-pad. Back or Tab opens this "
+                            "menu.");
+        ImGui::PopTextWrapPos();
+      }
+    }
+
+    ImGui::Dummy(ImVec2(0.0f, font * 0.3f));
+    {
+      const float y = ImGui::GetCursorScreenPos().y;
+      const float x0 = ImGui::GetCursorScreenPos().x;
+      // Rule that fades out at both ends.
+      const float mid = (x0 + right) * 0.5f;
+      const ImVec4 rule = WithAlpha(theme.accent, 0.4f);
+      const float thickness = std::max(1.0f, font * 0.06f);
+      const ImU32 solid = ImGui::GetColorU32(rule), clear = ImGui::GetColorU32(WithAlpha(rule, 0.0f));
+      draw->AddRectFilledMultiColor(ImVec2(x0, y), ImVec2(mid, y + thickness), clear, solid, solid,
+                                    clear);
+      FadeLine(draw, mid, right, y, thickness, rule);
+    }
+    ImGui::Dummy(ImVec2(0.0f, font * 0.3f));
     // Quit needs a second press within 3 s, so a stray A on the last item never closes the game.
     s_quit_armed = std::max(s_quit_armed - ImGui::GetIO().DeltaTime, 0.0f);
     const bool armed = s_quit_armed > 0.0f;
@@ -623,16 +1306,16 @@ void DrawPanel(float width, float height)
     if (armed)
       ImGui::PopStyleColor();
     ImGui::Spacing();
-    ImGui::PushTextWrapPos(inner + font * 1.2f);
-    ImGui::TextDisabled("Back / B: close   A: select   D-pad / stick: move. Mouse works too; "
-                        "Tab opens and closes it on the keyboard.");
+    ImGui::PushTextWrapPos(inner + pad);
+    ImGui::TextDisabled("A select   B close   LB / RB tabs");
     ImGui::PopTextWrapPos();
     ImGui::PopFont();
     if (changed)
       Save();
   }
   ImGui::End();
-  ImGui::PopStyleVar(5);
+  ImGui::PopStyleColor(colours);
+  ImGui::PopStyleVar(10);
 }
 }  // namespace WarioMenu
 
@@ -657,6 +1340,8 @@ void WarioMenuDraw(u32 width, u32 height)
       QueueHd();
     if (has("hdr"))
       QueueHdr();
+    if (has("hdr_paper_white"))
+      QueuePaperWhite();
     if (has("volume"))
       QueueVolume();
     if (has("frame_rate") || has("fps") || has("motion"))
@@ -678,6 +1363,11 @@ void WarioMenuDraw(u32 width, u32 height)
       if (test_stage == 0 && test_time > 6.0f)
       {
         SetOpen(true);
+        if (const char* test_tab = std::getenv("MODERNGEKKO_WARIO_MENU_TAB"))
+          s_tab = s_jump = std::clamp(std::atoi(test_tab), 0, kTabCount - 1);
+        // MODERNGEKKO_WARIO_MENU_TEST_EXTRACT: run the extract command as if pressed.
+        if (std::getenv("MODERNGEKKO_WARIO_MENU_TEST_EXTRACT"))
+          StartExtract(EnvUtf8("MODERNGEKKO_WARIO_EXTRACT_CMD"));
         test_stage = 1;
       }
       else if (test_stage == 1 && s_anim >= 1.0f && test_time > 7.0f)
@@ -685,15 +1375,26 @@ void WarioMenuDraw(u32 width, u32 height)
         g_wario_menu_snapshot.store(true);
         test_stage = 2;
       }
+      else if (test_stage == 2 && test_time > 9.0f && std::getenv("MODERNGEKKO_WARIO_MENU_TEST_RESTART"))
+      {
+        // MODERNGEKKO_WARIO_MENU_TEST_RESTART: press Restart now after the snapshot.
+        Restart();
+        test_stage = 3;
+      }
     }
   }
   if ((pressed & PAD_BACK) || (tab && !s_previous_tab))
     SetOpen(!s_open);
   s_previous_tab = tab;
-  if (s_open && (pressed & PAD_B) && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) &&
-      !ImGui::IsAnyItemActive())
-  {
+  const bool idle = !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) && !ImGui::IsAnyItemActive();
+  if (s_open && (pressed & PAD_B) && idle)
     SetOpen(false);
+  if (s_open && (pressed & (PAD_LB | PAD_RB)) && idle)
+  {
+    s_tab = (s_tab + ((pressed & PAD_RB) ? 1 : kTabCount - 1)) % kTabCount;
+    s_jump = s_tab;
+    s_tab_scroll = true;
+    ImGui::SetNavCursorVisible(true);
   }
   s_anim = std::clamp(s_anim + (s_open ? dt : -dt) / 0.18f, 0.0f, 1.0f);
   g_wario_menu_open.store(s_open || s_anim > 0.0f);
@@ -716,6 +1417,7 @@ void WarioMenuDraw(u32 width, u32 height)
     auto_timer = 0.0f;
     QueueFps();
   }
+  PollExtract();
   if (s_anim > 0.0f)
     DrawPanel(static_cast<float>(width), static_cast<float>(height));
 }
@@ -727,6 +1429,7 @@ void WarioMenuApplyPending()
   pending.swap(WarioMenu::s_pending);
   for (auto& apply : pending)
     apply();
+  WarioMenu::ApplyHdrGrading();
 }
 // ---------------------------------------------------------------------------
 """
@@ -826,8 +1529,129 @@ WIN_MOUSE_NEW = WIN_MOUSE_OLD + """
 """
 
 
+HDR_SHADER = r"""// Wario World HDR tuning (scripts/tool_fix_wario_menu.py; values come from the in-game menu).
+// The menu loads it only while HDR output is on and a value differs from its default; every
+// default is the identity. Highlight boost follows Dolphin's AutoHDR.glsl (Filoppi's PumboAutoHDR).
+
+/*
+[configuration]
+
+[OptionRangeFloat]
+GUIName = Peak brightness (nits)
+OptionName = WW_PEAK_NITS
+MinValue = 400
+MaxValue = 4000
+StepAmount = 10
+DefaultValue = 1000
+
+[OptionRangeFloat]
+GUIName = Highlight boost
+OptionName = WW_HIGHLIGHTS
+MinValue = 0
+MaxValue = 1
+StepAmount = 0.01
+DefaultValue = 0
+
+[OptionRangeFloat]
+GUIName = Saturation
+OptionName = WW_SATURATION
+MinValue = 0
+MaxValue = 2
+StepAmount = 0.01
+DefaultValue = 1
+
+[OptionRangeFloat]
+GUIName = Warmth
+OptionName = WW_WARMTH
+MinValue = -1
+MaxValue = 1
+StepAmount = 0.01
+DefaultValue = 0
+
+[OptionRangeFloat]
+GUIName = Contrast
+OptionName = WW_CONTRAST
+MinValue = 0.5
+MaxValue = 1.5
+StepAmount = 0.01
+DefaultValue = 1
+
+[OptionRangeFloat]
+GUIName = Gamma
+OptionName = WW_GAMMA
+MinValue = 0.7
+MaxValue = 1.3
+StepAmount = 0.01
+DefaultValue = 1
+
+[OptionRangeFloat]
+GUIName = Black level
+OptionName = WW_BLACK
+MinValue = -0.1
+MaxValue = 0.1
+StepAmount = 0.01
+DefaultValue = 0
+
+[/configuration]
+*/
+
+float luminance(float3 color)
+{
+	return dot(color, float3(0.2126, 0.7152, 0.0722));
+}
+
+void main()
+{
+	float4 color = Sample();
+
+	// SDR output: nothing to do
+	if (!OptionEnabled(hdr_output) || !OptionEnabled(linear_space_output))
+	{
+		SetOutput(color);
+		return;
+	}
+
+	// Linear, 1 = paper white (the game's SDR white)
+	const float paper_white = hdr_paper_white_nits / hdr_sdr_white_nits;
+	float3 c = color.rgb / paper_white;
+
+	// Black level: positive crushes, negative lifts
+	c = max((c - WW_BLACK) / (1.0 - WW_BLACK), 0.0);
+	c = pow(c, float3(WW_GAMMA, WW_GAMMA, WW_GAMMA));
+	// Contrast around middle grey
+	c = 0.18 * pow(c / 0.18, float3(WW_CONTRAST, WW_CONTRAST, WW_CONTRAST));
+
+	// Warmth: tint towards orange / blue, keeping brightness
+	const float before = luminance(c);
+	c *= float3(1.0 + 0.12 * WW_WARMTH, 1.0, 1.0 - 0.12 * WW_WARMTH);
+	const float after = luminance(c);
+	if (after > 0.0)
+		c *= before / after;
+
+	const float y = luminance(c);
+	c = max(y + (c - y) * WW_SATURATION, 0.0);
+
+	// Highlight boost (AutoHDR, shoulder from black, power 2.5): bright SDR colours stretch
+	// towards the peak brightness
+	const float sdr = luminance(c);
+	if (WW_HIGHLIGHTS > 0.0 && sdr > 0.0)
+	{
+		const float max_white = max(WW_PEAK_NITS / hdr_paper_white_nits, 1.0);
+		const float shoulder = clamp(sdr, 0.0, 1.0);
+		const float extra = pow(shoulder, 2.5) * (max_white - 1.0) * WW_HIGHLIGHTS;
+		c *= (sdr + extra) / sdr;
+	}
+
+	SetOutput(float4(c * paper_white, color.a));
+}
+"""
+
+
 def apply(replace, runtime):
     dolphin = runtime / "vendor/dolphin/Source/Core"
+    shader = runtime / "vendor/dolphin/Data/Sys/Shaders/WarioHDR.glsl"
+    if not shader.is_file() or shader.read_text(encoding="utf-8") != HDR_SHADER:
+        shader.write_text(HDR_SHADER, encoding="utf-8", newline="\n")
     replace(dolphin / "VideoCommon/OnScreenUI.cpp", OSUI_INCLUDE_OLD, OSUI_INCLUDE_NEW)
     replace(dolphin / "VideoCommon/OnScreenUI.cpp", OSUI_DRAW_OLD, OSUI_DRAW_NEW)
     replace(dolphin / "VideoCommon/Present.cpp", PRESENT_DECL_OLD, PRESENT_DECL_NEW)
