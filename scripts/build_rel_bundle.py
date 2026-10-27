@@ -138,7 +138,7 @@ def widen_fullscreen_quads(text):
         quad_sites += count
     text = anchor_hud_edges(text)
     text = hook_matrix_stack(text)
-    if any(name in text for name in ("wario_fullscreen_half_width", "WARIO_HUD_DX", "wario_hud_edge", "wario_quad_half", "wario_sync_2d_ortho", "wario_sync_screen_perspective", "wario_book_row")):
+    if any(name in text for name in ("wario_fullscreen_half_width", "WARIO_HUD_DX", "wario_hud_edge", "wario_quad_half", "wario_sync_2d_ortho", "wario_sync_screen_perspective", "wario_book_")):
         text = text.replace('#include "../generated.h"',
                             '#include "../generated.h"\nextern volatile s32 wario_fullscreen_half_width;' +
                             HUD_EDGE_HELPERS, 1)
@@ -208,26 +208,35 @@ HUD_EDGE_SITES = {
                  "ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(16);\n    wario_sync_2d_ortho(ctx, ctx->gpr[3]);"),
     0x80068014: ("ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(16);",
                  "ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(16);\n    wario_sync_screen_perspective(ctx, ctx->gpr[3]);"),
-    # WS-008 pause book Sprite/jail row: fn_8006051C (draw method of the page
-    # component vtable lbl_801BC2E4, built by fn_8006073C for the pause page
-    # lbl_801BC2C0) draws each of the 5 slots (rescued Sprite model or jail) in
-    # its own 215x215 EFB-pixel viewport: GXSetViewport (fn_8019B500 at
-    # 0x8006062C) x = 181 + 43*i (f29 from lbl_801FE460, step lbl_801FE468),
-    # inside GXSetScissor(264, 310, 215, 124) (0x800605C0). Pixel positions do
-    # not follow the widened 2D layer, so on a wide screen the row spread out
-    # by half/320 while the book (and the shadow markers printed on its page)
-    # stayed 4:3: the last jail hung past the page edge. Wide screens map the
-    # slot centres and the scissor edges about the EFB centre by 320/half,
-    # which puts the row back on the markers exactly as at 4:3; the viewport
-    # size stays (the synced WS-007 perspective already keeps the figures'
-    # shape and size). 4:3 (half width 320) computes exactly the original values.
-    0x800605B0: ("ctx->gpr[3] = (u32)(s32)(264);",
-                 "ctx->gpr[3] = (u32)wario_book_row_scissor(ctx, 264, 215, 0);"),
-    0x800605B8: ("ctx->gpr[5] = (u32)(s32)(215);",
-                 "ctx->gpr[5] = (u32)wario_book_row_scissor(ctx, 264, 215, 1);"),
-    0x80060618: ("ctx->fpr[1] = ctx->fpr[29];",
-                 "ctx->fpr[1] = wario_book_row_x(ctx, ctx->fpr[29], ctx->fpr[3]);"),
 }
+# WS-008 pause book pages: the components of the pause book pages draw their
+# 3D content (statue, gems, Sprite/jail row, ...) through their own
+# GXSetViewport (fn_8019B500) / GXSetScissor (fn_8019B524) in EFB pixels
+# (512x448). Those positions do not follow the widened 2D layer, so on a wide
+# screen they spread out by half/320 while the book art (2D layer, including
+# the shadow markers printed on its pages) stays 4:3 in the centre; the last
+# jail of the Sprite row hung past the page edge. At each call the viewport
+# centre (x + w/2, f1/f3) and the scissor edges (r3, r3 + r5) are mapped about
+# the EFB centre by 320/half, which restores the 4:3 layout inside the book.
+# Viewport size stays: the content uses the synced WS-007 perspective, so its
+# size and shape already match 4:3. Half width 320 computes exactly the
+# original values. Every call below is in a draw method (vtable slot 3) of a
+# page component whose constructor is only reached from the pause object
+# constructor fn_8006DE28 (via fn_8005B334, fn_8005CB74, fn_8005E0B4,
+# fn_8006073C, fn_800615E8), so no pause-bit gate is needed:
+#   fn_8005AA20 (lbl_801BC1AC), fn_8005C4A0 (lbl_801BC204), fn_8005DDEC
+#   (lbl_801BC274), fn_8005EB6C (lbl_801BC314, statue/gems), fn_8006051C
+#   (lbl_801BC2E4, the 5-slot Sprite/jail row: 215x215 viewport per slot at
+#   x = 181 + 43*i), fn_80061044 (lbl_801BC36C).
+# fn_8006259C / fn_80062970 set a full-screen viewport (0, 0, 512, 448) and
+# are left alone.
+BOOK_SCISSOR_CALLS = (0x8005AAB0, 0x8005C4F4, 0x8005DE1C, 0x8005EBA0, 0x800605C0, 0x80061084)
+BOOK_VIEWPORT_CALLS = (0x8005AAD8, 0x8005C51C, 0x8005DE40, 0x8005EBFC, 0x8005EC74, 0x8006062C,
+                       0x800611F8, 0x800612BC, 0x80061384, 0x80061490)
+for _address in BOOK_SCISSOR_CALLS + BOOK_VIEWPORT_CALLS:
+    _hook = "wario_book_scissor(ctx);" if _address in BOOK_SCISSOR_CALLS else "wario_book_viewport(ctx);"
+    _lr = "ctx->lr = 0x%08Xu;" % (_address + 4)
+    HUD_EDGE_SITES[_address] = (_lr, _hook + "\n            " + _lr)
 # The pause book is drawn at 4:3 in the centre, and the HUD rows drawn with it
 # (hearts, coin panel, stage counter row) belong inside it, so DX is 0 while the
 # game's own pause-menu freeze bit is set: bit 0x8 of lbl_801FD930 (main-loop
@@ -278,7 +287,7 @@ static inline void wario_sync_screen_perspective(CPUState* ctx, u32 m00_address)
     if (mem_read32(ctx, m00_address) != m00.u)
         mem_write32(ctx, m00_address, m00.u);
 }
-static inline f64 wario_book_row_scale(CPUState* ctx) {
+static inline f64 wario_book_scale(CPUState* ctx) {
     union { u32 u; float f; } half;
     if (wario_fullscreen_half_width == 320)
         return 1.0;
@@ -290,21 +299,23 @@ static inline f64 wario_book_center(CPUState* ctx) {
     width.u = mem_read32(ctx, 0x801FDA20u);
     return (f64)width.f * 0.5;
 }
-static inline f64 wario_book_row_x(CPUState* ctx, f64 x, f64 w) {
-    const f64 s = wario_book_row_scale(ctx);
+static inline void wario_book_viewport(CPUState* ctx) {
+    const f64 s = wario_book_scale(ctx);
     if (s == 1.0)
-        return x;
-    const f64 c = wario_book_center(ctx);
-    return (f64)(float)(c + (x + w * 0.5 - c) * s - w * 0.5);
+        return;
+    const f64 c = wario_book_center(ctx), w = ctx->fpr[3];
+    ctx->fpr[1] = (f64)(float)(c + (ctx->fpr[1] + w * 0.5 - c) * s - w * 0.5);
 }
-static inline s32 wario_book_row_scissor(CPUState* ctx, s32 x, s32 w, int want_width) {
-    const f64 s = wario_book_row_scale(ctx);
+static inline void wario_book_scissor(CPUState* ctx) {
+    const f64 s = wario_book_scale(ctx);
     if (s == 1.0)
-        return want_width ? w : x;
+        return;
     const f64 c = wario_book_center(ctx);
+    const s32 x = (s32)ctx->gpr[3], w = (s32)ctx->gpr[5];
     const s32 left = (s32)(c + ((f64)x - c) * s + 0.5);
     const s32 right = (s32)(c + ((f64)(x + w) - c) * s + 0.5);
-    return want_width ? right - left : left;
+    ctx->gpr[3] = (u32)left;
+    ctx->gpr[5] = (u32)(right - left);
 }"""
 hud_sites = 0
 

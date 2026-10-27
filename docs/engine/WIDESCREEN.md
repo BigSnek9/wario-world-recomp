@@ -124,8 +124,18 @@ GXSetViewport (fn_8019B500) / GXSetScissor (fn_8019B524) in EFB pixels
   (obj+0x24); both are drawn through the same viewport.
 - fn_8005EB6C (lbl_801BC314): the statue/gem scene, viewport 320x320 at
   x 203 or 210 (lbl_801FE3C4/3E4), scissor (274, 25, 194, 276).
-- fn_8005AA20, fn_8005C4A0, fn_8005DDEC, fn_80061044, fn_8006259C,
-  fn_80062970: the same pattern on other book pages (not examined in detail).
+- fn_8005AA20 (lbl_801BC1AC), fn_8005C4A0 (lbl_801BC204), fn_8005DDEC
+  (lbl_801BC274): 320x320 (or 276x276) viewports at x 210/231 inside the
+  same right-page scissor (274, 25, 194, 276); fn_80061044 (lbl_801BC36C):
+  scissor (274, 25, 194, 276) and four 276x276 viewports at x 235 and
+  lbl_801FE4A8/4B0 (textured quads plus a model; probably the Sprite page with the
+  cage scene). Pages seen in a D-pad tour: level page, boss key page,
+  treasure and stamp details, Sprite page.
+- All six are vtable slot 3 (draw) of components whose constructors are
+  reached only from the pause object constructor fn_8006DE28 (created by
+  fn_800319A8 with the in-game HUD).
+- fn_8006259C / fn_80062970 (lbl_801BE948 and a neighbour) set a full-screen
+  viewport (0, 0, 512, 448) with the full scissor; not page-local.
 The book art, including the shadow markers printed under the row, is in the
 2D layer, so it stays 4:3 in a widened ortho while the viewports keep their
 full-screen pixel positions: the row spreads by half/320. Measured on hidden
