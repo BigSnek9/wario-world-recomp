@@ -47,7 +47,7 @@ set(EXE_ICON "${CMAKE_CURRENT_BINARY_DIR}/WarioWorldRecomp.ico")
 add_custom_command(
   OUTPUT "${EXE_ICON}"
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/make_exe_icon.py" --out "${EXE_ICON}"
-  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/make_exe_icon.py" "${REPO}/installer/coin_icon.py"
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/make_exe_icon.py" "${REPO}/release/coin_icon.py"
   COMMENT "Drawing the launcher icon")
 set(EXE_ICON_RC "${EXE_ICON}")
 set(GCPAD_RC "${CMAKE_CURRENT_SOURCE_DIR}/defaults/GCPadNew.ini")

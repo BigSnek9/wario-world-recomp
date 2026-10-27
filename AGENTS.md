@@ -21,6 +21,8 @@ players can start in seconds; the player's own disc supplies every asset, extrac
 first run. Never include disc data, extracted files, generated sources, saves or
 captures in a release, and never commit the module or releases to the repository.
 Upload a release only when the user asks for that upload.
+README screenshots the user chose (docs/images/, 2026-10-27) are the only captures
+allowed in the repository; add more only when the user asks.
 Never force-add ignored files. Public scripts must accept a user-supplied disc.
 Do not silently substitute an interpreter/JIT and call it a complete static recomp.
 Subagents were authorized by the user in chat on 2026-10-26 ("you may use subagents");

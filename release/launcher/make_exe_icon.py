@@ -2,7 +2,7 @@
 
 The exe ships before any disc is read, so its embedded icon cannot come from the game. This is a
 drawing made from circles and line strokes (no game or Nintendo art). After the first run the game
-window uses the coin texture from the player's own disc instead (installer/coin_icon.py).
+window uses the coin texture from the player's own disc instead (release/coin_icon.py).
 Pure Python; CMake runs it at build time and embeds the .ico in WarioWorldRecomp.exe.
 
     python release/launcher/make_exe_icon.py --out build/WarioWorldRecomp.ico [--preview icon.png]
@@ -12,7 +12,7 @@ import math
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "installer"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from coin_icon import ICON_SIZES, ico_bytes, png_bytes, preview_strip  # noqa: E402
 
 # Unit square coordinates, y down.

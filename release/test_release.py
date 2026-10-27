@@ -5,7 +5,7 @@
    (timed). The .iso is only read.
 3. Checks the extracted game against the pinned hashes (config/project.json) and, file by file,
    against original/GWWE01 when present (byte equality, `dolrecomp extract --native-only` layout).
-4. Checks the coin icon equals installer/coin_icon.py's output for the same disc (C++ vs Python),
+4. Checks the coin icon equals release/coin_icon.py's output for the same disc (C++ vs Python),
    and the written configuration equals what the Python starter's prepare() produces.
 5. Boots the release hidden and muted through the starter itself (--hidden-test: headless runner,
    screenshots every 5 s from 10 s), and optionally with scripts/smoke_boot.py on the release runner,
@@ -30,7 +30,7 @@ from pathlib import Path
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / "installer"), str(ROOT / "scripts")]
+sys.path[:0] = [str(ROOT / "release"), str(ROOT / "scripts")]
 CONFIG = json.loads((ROOT / "config/project.json").read_text(encoding="utf-8"))
 
 
@@ -123,7 +123,7 @@ def main():
         checks["coin icon written"] = icon.is_file()
         if icon.is_file():
             expected = coin_icon.ico_bytes(coin_icon.icon_images(coin_icon.read_coin(game)))
-            checks["coin icon identical to installer/coin_icon.py"] = icon.read_bytes() == expected
+            checks["coin icon identical to release/coin_icon.py"] = icon.read_bytes() == expected
 
         with tempfile.TemporaryDirectory() as temp:
             reference = Path(temp) / "user"

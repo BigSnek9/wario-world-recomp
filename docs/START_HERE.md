@@ -19,7 +19,6 @@ in-game menu. Status, builds and reproduce commands:
   `launcher/wario_launcher.pyw`, profile `private/playtest-user`). Agents do
   not launch this visible, audible session for tests.
 - Release zip and its clean-folder test: [PUBLISHING.md](PUBLISHING.md).
-- Build from an ISO: `Install-WarioWorld.cmd` (`installer/`).
 
 ## Hidden test example
 

@@ -1,5 +1,5 @@
 // Game icon from the player's own disc: Wario World's gold "W" coin texture.
-// C++ twin of installer/coin_icon.py (same steps, same arithmetic, byte-identical .ico; the release
+// C++ twin of release/coin_icon.py (same steps, same arithmetic, byte-identical .ico; the release
 // test checks that). The coin is the 32x32 CMPR texture tex1_32x32_m_5b7df270a43b0ca3_14 in
 // files/rsc/ATT.RSC at 0x1148A0 (also AOP.RSC at 0x19E660); its 512 bytes are checked against a
 // SHA-256 before use. The generated icon is derived from the player's disc: it is only written into

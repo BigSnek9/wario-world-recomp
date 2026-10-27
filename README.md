@@ -11,6 +11,8 @@ frame rates, widescreen and HDR.
 owner's direction: the recompilation, runtime fixes, enhancements, tools, tests and
 these docs.
 
+![Wario World at 32:9: the view widens and the HUD sits at the screen edges](docs/images/widescreen-32x9.webp)
+
 > **You need your own copy of the game.** No game files are included. You need a
 > plain `.iso` dump of the **USA disc (GWWE01, revision 0)**; other regions and
 > revisions are not supported. The game checks the disc before using it.
@@ -38,13 +40,15 @@ Options apply straight away. Out of the box the picture fills your screen at its
 resolution and shape; the game itself plays exactly like the original, and
 every enhancement can be switched off for the original 4:3 look.
 
+![The in-game menu over the game, with display, HDR, motion and audio settings](docs/images/in-game-menu.webp)
+
 | Feature | What you get |
 |---|---|
 | **Frame rate** | 60, 120, 180 or 240 FPS, or match your monitor. The extra frames come from the game's own camera and object positions, not from guessing between pictures, and are paced to your display. |
 | **Widescreen** | Any aspect ratio (16:9, 16:10, 21:9, 32:9). You see more of the world instead of a stretched picture; the HUD moves to the screen edges and menus, speech boxes and the pause book keep their shape. |
 | **Resolution** | Up to 8x the original, or match your window or monitor (4K and above). |
 | **HDR** | On Vulkan, with paper white, peak brightness, white level, contrast, saturation, vibrance and menu brightness, each with a reset. |
-| **HD textures** | Texture packs load in the background without stutter. Builds made with the installer can also extract every game texture for upscaling. |
+| **HD textures** | Texture packs load in the background without stutter. |
 | **Audio** | Master, music and sound-effect volume, and an option to mute the pause-menu music. |
 | **Controls** | Xbox and PlayStation pads and keyboard out of the box, with buttons where they sit on a GameCube pad. Rebind any button; rumble on/off and strength. |
 | **Cheats** | Jump height, walk through walls, super punches, unlock all stages, collect everything. The last two are permanent once you save. |
@@ -78,26 +82,11 @@ To set up from the command line without a dialog:
 `WarioWorldRecomp.exe --iso <your.iso> --setup-only` (add `--quiet` to write errors
 only to `data\launcher.log`).
 
-## Build it yourself (optional)
+## Building from source
 
-If you would rather build everything on your own PC, double-click
-**`Install-WarioWorld.cmd`** in this repository. It asks for your `.iso` and an
-install folder, then downloads the pinned DolRecomp and ModernGekko sources, applies
-this project's fixes, translates the game's code to C, compiles it and installs the
-result with desktop and Start-menu shortcuts. Build files are deleted when it
-finishes.
-
-- Takes 20-60 minutes and needs about 5 GB free while it builds (about 0.5 GB after).
-- Needs Python 3.11+, Git, CMake, Ninja, Visual Studio 2022 C++ build tools
-  ("Desktop development with C++") and LLVM/clang. The installer checks each one and
-  links to it, or installs it with `winget` if you click that button.
-- It can be stopped and resumed. Running it again on the same folder rebuilds and
-  keeps your saves.
-
-Without the window: `python installer\wario_installer.pyw --no-gui --iso <your.iso>
---install-dir <folder>` (`--check` only checks the prerequisites). Manual build steps
-are in [docs/START_HERE.md](docs/START_HERE.md); making a release zip is in
-[docs/PUBLISHING.md](docs/PUBLISHING.md).
+Players don't need this: the release zip is all you need. For developers, manual
+build steps are in [docs/START_HERE.md](docs/START_HERE.md) and making a release zip
+is in [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
 ## Status
 

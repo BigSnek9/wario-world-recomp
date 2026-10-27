@@ -12,12 +12,9 @@ disc and plays. The disc supplies every asset; it is verified and extracted on t
 player's PC on first run. This distributes game-derived compiled code: a widely
 used but legally untested practice, accepted by the owner.
 
-The other route is the build-from-ISO installer (`Install-WarioWorld.cmd`,
-`installer/`): it fetches the pinned sources and builds everything on the
-player's PC, so it distributes no compiled game code.
-
 Keep ISO/extracted files, game-derived C/assembly sources and objects, resource
 data, saves, screenshots and memory captures out of the repository and releases.
+The one exception: README screenshots the owner chose, in docs/images/ (2026-10-27).
 They live under ignored original/, generated/, reports/, build/, captures/ and
 private/. The compiled module and runtime go only into release archives, never
 into Git. Do not place a ROM in Git LFS.
@@ -54,7 +51,7 @@ Tools: `release/launcher/` (WarioWorldRecomp.exe, native Win32 starter, CMake),
 module), `release/test_release.py` (clean-folder test, hidden and muted).
 
 1. Nothing else running: no `moderngekko-run.exe` with `playtest-user`, no
-   `wario_installer` / `MSBuild`. Never touch the player's install or
+   `MSBuild`. Never touch the player's install or
    `private/playtest-user`.
 2. The runtime (`build/moderngekko/Release`) and the clang PGO module
    (`build/module-full-vectors-clang-pgo/gGWWE01_recomp.dll`) are the builds the
@@ -78,7 +75,7 @@ module), `release/test_release.py` (clean-folder test, hidden and muted).
 5. `python release/test_release.py --iso <your.iso> --version X.Y --smoke`
    unzips into `private/release-test`, runs `--iso ... --setup-only --quiet` (timed),
    checks the extraction byte for byte against `original/GWWE01` and the pinned
-   hashes, the coin icon against `installer/coin_icon.py`, the configuration against
+   hashes, the coin icon against `release/coin_icon.py`, the configuration against
    the Python starter, then boots hidden through the starter (`--hidden-test`) and with
    `scripts/smoke_boot.py`; report and captures go to `private/runs/*-release-test`.
    Look at the captures (title screen by ~20 s).

@@ -1,4 +1,4 @@
-"""Tests for the coin icon (python -m unittest discover -s installer -p "test_*.py").
+"""Tests for the coin icon (python -m unittest discover -s release -p "test_*.py").
 
 The synthetic tests need no game files. The real-coin test reads the local extracted disc
 (original/GWWE01, read only) when present and writes nothing outside a temporary folder.

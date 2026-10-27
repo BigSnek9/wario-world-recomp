@@ -119,7 +119,7 @@ private/runs/20261027T193650560431Z-25169418-release-test/report.json:
 |---|---|
 | First-run setup (`--iso --setup-only --quiet`: hash 1.46 GB, extract, verify, config, icon) | 0.94 s, warm file cache; uncached read of the ISO on this NVMe drive 0.5 s |
 | Extraction vs original/GWWE01 (250 files) and pinned DOL/REL hashes | byte-equal; all pinned hashes match; ISO size/mtime unchanged |
-| Coin icon, C++ vs installer/coin_icon.py | byte-identical |
+| Coin icon, C++ vs release/coin_icon.py | byte-identical |
 | config.ini, GFX.ini, Logger.ini, Dolphin.ini, GCPadNew.ini vs the Python starter | equal (parsed) |
 | Wrong-disc paths (not GC, .rvz, PAL, rev 1, wrong size, same size + wrong hash) | clear messages, exit 5, existing game kept |
 | Hidden boot through the starter (`--hidden-test 30`, OpenGL headless, muted) | exit 0; black at 10/15 s, title screen at 20/25 s |

@@ -56,9 +56,7 @@ Open with Back on the controller or Tab. Changes apply live and are saved to
   `release/launcher/`) plus runtime and compiled module; the player supplies
   their own ISO and setup takes about 1 s. Built by `scripts/make_release.py`,
   tested by `release/test_release.py`. ../PUBLISHING.md, ../release/v1.0.md.
-  Not uploaded.
-- **Build from ISO:** `Install-WarioWorld.cmd` (`installer/`) builds and
-  installs the game on the player's PC.
+  Uploaded to the private repo as release v1.0 (2026-10-27).
 
 ## Open
 
