@@ -14,7 +14,7 @@ if args.source_tree:
 result = subprocess.run(command, capture_output=True, check=True)
 blocked_dirs = {"original", "generated", "reports", "build", "dist", "private", "captures", "third_party"}
 blocked_exts = {".iso", ".gcm", ".rvz", ".wbfs", ".dol", ".rel", ".elf", ".rsc", ".samp", ".sdir", ".pool", ".proj", ".dtm", ".sav", ".raw", ".gci", ".dll", ".exe", ".obj", ".o", ".lib", ".pdb"}
-# README screenshots the owner chose to publish (2026-10-27); nothing else binary.
+# README screenshots published in docs/images/ (2026-10-27); nothing else binary.
 screenshot_exts = {".webp", ".png", ".jpg"}
 bad = []
 checked = 0

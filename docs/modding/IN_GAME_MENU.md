@@ -92,7 +92,7 @@ and saves the game picture with the menu on top once.
   (a luminance ceiling: above 75 % of it highlights roll off exponentially,
   slope 1 at the knee, never exceeding it). On SDR output it passes the
   picture through unchanged.
-- 2026-10-27 user feedback: Warmth removed (an old `hdr_warmth` key is dropped
+- 2026-10-27 playtest feedback: Warmth removed (an old `hdr_warmth` key is dropped
   on the next save); White level and Vibrance added, both off by default.
   Verified hidden on Vulkan: with boost, vibrance and white level set, the real
   shader ran on the HDR swap chain with no compile or load errors and the ini
@@ -155,7 +155,7 @@ no window) launches the runner and passes paths in environment variables.
   on at runtime on Vulkan: the swap chain is recreated as RGBA16F scRGB but
   `VKGfx::OnSwapChainResized` passes only the new size. The overlay then kept
   its SDR pipeline in HDR (gamma values written as linear light) and the menu
-  brightness never applied (user report 2026-10-27).
+  brightness never applied (playtest report 2026-10-27).
 - Verified 2026-10-27 in hidden Vulkan runs with HDR on (this machine gets an
   RGBA16F swap chain even hidden): with `hdr_menu_nits` at 80 and at 200 the
   runner logs `ImGui pipeline rebuilt for RGBA16F (HDR)` (the SDR / HDR pair

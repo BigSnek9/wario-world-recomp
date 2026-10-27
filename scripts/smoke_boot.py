@@ -52,7 +52,7 @@ parser.add_argument("--seed-user", type=Path, help="Copy a prior private diagnos
 parser.add_argument("--resolution", default="640x528", help="config.ini internal resolution label (1920x1080 = 3x)")
 args = parser.parse_args()
 if args.windowed:
-    parser.error("Visible testing is disabled by the user; omit --windowed for hidden, muted testing")
+    parser.error("Visible testing is disabled; omit --windowed for hidden, muted testing")
 if not 1 <= args.seconds <= 180:
     parser.error("--seconds must be between 1 and 180")
 if not 1 <= args.pad_hold <= 120:

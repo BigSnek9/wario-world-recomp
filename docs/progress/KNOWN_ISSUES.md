@@ -17,7 +17,7 @@ eyes and hands (../modding/IN_GAME_MENU.md, ../CONTROLS.md).
 
 ## KI-001 Host slowdowns (A018) - resolved
 
-- Human report (2026-10-26): slowdowns in Greenhorn Forest, including when
+- Playtest report (2026-10-26): slowdowns in Greenhorn Forest, including when
   breaking boxes. Hidden runs found a boot dip to ~0.53-0.57x at the title load.
 - Fixes: clang-built module (game code ~1.75x faster), host_call only wired
   when mods are loaded, allocation-free REL revalidation (boot dip -> ~0.88x),
@@ -27,7 +27,7 @@ eyes and hands (../modding/IN_GAME_MENU.md, ../CONTROLS.md).
 
 ## KI-002 Frozen water (A017) - closed: not a bug
 
-Human side-by-side with Dolphin 2606a (2026-10-26): that water does not animate
+Manual side-by-side with Dolphin 2606a (2026-10-26): that water does not animate
 in Dolphin either. Hidden captures at the first river show the water there
 animating with an ~8 s period.
 
@@ -44,9 +44,9 @@ smoke_boot.py screenshot requests issued during a long `pad_frames` hold are
 marked processed but no PNG is written. Use captures between holds or idle
 checkpoints. Not a game bug.
 
-## KI-005 Brighter image than the human's Dolphin - closed: Dolphin-side HDR
+## KI-005 Brighter image than the reference Dolphin - closed: Dolphin-side HDR
 
-The human's Dolphin had HDR processing on (D3D12, HDROutput=True). With it
+The reference Dolphin setup had HDR processing on (D3D12, HDROutput=True). With it
 matched, a side-by-side of the file-select screen shows the same brightness and
 colour. The recomp renders the same frame on OpenGL and Vulkan (file-select mean
 luma 107.8 vs 107.7).

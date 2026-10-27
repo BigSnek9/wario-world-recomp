@@ -4,8 +4,8 @@ Ordered (2026-10-27). The game is complete; these are follow-ups. Issue IDs:
 KNOWN_ISSUES.md.
 
 1. **Trapdoor glow flicker (KI-007).** Get an F12 snapshot (savestate +
-   screenshot in `data\reports`, or the starter's report folder) from the
-   owner, reproduce hidden, then check whether the glow is an untagged draw
+   screenshot in `data\reports`, or the starter's report folder) from a
+   playtest, reproduce hidden, then check whether the glow is an untagged draw
    (keeps frame N under frame generation) or a screen-copy effect. Tools:
    `scripts/fps_flicker_check.py`, `WARIO_MTX_DEBUG=<file>`, identity hooks in
    `build_rel_bundle.py` `MATRIX_STACK_HOOKS`.
@@ -14,7 +14,7 @@ KNOWN_ISSUES.md.
    compare 16:9 against 4:3 captures.
 3. **Each new release:** attach `WarioWorldRecomp-vX.Y-source.zip`, keep the
    upstream pins in SOURCE.txt reachable and the credits current. Upload only
-   when the owner asks (../PUBLISHING.md). (KI-010, GPL source, closed: public
+   on explicit request (../PUBLISHING.md). (KI-010, GPL source, closed: public
    since 2026-10-27.)
 4. **Voice slider (KI-009).** Needs a listening pass to list Wario's voice SFX
    ids (../engine/AUDIO.md AU-005); the mixer table is ready.

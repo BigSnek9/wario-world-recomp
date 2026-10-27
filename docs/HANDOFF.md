@@ -6,8 +6,8 @@ Rules: ../AGENTS.md. Master brief: ../../READ ME AGENTS.txt.
 
 ## Current handoff (2026-10-27)
 
-The recompilation is complete and the game is playable start to finish; the
-owner has finished a playthrough. Optional enhancements (frame generation,
+The recompilation is complete and the game is playable start to finish; a
+full playthrough has been completed. Optional enhancements (frame generation,
 widescreen, resolution, HDR, HD textures, audio mixer, cheats, controls) live
 in the in-game menu. Start from:
 
@@ -17,14 +17,14 @@ in the in-game menu. Start from:
   [progress/KNOWN_ISSUES.md](progress/KNOWN_ISSUES.md): what is open;
 - [README.md](README.md): index of every doc.
 
-No user input is needed for the open items except an F12 snapshot of the
-trapdoor glow flicker (KI-007) and the owner's go-ahead for any upload.
+The open items need no outside input except an F12 snapshot of the trapdoor
+glow flicker (KI-007) and an explicit go-ahead for any upload.
 
 History: the dated checkpoints of 2026-10-24..26 that used to be here are in
 [PROGRESS.md](PROGRESS.md); later work is in
 [progress/DEVELOPMENT_LOG.md](progress/DEVELOPMENT_LOG.md).
 
-## User intent and constraints
+## Project goals and constraints
 
 Original brief (2026-10-24): deliver a full faithful static recompilation of
 Wario World, with progressive documentation another agent can resume. Preserve
@@ -33,11 +33,11 @@ uncapping; do not uncap yet.
 Ask before installing new software. Local DolRecomp/ModernGekko downloads and
 builds/dependencies are already approved. Portable Ghidra 12.1 + GameCube loader
 were additionally approved on 2026-10-25. No system tools installed or GitHub
-content published. User asked about sharing: public tree excludes game material.
+content published. Sharing: the public tree excludes game material.
 
-Since then: the owner started the FPS project (frame generation is an optional,
-presentation-side layer; the simulation still runs at 59.94 Hz), approved
-subagents (2026-10-26) and the ShadowRecomp-style release model (2026-10-27).
+Since then: the FPS project started (frame generation is an optional,
+presentation-side layer; the simulation still runs at 59.94 Hz), subagents were
+allowed (2026-10-26) and the ShadowRecomp-style release model adopted (2026-10-27).
 The repository is public on GitHub (2026-10-27) with release v1.0.
 
 ## Verified baseline
@@ -72,7 +72,7 @@ generated/analysis contains private assembly/objects for main and all RELs.
   verifying its hash. The real Release directory now exists.
 - Reports, generated C, assembly, native modules and game assets are private.
   Never force-add them. Release zips may carry the compiled runtime and module
-  (owner decision 2026-10-27, ../AGENTS.md and PUBLISHING.md), never disc data,
+  (decided 2026-10-27, ../AGENTS.md and PUBLISHING.md), never disc data,
   generated sources, saves or captures.
 
 ## Ghidra (portable, local)

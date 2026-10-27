@@ -107,14 +107,14 @@ version; higher multiples replay at each t.
    - Underground levels (the trapdoor rooms, archive UGR) finish their frame
      about 11 ms after the previous real frame. Before this fix, the overdue
      in-between frames went out back to back. At 4x, 26% of presents were on
-     pace and 825 were bunched; after it, 79% were on pace and 49 bunched. The
-     human described the effect as motion blur.
+     pace and 825 were bunched; after it, 79% were on pace and 49 bunched. In
+     playtesting the effect looked like motion blur.
    - Real frame source (2026-10-27, the main afterimage bug):
      - The game double-buffers its XFB, so the VI that follows frame N's XFB
        copy still shows frame N-1.
      - The held "real" frame used to be that VI image, so after the
        in-between frames leading up to N the screen stepped back to N-1 once
-       per game frame. The human saw doubled edges on everything moving
+       per game frame. Playtesting showed doubled edges on everything moving
        (photo); static dumps of the in-between frames could not show it.
      - Frame N is now copied privately at its own XFB copy (before the
        replays) and shown in the VI's place (Presenter::WarioSetRealCopy).
@@ -130,8 +130,8 @@ version; higher multiples replay at each t.
    - VSync (2026-10-27): turned on while interpolating, if multiplier x
      59.94 <= refresh + 1 Hz (re-read every 2 s), and restored after.
      - Reason: frames paced by the clock without VSync drift against the
-       refresh, so some refreshes get two new frames and others none. The
-       human reported afterimages on moving geometry at 4x on a 239 Hz screen.
+       refresh, so some refreshes get two new frames and others none. Playtesting
+       showed afterimages on moving geometry at 4x on a 239 Hz screen.
      - Speed: full in hidden runs (hub 0.99, UGR 0.997, 3x Vulkan).
      - Present-call gaps get less even, because presents now block on the
        display; the display itself is the real pacer.
@@ -143,7 +143,7 @@ version; higher multiples replay at each t.
      - Behaviour: when the game frame period (smoothed) goes above 17.4 ms,
        the multiplier cap drops by one, down to 1 (= no in-between frames).
        It rises again after 60 game frames on time. Heavy moments then trade
-       smoothness for speed instead of slowing the game (human report: hub
+       smoothness for speed instead of slowing the game (playtest report: hub
        charge dash).
      - Why: every in-between frame is a full re-render on the emulation
        thread, and VSync presents wait for the display.

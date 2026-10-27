@@ -11,20 +11,20 @@ Current state: CURRENT_STATUS.md.
 | Area | Status | Evidence |
 |---|---|---|
 | Boot, Nintendo logo, title | pass | many runs |
-| New save creation | pass (earlier session) | ../PROGRESS.md (2026-10-26) |
-| Load progressed save (copy of human save, stage 1 cleared) | pass: slot shows 10/26/26 12:37, Start loads hub | 20261026T162208773301Z-b814d6ac |
+| New save creation | pass (earlier run) | ../PROGRESS.md (2026-10-26) |
+| Load progressed save (copy of playtest save, stage 1 cleared) | pass: slot shows 10/26/26 12:37, Start loads hub | 20261026T162208773301Z-b814d6ac |
 | Hub / World 1 entry | pass | probes enter_world1 / enter_greenhorn |
 | Greenhorn Forest walk to first river | pass, speed ~1.0 | 20261026T162357957453Z-71be5d71 |
 | Water animation (first river) | animates | 20261026T162614917608Z-200ad64b |
-| Combat / enemy defeat | human only | user report |
-| Stage clear | human only (stage 1) | user report |
-| Save after progression, reboot, Continue | pass via human save file loading | above |
-| Stage 2 (first half) | human: no issues (2026-10-26 evening, clang build, fullscreen) | private/playtest-last.log |
-| Whole game, all worlds, bosses, ending | human playthrough finished (by 2026-10-27) | owner report; play-tracker states in private/play-sessions |
+| Combat / enemy defeat | manual playtest only | playtest report |
+| Stage clear | manual playtest only (stage 1) | playtest report |
+| Save after progression, reboot, Continue | pass via playtest save file loading | above |
+| Stage 2 (first half) | playtest: no issues (2026-10-26 evening, clang build, fullscreen) | private/playtest-last.log |
+| Whole game, all worlds, bosses, ending | manual playthrough finished (by 2026-10-27) | playtest report; play-tracker states in private/play-sessions |
 | Every play-tracker area with frame generation | 46 states, 2x camera + objects | reports/fps-world-sweep.json |
 | REL modules 1-4, 6 | loaded during the playthrough; only REL 5, 7, 8 independently audited | ../engine/ARCHITECTURE.md |
 | Audio equivalence | one idle capture only | ../PROGRESS.md |
-| Long-session stability | the full human playthrough; no dedicated soak test | |
+| Long-session stability | the full manual playthrough; no dedicated soak test | |
 
 ## 2026-10-26 performance probes
 

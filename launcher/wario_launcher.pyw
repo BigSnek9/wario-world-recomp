@@ -1,7 +1,7 @@
 """Windowless starter for the Wario World recomp (no extra installs).
 
 Double-click Play-WarioWorld.cmd: the game starts straight away with
-the human playtest profile (private/playtest-user, saves preserved). Every option lives in the
+the playtest profile (private/playtest-user, saves preserved). Every option lives in the
 in-game menu (Back on the controller, or Tab), saved in <user>/Config/WarioWorld.ini.
 
 What this starter still does around the runner:

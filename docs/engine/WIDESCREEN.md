@@ -78,8 +78,8 @@ keeping the HUD inside the 4:3 book.
   hack off, `scripts/configure_baseline.py`); the widescreen modes set the
   host aspect explicitly (Stretch / CustomStretch, ../modding/IN_GAME_MENU.md). Dolphin's Auto mode switches
   aspect heuristically; the Dolphin wiki reports this game flipping between
-  4:3 and 16:9 at the World 1 boss under Auto. That matches the human report of
-  "transient stretching" before the baseline fix (see ../progress/KNOWN_ISSUES.md).
+  4:3 and 16:9 at the World 1 boss under Auto. That matches the playtest report of
+  transient stretching before the baseline fix (see ../progress/KNOWN_ISSUES.md).
 - A real widescreen mod therefore needs BOTH guest changes (WS-001..003) and
   host presentation set to the matching aspect.
 
@@ -106,7 +106,7 @@ fn_8007DF18 (which also builds the two 2D cameras via fn_8006F7CC) creates:
   (GXSetProjection at 0x8006801C).
 Neither reads HC-0007, so in a wide aspect anything drawn through them
 stretches horizontally. The hint/message boards (parchment, text and the 3D
-figure in them) are drawn this way (human screenshot, 2026-10-27).
+figure in them) are drawn this way (playtest screenshot, 2026-10-27).
 C_MTXPerspective (fn_8019C618) stores m11 = cot(fovy/2) and m00 = m11 / aspect.
 
 A third C_MTXPerspective call (fn_8015C8C8, caller fn_800302CC) uses fixed
@@ -202,7 +202,7 @@ right column, r5 = 0/1), with EFB-pixel bases from lbl_801FE77C..7A4:
 The three helpers have no other caller. As with the pause book (WS-008) the
 paper art follows the widened 2D layer and stays 4:3 in the centre while
 the pixel viewports keep their full-screen positions, so at 16:9 the icons
-spread by half/320 (user report, 2026-10-27). Fixed with the WS-008 mapping
+spread by half/320 (playtest report, 2026-10-27). Fixed with the WS-008 mapping
 at the three viewport calls; the full-screen scissor is left alone.
 
 ## Open questions

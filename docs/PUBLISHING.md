@@ -3,18 +3,18 @@
 The repository is intended to contain build/analysis scripts, authored patches,
 configuration, hashes, and explanatory documentation. A user provides their own
 disc. The repository is public on GitHub (BigSnek9/wario-world-recomp), made
-public by the owner on 2026-10-27 after a personal-data, junk and credits review.
+public on 2026-10-27 after a personal-data, junk and credits review.
 
-Releases (decided by the owner on 2026-10-27, the same model as ShadowRecomp,
+Releases (decided 2026-10-27, the same model as ShadowRecomp,
 Zelda 64: Recompiled and Unleashed Recompiled): a release zip may contain the
 compiled runtime and the compiled game module, so a player unzips, picks their own
 disc and plays. The disc supplies every asset; it is verified and extracted on the
 player's PC on first run. This distributes game-derived compiled code: a widely
-used but legally untested practice, accepted by the owner.
+used but legally untested practice, accepted for this project.
 
 Keep ISO/extracted files, game-derived C/assembly sources and objects, resource
 data, saves, screenshots and memory captures out of the repository and releases.
-The one exception: README screenshots the owner chose, in docs/images/ (2026-10-27).
+The one exception: the README screenshots in docs/images/ (2026-10-27).
 They live under ignored original/, generated/, reports/, build/, captures/ and
 private/. The compiled module and runtime go only into release archives, never
 into Git. Do not place a ROM in Git LFS.
@@ -84,6 +84,6 @@ module), `release/test_release.py` (clean-folder test, hidden and muted).
 7. GPL: before a public release the source must be available. The repository is
    private; attach `WarioWorldRecomp-vX.Y-source.zip` to the release (or make the
    repository public) and keep the upstream pins in SOURCE.txt reachable.
-8. Upload only when the owner asks (`gh release create vX.Y dist/WarioWorldRecomp-vX.Y.zip
+8. Upload only on explicit request (`gh release create vX.Y dist/WarioWorldRecomp-vX.Y.zip
    dist/WarioWorldRecomp-vX.Y-source.zip -F docs/release/vX.Y.md`). Never commit the zip,
    the module or any binary.

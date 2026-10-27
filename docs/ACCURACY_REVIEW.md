@@ -9,11 +9,11 @@ and the acceptance gates below are still the bar for any accuracy claim.
 
 The current build is an experimental, partially validated recompilation. It is
 not a completed static-only port and it has not demonstrated whole-game or
-original-hardware bit accuracy. The user's Greenhorn Forest stage clear confirms
-playability along that human route, not equivalence to the original game.
+original-hardware bit accuracy. The manual Greenhorn Forest stage clear confirms
+playability along that played route, not equivalence to the original game.
 
 This review was triggered by automatic aspect detection in a 4:3 game. The
-mistake was accepting inherited runtime settings without auditing the human
+mistake was accepting inherited runtime settings without auditing the manual
 launcher against the test configuration. This is a validation-process defect,
 not merely a cosmetic preference. Earlier bounded test results remain bounded.
 
@@ -48,10 +48,10 @@ not merely a cosmetic preference. Earlier bounded test results remain bounded.
 | Pixel format/depth/textures | EFB format changes default un-emulated, fast depth and fast texture sampling enabled; texture hashing defaults to sampling 128 entries. | Unvalidated rendering assumptions. Need effects-focused comparisons and texture invalidation traces. No water fix is claimed. |
 | Video fields | ForceProgressive defaults true; original field parity/cadence has not been measured. | Cannot claim original refresh/video-mode accuracy. Earlier 'no refresh patch' language described game bytes, not host video processing. |
 | Audio | DSPHLE defaults true. Native/JIT audio comparison uses that same audio implementation. | One aligned idle signal matches; DSP hardware timing and full audio equivalence remain unverified. |
-| Input focus | Win32 inherited a constant true focus flag; BackgroundInput=false could not enforce the intended gate. | Base query made virtual; Win32 queries foreground ownership, visibility mode and minimized state. Host rebuilt. Human Alt-Tab/keyboard integration remains untested. |
-| General/box slowdown | Human reports slowdown in Greenhorn Forest. No matched box-breaking benchmark or original-game timing exists. | Open defect. No evidence yet distinguishes host stall, runtime timing error or intentional original hit stop. Lower scale is a baseline correction, not a demonstrated cure. |
-| Water | Human reports frozen water in Greenhorn Forest. | Open rendering/game-state defect. Need the same water scene over successive guest updates and a reference outside the shared renderer. |
-| Controls | Previous agent tests proved parsing/binding only. | User now confirms Xbox input and stage-one completion. Rumble, exact analog response and original controller timing are not established. |
+| Input focus | Win32 inherited a constant true focus flag; BackgroundInput=false could not enforce the intended gate. | Base query made virtual; Win32 queries foreground ownership, visibility mode and minimized state. Host rebuilt. Manual Alt-Tab/keyboard integration remains untested. |
+| General/box slowdown | Playtest reports slowdown in Greenhorn Forest. No matched box-breaking benchmark or original-game timing exists. | Open defect. No evidence yet distinguishes host stall, runtime timing error or intentional original hit stop. Lower scale is a baseline correction, not a demonstrated cure. |
+| Water | Playtest reports frozen water in Greenhorn Forest. | Open rendering/game-state defect. Need the same water scene over successive guest updates and a reference outside the shared renderer. |
+| Controls | Earlier automated tests proved parsing/binding only. | Playtest now confirms Xbox input and stage-one completion. Rumble, exact analog response and original controller timing are not established. |
 
 The bundled GameINI includes a *definition* of a widescreen Gecko code. It has
 no enabled-code section, the manual launcher disables external mods, and the
@@ -118,7 +118,7 @@ Before treating a build as an accuracy baseline:
 Private evidence: reports/accuracy-review-before-20261026.json,
 accuracy-review-after-20261026.json, inventory.json, patch-replay.json,
 window-focus-regression.json, review-runtime-build.log and review-runner-build.log.
-Human saves remain under private/playtest-user and are not test fixtures.
+Playtest saves remain under private/playtest-user and are not test fixtures.
 
 Additional harness finding: screenshot commands could overwrite last_command
 before the half-second post-load settling check observed it, leaving the summary's

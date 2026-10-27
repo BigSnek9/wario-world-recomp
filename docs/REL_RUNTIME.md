@@ -45,7 +45,7 @@ Old descriptors remain on their original route. This adapter is project-specific
 ## Independent executable-byte verification
 
 The bundle contains immutable original executable bytes plus their relocation
-records, generated privately from the user's original files. For each code chunk,
+records, generated privately from the original game files. For each code chunk,
 the expected-hash callback constructs relocated bytes using the currently linked
 section bases and the independent relocation model. The host compares their
 FNV-1a hash with guest RAM. A missing expected hash fails closed. It never learns

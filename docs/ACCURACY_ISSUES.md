@@ -11,12 +11,12 @@
 | A009 | Not a runtime bug: an input-probe mistake (resolution below). |
 | A014 | Harness limitation (probes are navigation, not input-poll replay). |
 | A015 | Presentation drift corrected (explicit 4:3 / native 1x baseline). Rendering, video-field and DSP shortcuts remain unvalidated against hardware (ACCURACY_REVIEW.md). |
-| A016 | Win32 focus query repaired and rebuilt; Alt-Tab behaviour was not specifically tested by a human. |
+| A016 | Win32 focus query repaired and rebuilt; Alt-Tab behaviour was not specifically tested in a manual playtest. |
 | A017 | Closed: frozen water is the original behaviour (progress/KNOWN_ISSUES.md KI-002). |
 | A018 | Resolved: slowdowns (KI-001, KI-006). |
 | A019 | Open by nature: the native and JIT reference paths share the renderer, DSP and devices, so common defects can pass both. |
 
-The owner's full playthrough is playability evidence, not an accuracy proof.
+The full manual playthrough is playability evidence, not an accuracy proof.
 Entries below are the original narratives; their dates matter.
 
 No bit-accuracy claim is made. Reproduce these before choosing fixes; do not
@@ -270,7 +270,7 @@ Headless alerts go to stderr and panic exits rather than opening a dialog;
 No Audio Output remains selected. This is a host test-harness repair, not a
 change to guest timing or framebuffer data. Run 20261026T104538740504Z:
 120 seconds, 6043 checks/zero reports/JIT entries, 59.94 FPS/VPS. The visible
-window inventory was empty during rendering. User requires silent hidden tests.
+window inventory was empty during rendering. Project rule: silent hidden tests.
 
 ## A012 - Differential coverage must follow code-mapping lifetime (fixed)
 

@@ -31,7 +31,7 @@ Summary of the commits; details are in the linked docs.
 - Cleanup: launcher/cheats.pyw, launcher/enhancements.py and
   Launch-WarioWorld.cmd removed (cheats live in the menu); Play-WarioWorld.cmd
   stays.
-- Owner finished the full playthrough.
+- Full playthrough completed.
 
 ## 2026-10-27 (early morning): world sweep, identity and haze fixes
 
@@ -104,7 +104,7 @@ Summary of the commits; details are in the linked docs.
 
 ## 2026-10-27: FPS replay no longer feeds screen-copy effects
 
-- Symptom (human): standing still in some areas, the in-between frames grew
+- Symptom (playtest): standing still in some areas, the in-between frames grew
   ever more blurred. Cause: the replay re-ran the frame's EFB-to-texture copies
   (screen feedback blur/afterimage); the replay's copy replaced the real one in
   the texture cache, so the next real frame blended an extra pass in and the
@@ -184,12 +184,12 @@ Summary of the commits; details are in the linked docs.
   format in docs/engine/ASSETS.md), play tracker (stage log, perf log, per-area
   savestate checkpoints, save history).
 - KI-002 (water) and KI-005 (brightness = Dolphin HDR processing) closed by
-  human side-by-side comparisons.
+  manual side-by-side comparisons.
 
 ## 2026-10-26 (afternoon session)
 
-- Committed the prior session's uncommitted work as baseline 18f7654.
-- Save/Continue: a byte-identical copy of the human's stage-1-cleared GCI loads
+- Committed the earlier uncommitted work as baseline 18f7654.
+- Save/Continue: a byte-identical copy of the playtest stage-1-cleared GCI loads
   from the file menu into the hub (first evidence of progressed-save restore).
 - Frozen water (KI-002): found the first Greenhorn river/waterfall by walking
   (probe private/probes/explore_forward.json, ~36 s); a checkpoint there shows

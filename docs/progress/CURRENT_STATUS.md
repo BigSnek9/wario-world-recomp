@@ -7,8 +7,8 @@ then NEXT_ACTIONS.md and KNOWN_ISSUES.md. History: DEVELOPMENT_LOG.md (from
 
 ## Works
 
-- **Full game:** playable start to finish. The owner finished a full
-  playthrough by 2026-10-27.
+- **Full game:** playable start to finish. A full playthrough was
+  completed by 2026-10-27.
 - **Static recomp:** main.dol and all eight RELs are compiled to native code
   (clang, PGO). On the tested routes no game instruction runs in Dolphin's
   interpreter or JIT (hook_interp=0, JIT entries 0; see ../ACCURACY_ISSUES.md
@@ -49,7 +49,7 @@ Open with Back on the controller or Tab. Changes apply live and are saved to
 ## How it is started and shipped
 
 - **From this repo:** `Play-WarioWorld.cmd` runs the windowless starter
-  `launcher/wario_launcher.pyw` with the owner's profile in
+  `launcher/wario_launcher.pyw` with the playtest profile in
   `private/playtest-user` (saves kept). The old cheats helper and
   `Launch-WarioWorld.cmd` were removed; cheats are in the menu.
 - **Release zip (ShadowRecomp style):** `WarioWorldRecomp.exe` (native starter,

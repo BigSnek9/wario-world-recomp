@@ -29,5 +29,5 @@ for name in ['before','after']:
 subprocess.run(['cmd.exe','/d','/c',str(folder/'build.cmd')],cwd=folder,check=True,stdout=subprocess.DEVNULL)
 result={name:subprocess.run([str(folder/(name+'.exe'))]).returncode for name in ['before','after']}
 assert result=={'before':4,'after':0},result
-report={'cases':6,'failed_before':4,'failed_after':0,'production_predicate_and_base_virtual_dispatch':True,'scope':'Owned foreground, hidden, uninitialized window, other foreground, minimized, regained focus. Stub Win32 answers; no real window or OS input; human Alt-Tab integration remains untested.'}
+report={'cases':6,'failed_before':4,'failed_after':0,'production_predicate_and_base_virtual_dispatch':True,'scope':'Owned foreground, hidden, uninitialized window, other foreground, minimized, regained focus. Stub Win32 answers; no real window or OS input; manual Alt-Tab integration remains untested.'}
 (ROOT/'reports/window-focus-regression.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2))

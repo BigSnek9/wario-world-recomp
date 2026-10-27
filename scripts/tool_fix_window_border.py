@@ -3,14 +3,14 @@
 1. No sunken window edge in fullscreen. DolphinNoGUI's Win32 window is created with
    WS_EX_CLIENTEDGE, a 3D sunken border drawn inside the window. Fullscreen only replaces
    GWL_STYLE, so the extended style stayed and showed as a thin light line along the top, left and
-   bottom screen edges (human report: "white border"). Not visible in automated captures (they
+   bottom screen edges (playtest report: a thin white border). Not visible in automated captures (they
    read the rendered frame, not the window).
 
 2. Clean quit. The window procedure (main thread) calls g_presenter for WM_SIZE and the in-game
    menu's mouse messages after an `if (g_presenter)` check, while the emulation thread destroys the
    presenter in VideoBackendBase::ShutdownShared. A mouse move over the window (or the resize when
    fullscreen is left) during quit then used a freed presenter: access violation inside the window
-   callback, exit code 0xC000041D (human report, WER offset 0x92B08). Both sides now share
+   callback, exit code 0xC000041D (playtest report, WER offset 0x92B08). Both sides now share
    g_wario_presenter_mutex; the window procedure only try-locks (it skips the presenter call while
    the presenter is being destroyed), so it can never deadlock the shutdown.
 """

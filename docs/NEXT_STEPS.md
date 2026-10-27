@@ -23,7 +23,7 @@ savestate boot; runtime RuntimeConfig has load_state_path and the CLI already ha
 A private diagnostic movie path hook and CPU-thread snapshot at a specified poll
 may support stronger comparisons. Verify stop boundaries/native chunk latency
 before claiming register/memory parity; a host/GPU frame pause is insufficient.
-No movie support was added to the recomp runtime in this turn; this is researched
+No movie support was added to the recomp runtime at that point; this is researched
 implementation direction, not a finished feature.
 
 ## Interpreter helper reduction - done on tested routes
@@ -37,7 +37,7 @@ faithful hardware side effects.
 
 ## Gameplay/save coverage - superseded
 
-The owner's full playthrough covers enemies, collectibles, stage clears, bosses,
+The full manual playthrough covers enemies, collectibles, stage clears, bosses,
 saving and Continue in practice. What it does not give is a deterministic
 replay or a parity proof (ACCURACY_REVIEW.md gates). Fixed-step audits of
 movement, timers, camera, cutscenes, audio and bosses (TIMING.md) remain

@@ -54,7 +54,7 @@ with those constants (bisection), so the percent is a true height ratio for held
 **Unlock stages.** Progress block 0x801CE3A4 (+8, u16): bit world*3+stage is set when that
 stage (stage 2 = the world's boss) is cleared (fn_800308F0); the hub opens doors from
 these bits. The cheat ORs in 0x0FFF: both stages and the boss of every world (bits 2, 5,
-8 and 11 are the four world bosses). That is the value a finished save holds (the user's
+8 and 11 are the four world bosses). That is the value a finished save holds (the playtest
 post-ending state reads 0x0FFF). The hub's final-boss chest needs all 12 bits: when the
 hub is built it sets its flag +0x16E only if (mask & 0xFFF) == 0xFFF (WWUSPF 0xE998).
 The first version set 0x07FF and so left the last world boss's piece missing. The hub

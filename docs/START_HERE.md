@@ -2,7 +2,7 @@
 
 Work in the repository root. Rules: ../AGENTS.md (all
 tests hidden and muted, ask before new installs, keep game-derived material
-private, preserve private/playtest-user, the owner's saves).
+private, preserve private/playtest-user, the playtest saves).
 
 ## Where things stand
 
@@ -15,7 +15,7 @@ in-game menu. Status, builds and reproduce commands:
 
 ## Running it
 
-- Owner's game: `Play-WarioWorld.cmd` (windowless starter
+- Manual play: `Play-WarioWorld.cmd` (windowless starter
   `launcher/wario_launcher.pyw`, profile `private/playtest-user`). Agents do
   not launch this visible, audible session for tests.
 - Release zip and its clean-folder test: [PUBLISHING.md](PUBLISHING.md).

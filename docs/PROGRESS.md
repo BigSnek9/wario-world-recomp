@@ -3,7 +3,7 @@
 ## Current summary (2026-10-27)
 
 The game is complete: main.dol and all eight RELs run as native code (no
-interpreter or JIT on the tested routes), the owner has played it start to
+interpreter or JIT on the tested routes), it has been played start to
 finish, and the optional enhancements live in the in-game menu. A release zip
 (ShadowRecomp style) is released as v1.0; the repository is public (2026-10-27). The build-from-ISO
 installer was removed on 2026-10-27; the release zip is the only way to install.
@@ -13,13 +13,13 @@ progress/KNOWN_ISSUES.md. Index of all docs: README.md.
 This file is the chronological log of 2026-10-24..26 (morning), plus the
 2026-10-25 handoff notes at the end. Work from 2026-10-26 afternoon on is in
 progress/DEVELOPMENT_LOG.md. Statements below were true when written; for
-example "FPS is still capped", "has NOT been opened by the agent" and "REL1 not
+example "FPS is still capped", "has NOT been opened yet" and "REL1 not
 exercised" are superseded. Accuracy limits that still apply:
 ACCURACY_REVIEW.md.
 
 ## 2026-10-24 - Initial baseline
 
-The user requested a faithful static recompilation, a progressive agent handoff,
+Goals: a faithful static recompilation, a progressive agent handoff,
 and a record of frame/refresh dependencies for a later uncapping project.
 Local downloads/builds of DolRecomp, ModernGekko and their dependencies are approved.
 No GitHub publication or new system installation is approved.
@@ -91,7 +91,7 @@ at this checkpoint. See HANDOFF.md for the latest continuation state.
 - Indexed 15,844 function entries and 90,224 call sites across main and RELs in
   private CSVs, with direct assembly file/line locations for agent navigation.
 - Audit utility passes five synthetic corruption/path/truncation tests.
-- User approved portable Ghidra 12.1 plus GameCube loader for deeper analysis.
+- Portable Ghidra 12.1 plus GameCube loader approved for deeper analysis.
   Official Ghidra 12.1.3/loader downloads are being checksum-verified locally.
 
 Still required: all-eight-REL native module integration, privileged/helper fallback
@@ -242,10 +242,10 @@ source has a [wario-exi]/[wario-mc] diagnostic fprintf set (in patches).
 
 ## 2026-10-26 - Workspace overlay checkpoint
 
-The current authored updates are in the chat workspace work/project, because
-the main project folder remains read-only under this session's
+The current authored updates are in the staging workspace work/project, because
+the main project folder remains read-only under the current
 actual permissions. Do not overwrite the newer F tree with an old staging copy.
-User consent to project-folder access was received, but the permission tool did
+Project-folder access was approved, but the permission tool did
 not grant it. No system installation is required for the current work.
 
 Run private/runs/20261025T205523324085Z used the vector-inclusive main + eight
@@ -284,8 +284,8 @@ negative named-symbol scan; audit other RELs for similar arithmetic/counters.
 
 Main project access is now granted and the workspace fixes have been integrated
 at the main project folder. Earlier read-only/overlay notes
-below describe history. User requires all further tests
-to remain invisible and inaudible; smoke_boot.py rejects --windowed and always
+below describe history. All further tests must
+remain invisible and inaudible; smoke_boot.py rejects --windowed and always
 passes --mute. Do not launch standalone Dolphin GUI for testing.
 
 The canonical-MSR verifier fix is now in the main source and rebuilt runtime:
@@ -295,7 +295,7 @@ audio uses No Audio Output. Headless alerts log and fail on panic rather than
 opening a dialog. An inventory check during rendering found no visible game
 window. Source changes are reproducible in apply_tool_fixes.py and patches/.
 
-Build note: parallel MSBuild node execution stalled twice in this session.
+Build note: parallel MSBuild node execution stalled twice during this work.
 Single-node /m:1 /nr:false succeeded for core.vcxproj, moderngekko.vcxproj and
 moderngekko-run.vcxproj, with /p:BuildProjectReferences=false after existing
 prerequisites. The separately linked build/silent-runtime runner also works.
@@ -321,7 +321,7 @@ into an adventure is the next immediate task; use the corrected analog controls.
 Current paired probes use config/probes/start_adventure.json, comparing native
 and runtime --reference JIT with identical inputs. These are behavioral probes,
 not synchronized hardware parity evidence. smoke_boot.py adds a random suffix
-to run folders to prevent simultaneous test collisions observed this session.
+to run folders to prevent simultaneous test collisions observed at the time.
 
 Twenty local synthetic/extraction/relocation/vector tests pass. The source-tree
 publication check passed (59 files at that point); no upload/push was made.
@@ -365,9 +365,9 @@ patch, FPS change or publication was performed.
 
 ## 2026-10-26 - Clean hub build checkpoint
 
-All testing is hidden and muted at the user's request. The main runtime now
+All testing is hidden and muted (project rule). The main runtime now
 supports an invisible Windows rendering surface; do not launch a GUI test.
-F project write access was granted for this turn; source and patches are integrated.
+F project write access was available for this checkpoint; source and patches are integrated.
 
 Best uninstrumented candidate: build/module-full-vectors/Release/gGWWE01_recomp.dll
 SHA256 d848261fe4c8277e0164cdd746f9daa479fbaccadc9a1c702042471f9798ed9f.
@@ -414,9 +414,9 @@ or publication was performed. Historical checkpoints follow below.
 
 ## 2026-10-26 - Greenhorn Forest checkpoint
 
-User said to keep working without waiting for their later playtest. No user input
+Work continued without waiting for the later manual playtest. No outside input
 is currently required. All tests remain hidden and muted, no new installation.
-Main project is the main project folder; access granted this turn.
+Main project is the main project folder; access granted for this checkpoint.
 
 The first playable stage, Excitement Central / Greenhorn Forest, now loads.
 Transition run private/runs/20261026T111939310041Z-8d4aab64:
@@ -487,15 +487,15 @@ checker/counter repairs. Full-game bit accuracy remains unproven; FPS unchanged.
 
 ## 2026-10-26 - Silent audio comparison and manual playtest preparation
 
-No user input is currently required. The user explicitly authorized continuing
-before their later playtest. Automated testing is still always hidden/muted.
-Play-WarioWorld.cmd is prepared for the user's own later launch; it has NOT been
-opened by the agent. It forces static recomp mode, uses the clean full-vectors
-DLL, disables lockstep diagnostics/mods, and keeps human saves in
+No outside input is currently required. Work continued
+before the later manual playtest. Automated testing is still always hidden/muted.
+Play-WarioWorld.cmd is prepared for a later manual launch; it has NOT been
+opened by automated work. It forces static recomp mode, uses the clean full-vectors
+DLL, disables lockstep diagnostics/mods, and keeps playtest saves in
 private/playtest-user. Preserve that folder. Output is private/playtest-last.log
 (overwritten per manual launch). Default keyboard guide: docs/PLAYTEST.md.
-The manual launcher enables a normal visible window/audio only when the user
-chooses to launch it. No binary/game content is included in source archives.
+The manual launcher enables a normal visible window/audio only when it is
+launched manually. No binary/game content is included in source archives.
 
 Silent audio runs, 30-second bounds, same first-stage checkpoint, no input:
 - clean native: 20261026T114054938759Z-ecb830eb (zero JIT / code-hash failures);
@@ -523,9 +523,9 @@ zero JIT, no code-hash failures; clean exit. Important limit: all slots still
 say New. This validates reading the persisted outer card file and starting a
 game; it does NOT validate saving/restoring actual gameplay progression. A real
 save-point/stage-clear/save/reboot/Continue cycle is still required. Do not call
-this a completed progression-save test. Human playtest data remains separate.
+this a completed progression-save test. Playtest data remains separate.
 
-Additional regression coverage this turn: nine live-module-queue cases and nine
+Additional regression coverage at this checkpoint: nine live-module-queue cases and nine
 compiled verifier-context cases, plus six exact-audio controls. Original DOL
 text remains unmodified in the first-stage snapshot. No installation, FPS
 uncapping, game byte patch, synthetic save, upload or publication was performed.
@@ -533,7 +533,7 @@ uncapping, game byte patch, synthetic save, upload or publication was performed.
 
 ## 2026-10-26 - Controller repair: Xbox/XInput
 
-User could not interact and requested real controller mappings; they specified
+Manual play had no working input and needed real controller mappings, for
 Xbox/XInput. The previous launcher relied on keyboard-only upstream defaults.
 Installed explicit Player 1 bindings in private/playtest-user/Config/GCPadNew.ini,
 with XInput slots 0..3 OR keyboard bindings, explicit GameCube port SIDevice0=6,
@@ -545,8 +545,8 @@ No game bytes, runtime semantics, FPS or saves were changed; no installation.
 scripts/configure_controls.py preserves other controller/core settings, backs up
 changed existing files, and is idempotent. Play-WarioWorld.cmd initializes a
 missing profile on first use, while preserving existing mappings on later
-launches. The current profile is already installed. User must CLOSE/REOPEN an
-already running game to load it; the agent did not stop their game or open a
+launches. The current profile is already installed. An already running game must be
+CLOSED/REOPENED to load it; automated work did not stop a running game or open a
 visible/audible test. Rumble is unchanged/untested.
 
 Native tools/verify_controls.cpp loads the generated INI through real
@@ -563,10 +563,10 @@ and controller-runtime-bindings.log. Five config preservation tests also pass.
 The earlier plain Python XInput probe returned no devices; the actual runtime
 subsequently discovered the Xbox. Prefer the runtime inventory for diagnosis.
 
-Physical user button presses/in-game response are NOT yet confirmed. An async
-verification question asked them to restart and try Menu/Start, A and left stick;
-feedback is pending and does not block other technical work. If they report
-continued failure, inspect focus/input gate and live SI pad status instead of
+Physical button presses/in-game response are NOT yet confirmed. A manual check
+(restart, then try Menu/Start, A and left stick) is pending
+and does not block other technical work. If input
+still fails, inspect focus/input gate and live SI pad status instead of
 relying on injected automation. The manual launcher intentionally has no
 --automation-dir; automation's touch overrides would replace physical input.
 CONTROLS.md and PLAYTEST.md have current controls/restart instructions.

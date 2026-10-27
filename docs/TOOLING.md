@@ -4,7 +4,7 @@
 
 | Package | Finding | Use here |
 | --- | --- | --- |
-| Ghidra MCP | Source bridge/plugin; requires an actual Ghidra installation and setup | Suitable for later PowerPC analysis once Ghidra/loader capability is verified; no connected server exists in this chat |
+| Ghidra MCP | Source bridge/plugin; requires an actual Ghidra installation and setup | Suitable for later PowerPC analysis once Ghidra/loader capability is verified; no connected server exists in this environment |
 | IDA MCP | Requires IDA 9.4+, idalib and Python | No suitable IDA installation found in checked locations; do not install paid tooling without consent |
 | REA | Analysis orchestration; Windows Ghidra P0 is limited to approved x86-64 PE targets | Its documented Windows admission does not fit Gekko DOL; do not claim support based on its generic name |
 | ILSpy | .NET decompiler | Wario World is native PowerPC, so it does not decompile the game |
@@ -21,8 +21,8 @@ and AGENTS.md before modifying those repositories.
   directory; an absolute F: path was misparsed. Disc extraction accepted it.
 - Python 3.12.6 for independent standard-library format/hash audits.
 - MSVC 19.39.33521, CMake 4.3.3, Ninja; LLVM 23.1.3 present.
-- Existing Dolphin 2606a for isolated reference comparisons (used by the owner
-  for side-by-sides; agents do not launch its GUI for tests).
+- Existing Dolphin 2606a for isolated reference comparisons (used for manual
+  side-by-sides; agents do not launch its GUI for tests).
 - Java 21 present; Ghidra itself not found in checked project/program locations.
 
 ## Chosen implementation route

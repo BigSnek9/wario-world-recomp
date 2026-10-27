@@ -1,6 +1,6 @@
 # Playing from the repository
 
-For the release zip see [release/v1.0.md](release/v1.0.md). This page is for the owner's copy in this
+For the release zip see [release/v1.0.md](release/v1.0.md). This page is for the development copy in this
 repository.
 
 ## Starting the game

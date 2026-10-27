@@ -10,7 +10,7 @@ Usage: python scripts/regression_suite.py [--quick] [--module DLL] [--twin DLL] 
 Fixtures (private, created during 2026-10-26 work; see docs/progress):
   stage entry   private/runs/20261026T111939310041Z-8d4aab64 (checkpoint + user)
   river         private/runs/20261026T162519351895Z-ac6873d6
-  progress save private/seeds/progress-save (copy of the human's GCI)
+  progress save private/seeds/progress-save (copy of the playtest GCI)
 """
 import argparse
 import json

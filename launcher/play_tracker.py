@@ -1,4 +1,4 @@
-"""Background telemetry for human playtest sessions (all private, no network).
+"""Background telemetry for manual playtest sessions (all private, no network).
 
 While the game runs, PlayTracker:
 - watches the disc file log (Logs/dolphin.log, FileMon channel) and records

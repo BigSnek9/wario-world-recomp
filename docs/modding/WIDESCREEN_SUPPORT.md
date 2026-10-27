@@ -149,7 +149,7 @@ and the 2D half-width (WS-002) still need their own changes.
   a 16:9 savestate at 4:3: the savestate's 2D camera stays 16:9 there, which
   squeezes the book (WS-008 caution in the engine doc).
 - WS-009 message board figure (2026-10-27): with WS-007 the board is 4:3 and
-  centred, but its 3D figure (user report: "the little guy" sat over the
+  centred, but its 3D figure (playtest report: the small figure sat over the
   board's right edge at 16:9) is drawn by fn_8009E52C, the draw method of the
   figure part fn_8009E304 of the board fn_8009E5BC, in a fixed EFB-pixel
   viewport (336, 160, 128, 128) with a matching scissor. Hooked like WS-008:
@@ -169,7 +169,7 @@ and the 2D half-width (WS-002) still need their own changes.
   (fn_80076B60, draw fn_80076EDC) draws its icons in EFB-pixel viewports,
   like the pause book, through three helpers: fn_800770FC (64x64 grid,
   0x800771D0), fn_80077400 (256x256, 0x80077438) and fn_800778C4 (128x128,
-  0x80077974). User report: icons misaligned the same way as the pause book.
+  0x80077974). Playtest report: icons misaligned the same way as the pause book.
   The three viewport calls get the WS-008 mapping (RESULTS_VIEWPORT_CALLS);
   the helpers are called only from fn_80076EDC, whose object is built only by
   the results screen fn_80077A88. The full-screen scissor at 0x80076F18 is

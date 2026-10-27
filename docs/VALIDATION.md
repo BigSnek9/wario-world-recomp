@@ -8,7 +8,7 @@ can and does have a separate literal byte-for-byte check.
 
 Sections below are dated checkpoints. Current state: progress/CURRENT_STATUS.md.
 The criteria in "Not established" still define what a parity claim needs; the
-full human playthrough and zero-interpreter routes are playability and coverage
+full manual playthrough and zero-interpreter routes are playability and coverage
 evidence, not proof. The FPS work was done as a separate, optional layer
 (modding/FPS_UNLOCK.md).
 
@@ -72,9 +72,9 @@ instructions. Cache fast paths also increment hook_fb.
 
 ## Latest verified checkpoint: 2026-10-26, clean hub build
 
-All testing is hidden and muted at the user's request. The main runtime now
+All testing is hidden and muted (project rule). The main runtime now
 supports an invisible Windows rendering surface; do not launch a GUI test.
-F project write access was granted for this turn; source and patches are integrated.
+F project write access was available for this checkpoint; source and patches are integrated.
 
 Best uninstrumented candidate: build/module-full-vectors/Release/gGWWE01_recomp.dll
 SHA256 d848261fe4c8277e0164cdd746f9daa479fbaccadc9a1c702042471f9798ed9f.
@@ -140,4 +140,4 @@ parity claim follows from this alignment. Neither WAV was played.
 A fresh-boot outer-card-read test passes 18678 checks / zero reports / zero JIT,
 with genuine copied diagnostic user data. Slots still say New: actual gameplay
 save-point/stage-clear/reboot/Continue progression is NOT validated by this test
-(the owner's later playthrough exercised it in practice).
+(the later manual playthrough exercised it in practice).

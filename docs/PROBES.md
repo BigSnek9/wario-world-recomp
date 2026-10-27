@@ -1,6 +1,6 @@
 # Hidden test probes
 
-User requires invisible and inaudible testing. smoke_boot.py uses hidden
+All testing is invisible and inaudible. smoke_boot.py uses hidden
 rendering, passes --mute, and rejects --windowed. Screenshots are private files.
 
 Probe JSON is an increasing list of [guest_frame_callback, control] pairs.
@@ -17,7 +17,7 @@ also presses Start/B and reaches the hub, then repeatedly opens/closes pause.
 hub_movement.json tries movement after the same initial menu sequence; it is
 exploratory and does not assert a destination. Saves, movies, captures and memory
 snapshots must remain private. Each run has an isolated user directory and unique
-random run suffix; never merge concurrent runs or reuse the user's normal saves.
+random run suffix; never merge concurrent runs or reuse the playtest saves.
 
 Private resume support: --load-state <file> --seed-user <prior run/user>.
 The seed folder is copied and must be under this project's private/. Optional

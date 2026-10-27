@@ -87,7 +87,7 @@ but the table is empty: the voice ids are not identified. Evidence collected:
   candidates, but many are musical (exact note pitches, jingles); it cannot tell
   speech from instruments without listening.
 
-Filling the table needs a listening pass (the user, not automated tests): trace a
+Filling the table needs a manual listening pass (not automated tests): trace a
 session, play the candidate samples, list the voice SFX ids. Until then the menu
 should not show a Voice slider (the variable is inert while the table is empty).
 Status 2026-10-27: parked (../progress/KNOWN_ISSUES.md KI-009).
@@ -152,8 +152,8 @@ Properties:
   saved by a module built before the fix (routing only while a setting was
   non-default) stays in group 31 until the book closes; it is routed from the next
   opening.
-- Pause music bug (user report 2026-10-27, fixed): "mute pause menu doesn't work" and
-  "pause menu music follows the SFX slider". Cause: fxStart routed 0x3BF to group 29
+- Pause music bug (playtest report 2026-10-27, fixed): muting the pause menu had no effect
+  and the pause menu music followed the SFX slider. Cause: fxStart routed 0x3BF to group 29
   only while a setting was non-default, and the group byte is fixed when the voice
   starts. A book opened at default settings (or before the menu's first writes)
   kept its music in group 31, so the music then followed the SFX slider and ignored
