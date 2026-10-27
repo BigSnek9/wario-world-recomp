@@ -26,7 +26,7 @@ and saves the game picture with the menu on top once.
   | Treasure red | `treasure` | maroon, gold accent |
   | Wario yellow (light) | `yellow` | soft butter yellow, purple accent |
 
-- **Tabs:** All · Display · HDR · Motion · Audio · Cheats · System. LB / RB
+- **Tabs:** All · Display · HDR · Motion · Audio · Controls · Cheats · System. LB / RB
   (or a click) switch tabs, wrapping round; the highlight slides to the new
   tab and the selection lands on its first setting (focus only: the item is
   not activated, so a slider does not open its text entry). The menu always opens on
@@ -53,7 +53,7 @@ and saves the game picture with the menu on top once.
 | Setting | How it applies |
 |---|---|
 | Resolution (Auto / 1x / 2x-8x) | Config `GFX_EFB_SCALE` (0 = follow window) |
-| Aspect (Auto / Original 4:3 / 16:9 / 16:10 / 21:9 / 32:9) | `g_wario_aspect_target` -> runtime `UpdateWarioAspect` (Original restores the game's exact 4:3 values once), host aspect mode Stretch / ForceStandard / Custom |
+| Aspect (Auto / Original 4:3 / 16:9 / 16:10 / 21:9 / 32:9) | `g_wario_aspect_target` -> runtime `UpdateWarioAspect` (Original restores the game's exact 4:3 values once), host aspect mode Stretch / ForceStandard / CustomStretch (absolute width:height; the relative Custom mode kept the VI analog-width correction and left thin side bars at 16:9 on a 16:9 screen) |
 | Fullscreen | absolute: the tick mirrors the real window (no `WS_CAPTION` = fullscreen, as `PlatformWin32::ToggleFullscreen` leaves it, so F11 / Alt+Enter show up too) and F11 is posted only when the request differs. It used to post F11 as a blind toggle, which inverted the tick when the starter had already launched fullscreen. Verified hidden 2026-10-27 (`MODERNGEKKO_WARIO_MENU_TEST_FULLSCREEN`): windowed, on, on again (no change), off |
 | HD textures | Config `GFX_HIRES_TEXTURES` |
 | HDR output | Config `GFX_ENHANCE_HDR_OUTPUT` (Vulkan only) |
@@ -64,7 +64,7 @@ and saves the game picture with the menu on top once.
 | Frame rate 60 / 120 / 180 / 240 / Auto | `g_wario_fps_multiplier` (Auto = monitor refresh / 59.94, max 4), switched at the next XFB copy |
 | Master volume | Config `MAIN_AUDIO_VOLUME` + `AudioCommon::UpdateSoundStream` (saved as `volume`) |
 | Music, Sound effects (0-100 %, default 100), Mute pause menu music | game module exports `wario_audio_music`, `wario_audio_sfx`, `wario_audio_mute_pause_music` (s32, see docs/engine/AUDIO.md), found with GetProcAddress on `gGWWE01_recomp.dll` and written every frame; saved as `music`, `sfx`, `mute_pause_music`. A module without the exports leaves the controls disabled with a hint. Pause-music changes apply the next time the pause book opens. No Voice slider: Wario's voice clips are ordinary SFX whose ids are not identified yet |
-| Moon jump + rise speed | while A / X is held: player actor `[0x801C5820]` y (+0x18) rises |
+| Jump height (hold GameCube A to rise; was "Moon jump") + rise speed | while A / X is held: player actor `[0x801C5820]` y (+0x18) rises |
 | UI style, menu size | menu only |
 | Graphics (OpenGL / Vulkan) | saved as `backend=opengl` / `vulkan` for the starter; applies after a restart |
 | Performance mode (multithreaded) | saved as `performance=0` / `1`; the starter writes Dolphin.ini [Core] CPUThread at launch (dual core: GPU emulation on its own thread); applies after a restart |
@@ -150,3 +150,19 @@ no window) launches the runner and passes paths in environment variables.
   music 100 / sfx 100 and settled to ~140 (DC level) with music 0 / sfx 0,
   so the menu's values reach the module. That scene is mostly SFX, so music
   0 alone changed little.
+- Controls tab (2026-10-27): rebinding of A / B / X / Y / Z / Start / L / R / D-pad,
+  Rumble on/off + strength, "Reset controls to defaults". GameCube-layout defaults,
+  SDL gamepad sync and the full design are in docs/CONTROLS.md. While a binding waits
+  for input the menu ignores the pad (no navigation, close or tab switch). Test hook
+  `MODERNGEKKO_WARIO_MENU_TEST_PAD=1` presses "Reset controls to defaults" after the
+  snapshot and takes a second one.
+- Bug report snapshot (2026-10-27): System tab "Save bug report snapshot (F12)" and the
+  F12 key (menu open or closed) queue `save_state` and `screenshot` commands for the
+  runner's automation folder (`MODERNGEKKO_WARIO_CONTROL_DIR`, falling back to the
+  runner's `--automation-dir` argument) as `<16-digit ms>-menu-report-*.txt`, written
+  to a temporary file and renamed into `commands/` like launcher/play_tracker.py. The
+  files go to `MODERNGEKKO_WARIO_REPORT_DIR/report-<HHMMSS>.sav` / `.png`; without a
+  report folder the button and F12 do nothing. A toast ("Snapshot saved: report-...")
+  shows for 3 s. Verified hidden (`MODERNGEKKO_WARIO_MENU_TEST_REPORT=1`): both files
+  written (25 MB state, game-only screenshot), commands processed with no error.
+- The System tab's controls help lists the GameCube-by-position layout.

@@ -16,9 +16,12 @@ is read on the first frame of the next session:
   written to Data/Sys/Shaders; loaded only while a value differs from its default, so the
   defaults leave the picture exactly as it was)
 - frame rate 60/120/180/240/auto (g_wario_fps_multiplier -> scripts/tool_fix_wario_fps.py)
+- controls: GameCube-layout defaults for Xbox / DualShock, rebinding (Dolphin GCPad expressions),
+  rumble on/off and strength
 - volume: master (Dolphin), music, sound effects and "mute pause menu music" (game module
   exports wario_audio_*, docs/engine/AUDIO.md); moon jump cheat (hold A), quit
-- System: UI style, menu size, graphics backend (saved for the starter; "Restart now" leaves a
+- System: "Save bug report snapshot" (also F12: savestate + screenshot through the runner's
+  automation commands), UI style, menu size, graphics backend (saved for the starter; "Restart now" leaves a
   WarioWorld.restart marker and quits), texture tools and the log (paths from the starter's
   MODERNGEKKO_WARIO_* environment variables), controls help
 
@@ -36,6 +39,7 @@ OSUI_INCLUDE_NEW = OSUI_INCLUDE_OLD + r"""
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <functional>
 #include <initializer_list>
 #include <utility>
@@ -49,7 +53,15 @@ OSUI_INCLUDE_NEW = OSUI_INCLUDE_OLD + r"""
 #include "Common/Config/Config.h"
 #include "Common/Config/Layer.h"
 #include "Common/StringUtil.h"
+#include "Core/HW/GCPad.h"
+#include "Core/HW/GCPadEmu.h"
 #include "Core/HW/Memmap.h"
+#include "InputCommon/ControllerEmu/Control/Control.h"
+#include "InputCommon/ControllerEmu/ControlGroup/ControlGroup.h"
+#include "InputCommon/ControllerInterface/ControllerInterface.h"
+#include "InputCommon/ControllerInterface/CoreDevice.h"
+#include "InputCommon/GCPadStatus.h"
+#include "InputCommon/InputConfig.h"
 #include "VideoCommon/AbstractFramebuffer.h"
 #include "VideoCommon/PostProcessing.h"
 
@@ -147,6 +159,8 @@ struct Settings
   int music = 100;             // % loudness, game module (wario_audio_music)
   int sfx = 100;               // % loudness, game module (wario_audio_sfx)
   bool mute_pause_music = false;  // game module (wario_audio_mute_pause_music)
+  bool rumble = true;
+  int rumble_strength = 100;   // % (GCPad Rumble/Motor range)
   bool moon_jump = false;
   float moon_speed = 2.0f;
   float menu_scale = 1.0f;  // 0.6 .. 1.6, on top of Windows display scaling
@@ -212,7 +226,8 @@ const Theme kThemes[] = {
 
 // Tabs filter the page (LB / RB or a click); All shows every section, as before tabs existed.
 // Tab i > 0 shows section i only.
-constexpr const char* kTabNames[] = {"All", "Display", "HDR", "Motion", "Audio", "Cheats", "System"};
+constexpr const char* kTabNames[] = {"All",   "Display",  "HDR",   "Motion",
+                                     "Audio", "Controls", "Cheats", "System"};
 constexpr int kTabCount = static_cast<int>(std::size(kTabNames));
 
 constexpr const char* kResolutionNames[] = {"Auto (fits window)", "Native 1x (accurate)", "2x",
@@ -268,13 +283,14 @@ void Save()
     std::fprintf(file,
                  "# Wario World in-game menu settings (Back / Tab in game)\n"
                  "resolution=%d\naspect=%s\nfullscreen=%d\nhd_textures=%d\nhdr=%d\nframe_rate=%s\nmotion=%s\n"
-                 "volume=%d\nmusic=%d\nsfx=%d\nmute_pause_music=%d\n"
+                 "volume=%d\nmusic=%d\nsfx=%d\nmute_pause_music=%d\nrumble=%d\nrumble_strength=%d\n"
                  "moon_jump=%d\nmoon_speed=%.2f\nmenu_scale=%.2f\nmenu_style=%s\n"
                  "hdr_paper_white=%.0f\nhdr_peak=%.0f\nhdr_boost=%d\nhdr_saturation=%d\n"
                  "hdr_warmth=%d\nhdr_contrast=%d\nhdr_gamma=%.2f\nhdr_black=%d\nhdr_menu_nits=%.0f\n"
                  "backend=%s\nvsync=%s\nperformance=%d\n",
                  kResolutionScales[s.resolution], kAspects[s.aspect].key, s.fullscreen,
-                 s.hd_textures, s.hdr, kFrameRateKeys[s.frame_rate], kMotionKeys[s.motion], s.volume, s.music, s.sfx, s.mute_pause_music, s.moon_jump,
+                 s.hd_textures, s.hdr, kFrameRateKeys[s.frame_rate], kMotionKeys[s.motion], s.volume, s.music, s.sfx, s.mute_pause_music, s.rumble,
+                 s.rumble_strength, s.moon_jump,
                  s.moon_speed, s.menu_scale, kThemes[s.style].key, s.hdr_paper_white, s.hdr_peak,
                  s.hdr_boost, s.hdr_saturation, s.hdr_warmth, s.hdr_contrast, s.hdr_gamma, s.hdr_black,
                  s.hdr_menu_nits, kBackendKeys[s.backend], kVsyncKeys[s.vsync], s.performance);
@@ -371,6 +387,10 @@ std::vector<std::string> Load()
       s.sfx = std::clamp(number, 0, 100);
     else if (key == "mute_pause_music")
       s.mute_pause_music = number != 0;
+    else if (key == "rumble")
+      s.rumble = number != 0;
+    else if (key == "rumble_strength")
+      s.rumble_strength = std::clamp(number, 0, 100);
     else if (key == "volume")
       s.volume = std::clamp(number, 0, 100);
     else if (key == "moon_jump")
@@ -457,7 +477,9 @@ void QueueAspect()
     {
       SetRunning(Config::GFX_CUSTOM_ASPECT_RATIO_WIDTH, aspect.width);
       SetRunning(Config::GFX_CUSTOM_ASPECT_RATIO_HEIGHT, aspect.height);
-      SetRunning(Config::GFX_ASPECT_RATIO, AspectMode::Custom);
+      // Absolute ratio: AspectMode::Custom is relative and keeps the VI analog-width correction
+      // (a 640-wide XFB is not exactly 4:3), which left thin side bars at 16:9 on a 16:9 screen.
+      SetRunning(Config::GFX_ASPECT_RATIO, AspectMode::CustomStretch);
     }
   });
 }
@@ -777,7 +799,7 @@ bool KeyDown(int key)
 #endif
 }
 
-// Moon jump: while A (or keyboard X) is held, Wario's height rises (player actor
+// Jump height (moon jump): while GameCube A is held, Wario's height rises (player actor
 // [0x801C5820], y at +0x18). Changes game memory; off by default.
 void MoonJump(float dt, bool a_held)
 {
@@ -826,6 +848,455 @@ volatile s32* WarioModuleS32(const char* name)
 }
 #endif
 bool s_audio_exports = false;  // the game module has the wario_audio_* controls
+
+// ---- Bug report snapshot: savestate + screenshot of exactly what the player sees ----
+// Queued as commands for the runner's automation folder (the same files launcher/play_tracker.py
+// writes): written to a temporary file, then renamed into <control>/commands/ with a millisecond
+// prefix so they sort after earlier ones. The starter sets MODERNGEKKO_WARIO_CONTROL_DIR and
+// MODERNGEKKO_WARIO_REPORT_DIR; without a report folder the button is hidden.
+std::string AutomationDir()
+{
+  std::string dir = EnvUtf8("MODERNGEKKO_WARIO_CONTROL_DIR");
+#ifdef _WIN32
+  if (dir.empty())
+  {
+    // Hidden test runs: the runner's own --automation-dir argument.
+    int count = 0;
+    if (LPWSTR* args = CommandLineToArgvW(GetCommandLineW(), &count))
+    {
+      for (int i = 0; i + 1 < count; ++i)
+      {
+        if (std::wcscmp(args[i], L"--automation-dir") == 0)
+          dir = WStringToUTF8(args[i + 1]);
+      }
+      LocalFree(args);
+    }
+  }
+#endif
+  return dir;
+}
+
+bool QueueAutomation(const std::string& dir, long long stamp, const char* tag, const char* command,
+                     const std::string& path)
+{
+  const std::string commands = dir + "/commands/";
+  File::CreateFullPath(commands);
+  const std::string pending = dir + "/wario-menu-" + tag + ".tmp";
+  return File::WriteStringToFile(pending, fmt::format("command={}\npath={}\n", command, path)) &&
+         File::Rename(pending, commands + fmt::format("{:016d}-menu-{}.txt", stamp, tag));
+}
+
+std::string s_toast;
+float s_toast_time = 0.0f;
+
+void Toast(std::string text)
+{
+  s_toast = std::move(text);
+  s_toast_time = 3.0f;
+}
+
+void SaveReportSnapshot()
+{
+  static const std::string control = AutomationDir();
+  static const std::string reports = EnvUtf8("MODERNGEKKO_WARIO_REPORT_DIR");
+  if (control.empty() || reports.empty())
+    return;
+  File::CreateFullPath(reports + "/");
+  const auto now = std::chrono::system_clock::now();
+  const std::time_t seconds = std::chrono::system_clock::to_time_t(now);
+  std::tm local{};
+#ifdef _WIN32
+  localtime_s(&local, &seconds);
+#else
+  localtime_r(&seconds, &local);
+#endif
+  char name[32];
+  std::strftime(name, sizeof(name), "report-%H%M%S", &local);
+  const std::string base = reports + "/" + name;
+  const long long stamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+  const bool ok = QueueAutomation(control, stamp, "report-state", "save_state", base + ".sav") &&
+                  QueueAutomation(control, stamp + 1, "report-shot", "screenshot", base + ".png");
+  Toast(ok ? fmt::format("Snapshot saved: {}", name) : "Snapshot failed (automation folder)");
+}
+
+bool ReportSnapshotAvailable()
+{
+  static const bool available =
+      !AutomationDir().empty() && !EnvUtf8("MODERNGEKKO_WARIO_REPORT_DIR").empty();
+  return available;
+}
+
+// ---- Controls: GameCube pad 1 in Dolphin's GCPad config (Config/GCPadNew.ini) ----
+// The menu writes simple bindings: one or more pad controls on every XInput slot and on every
+// connected SDL gamepad (DualShock / DualSense / others, by position), plus one keyboard key.
+// Expressions it did not write (anything beyond backtick terms, "|", parentheses and "> 0.9")
+// are never rewritten. Defaults follow the GameCube's physical layout (docs/CONTROLS.md,
+// scripts/configure_controls.py builds the same text).
+constexpr char kKeyboardDevice[] = "DInput/0/Keyboard Mouse";
+
+struct PadControl
+{
+  PadGroup group;
+  const char* name;   // Dolphin control name inside the group
+  const char* label;  // rebindable from the menu; nullptr = sticks, analog triggers, rumble
+  const char* pads;   // default XInput controls, ';'-separated
+  const char* key;    // default keyboard key
+};
+const PadControl kPadControls[] = {
+    {PadGroup::Buttons, "A", "A  jump", "Button A", "X"},
+    {PadGroup::Buttons, "B", "B  punch", "Button X", "Z"},
+    {PadGroup::Buttons, "X", "X", "Button B", "C"},
+    {PadGroup::Buttons, "Y", "Y", "Button Y", "S"},
+    {PadGroup::Buttons, "Z", "Z  coins", "Shoulder R", "D"},
+    {PadGroup::Buttons, "Start", "Start", "Start", "RETURN"},
+    {PadGroup::Triggers, "L", "L  coins", "Shoulder L;Trigger L", "Q"},
+    {PadGroup::Triggers, "R", "R  dash", "Trigger R", "W"},
+    {PadGroup::DPad, "Up", "D-pad up", "Pad N", "T"},
+    {PadGroup::DPad, "Down", "D-pad down", "Pad S", "G"},
+    {PadGroup::DPad, "Left", "D-pad left", "Pad W", "F"},
+    {PadGroup::DPad, "Right", "D-pad right", "Pad E", "H"},
+    {PadGroup::Triggers, "L-Analog", nullptr, "Trigger L", "Q"},
+    {PadGroup::Triggers, "R-Analog", nullptr, "Trigger R", "W"},
+    {PadGroup::MainStick, "Up", nullptr, "Left Y+", "UP"},
+    {PadGroup::MainStick, "Down", nullptr, "Left Y-", "DOWN"},
+    {PadGroup::MainStick, "Left", nullptr, "Left X-", "LEFT"},
+    {PadGroup::MainStick, "Right", nullptr, "Left X+", "RIGHT"},
+    {PadGroup::CStick, "Up", nullptr, "Right Y+", "I"},
+    {PadGroup::CStick, "Down", nullptr, "Right Y-", "K"},
+    {PadGroup::CStick, "Left", nullptr, "Right X-", "J"},
+    {PadGroup::CStick, "Right", nullptr, "Right X+", "L"},
+    {PadGroup::Rumble, "Motor", nullptr, "Motor L;Motor R", ""},
+};
+
+// Digital GameCube inputs take a trigger only when it is pressed nearly fully (like the GC's
+// L / R click); sticks, analog triggers and the motor use the value as is.
+bool IsDigital(const PadControl& control)
+{
+  return control.group == PadGroup::Buttons || control.group == PadGroup::DPad ||
+         (control.group == PadGroup::Triggers && std::strchr(control.name, '-') == nullptr);
+}
+
+// SDL names face buttons by position; XInput by Xbox label (same position).
+std::string ToSdl(const std::string& name)
+{
+  if (name == "Button A")
+    return "Button S";
+  if (name == "Button B")
+    return "Button E";
+  if (name == "Button X")
+    return "Button W";
+  if (name == "Button Y")
+    return "Button N";
+  return name;
+}
+
+std::string FromSdl(const std::string& name)
+{
+  if (name == "Button S")
+    return "Button A";
+  if (name == "Button E")
+    return "Button B";
+  if (name == "Button W")
+    return "Button X";
+  if (name == "Button N")
+    return "Button Y";
+  return name;
+}
+
+struct Binding
+{
+  std::vector<std::string> pads;  // XInput control names
+  std::string key;
+};
+
+// Reads an expression the menu could have written; false for anything else.
+bool ParseBinding(const std::string& expression, Binding* binding)
+{
+  *binding = {};
+  for (size_t at = 0; at < expression.size();)
+  {
+    const char c = expression[at];
+    if (c != '`')
+    {
+      if (std::strchr(" |()>0.9", c) == nullptr)
+        return false;
+      ++at;
+      continue;
+    }
+    const size_t end = expression.find('`', at + 1);
+    if (end == std::string::npos)
+      return false;
+    const std::string term = expression.substr(at + 1, end - at - 1);
+    at = end + 1;
+    const size_t colon = term.find(':');
+    if (colon == std::string::npos)
+      return false;
+    const std::string device = term.substr(0, colon), control = term.substr(colon + 1);
+    std::string pad;
+    if (device == kKeyboardDevice)
+      binding->key = control;
+    else if (device.rfind("XInput/", 0) == 0)
+      pad = control;
+    else if (device.rfind("SDL/", 0) == 0)
+      pad = FromSdl(control);
+    else
+      return false;
+    if (!pad.empty() &&
+        std::find(binding->pads.begin(), binding->pads.end(), pad) == binding->pads.end())
+    {
+      binding->pads.push_back(pad);
+    }
+  }
+  return true;
+}
+
+std::string BuildBinding(const Binding& binding, bool digital, const std::vector<std::string>& sdl)
+{
+  const auto join = [](const std::vector<std::string>& terms) {
+    std::string text;
+    for (const std::string& term : terms)
+      text += (text.empty() ? "" : " | ") + term;
+    return text;
+  };
+  std::vector<std::string> plain, click;
+  for (const std::string& pad : binding.pads)
+  {
+    std::vector<std::string>& terms = digital && pad.rfind("Trigger ", 0) == 0 ? click : plain;
+    for (int slot = 0; slot < 4; ++slot)
+      terms.push_back(fmt::format("`XInput/{}/Gamepad:{}`", slot, pad));
+    for (const std::string& device : sdl)
+      terms.push_back(fmt::format("`{}:{}`", device, ToSdl(pad)));
+  }
+  std::string expression = join(plain);
+  if (!click.empty())
+    expression += (expression.empty() ? "" : " | ") + ("((" + join(click) + ") > 0.9)");
+  if (!binding.key.empty())
+    expression += (expression.empty() ? "" : " | ") + fmt::format("`{}:{}`", kKeyboardDevice, binding.key);
+  return expression;
+}
+
+Binding DefaultBinding(const PadControl& control)
+{
+  Binding binding;
+  for (const char* at = control.pads; *at;)
+  {
+    const char* end = std::strchr(at, ';');
+    binding.pads.emplace_back(at, end ? end : at + std::strlen(at));
+    at = end ? end + 1 : at + std::strlen(at);
+  }
+  binding.key = control.key;
+  return binding;
+}
+
+ControlReference* PadReference(const PadControl& control)
+{
+  ControllerEmu::ControlGroup* group = Pad::GetGroup(0, control.group);
+  if (!group)
+    return nullptr;
+  for (const auto& item : group->controls)
+  {
+    if (item->name == control.name)
+      return item->control_ref.get();
+  }
+  return nullptr;
+}
+
+std::vector<std::string> s_sdl_pads;  // SDL gamepads the bindings currently include
+bool s_pad_ready = false;
+
+std::vector<std::string> ConnectedSdlPads()
+{
+  std::vector<std::string> pads;
+  for (const std::string& device : g_controller_interface.GetAllDeviceStrings())
+  {
+    // Xbox pads also show up through SDL; XInput already binds them (and drives their motors).
+    if (device.rfind("SDL/", 0) == 0 && device.find("Xbox") == std::string::npos &&
+        device.find("XInput") == std::string::npos)
+    {
+      pads.push_back(device);
+    }
+  }
+  return pads;
+}
+
+// Re-resolves the bindings and, for menu edits, writes GCPadNew.ini.
+void CommitPad(bool save)
+{
+  if (InputConfig* config = Pad::GetConfig())
+  {
+    if (ControllerEmu::EmulatedController* pad = config->GetController(0))
+      pad->UpdateReferences(g_controller_interface);
+    if (save)
+      config->SaveConfig();
+  }
+}
+
+void ApplyRumble()
+{
+  for (const PadControl& control : kPadControls)
+  {
+    if (control.group != PadGroup::Rumble)
+      continue;
+    if (ControlReference* reference = PadReference(control))
+    {
+      const auto lock = ControllerEmu::EmulatedController::GetStateLock();
+      reference->range = s_settings.rumble ? s_settings.rumble_strength / 100.0 : 0.0;
+    }
+  }
+}
+
+// Keeps every simple binding in step with the connected SDL gamepads, so a DualShock plugged in
+// mid-game works with the same layout. Checked about once a second; not saved (rebuilt each run).
+void SyncPadDevices(float dt)
+{
+  static float timer = 0.0f;
+  if (s_pad_ready && (timer += dt) < 1.0f)
+    return;
+  timer = 0.0f;
+  if (!Pad::GetConfig() || !Pad::GetConfig()->GetController(0))
+    return;
+  if (!s_pad_ready)
+  {
+    s_pad_ready = true;
+    ApplyRumble();
+  }
+  const std::vector<std::string> sdl = ConnectedSdlPads();
+  if (sdl == s_sdl_pads)
+    return;
+  s_sdl_pads = sdl;
+  {
+    const auto lock = ControllerEmu::EmulatedController::GetStateLock();
+    for (const PadControl& control : kPadControls)
+    {
+      ControlReference* reference = PadReference(control);
+      Binding binding;
+      if (!reference || !ParseBinding(reference->GetExpression(), &binding))
+        continue;
+      const std::string expression = BuildBinding(binding, IsDigital(control), sdl);
+      if (expression != reference->GetExpression())
+        reference->SetExpression(expression);
+    }
+  }
+  CommitPad(false);
+}
+
+void ResetPadDefaults()
+{
+  {
+    const auto lock = ControllerEmu::EmulatedController::GetStateLock();
+    for (const PadControl& control : kPadControls)
+    {
+      if (ControlReference* reference = PadReference(control))
+        reference->SetExpression(BuildBinding(DefaultBinding(control), IsDigital(control), s_sdl_pads));
+    }
+  }
+  s_settings.rumble = true;
+  s_settings.rumble_strength = 100;
+  ApplyRumble();
+  CommitPad(true);
+}
+
+// Rebinding: Dolphin's InputDetector watches every device until one control is pressed and
+// released (or 6 s pass). The menu ignores the pad while it waits.
+std::unique_ptr<ciface::Core::InputDetector> s_detector;
+int s_binding = -1;        // index into kPadControls being rebound
+float s_binding_time = 0.0f;
+std::string s_binding_note;  // result of the last attempt
+
+void StartBinding(int index)
+{
+  s_binding = index;
+  s_binding_time = 0.0f;
+  s_binding_note.clear();
+  s_detector = std::make_unique<ciface::Core::InputDetector>();
+  const auto lock = ControllerEmu::EmulatedController::GetStateLock();
+  s_detector->Start(g_controller_interface, g_controller_interface.GetAllDeviceStrings());
+}
+
+void PollBinding(float dt)
+{
+  if (!s_detector)
+    return;
+  s_binding_time += dt;
+  using namespace std::chrono_literals;
+  s_detector->Update(6000ms, 0ms, 6000ms);
+  if (!s_detector->IsComplete())
+    return;
+  const auto results = s_detector->TakeResults();
+  s_detector.reset();
+  const PadControl& control = kPadControls[s_binding];
+  s_binding = -1;
+  for (const auto& detection : results)
+  {
+    if (!detection.device || !detection.input)
+      continue;
+    const std::string source = detection.device->GetSource();
+    const std::string name = detection.input->GetName();
+    // Back / Guide / Tab stay reserved for this menu; mouse input is never a game control.
+    if (name == "Back" || name == "Guide" || name == "TAB" || name.rfind("Click", 0) == 0 ||
+        name.rfind("Cursor", 0) == 0 || name.rfind("Axis", 0) == 0)
+    {
+      continue;
+    }
+    const bool keyboard = detection.device->GetQualifiedName() == kKeyboardDevice;
+    if (!keyboard && source != "XInput" && source != "SDL")
+      continue;
+    ControlReference* reference = PadReference(control);
+    if (!reference)
+      return;
+    Binding binding;
+    if (!ParseBinding(reference->GetExpression(), &binding))
+      binding = {};
+    if (keyboard)
+      binding.key = name;
+    else
+      binding.pads = {source == "SDL" ? FromSdl(name) : name};
+    {
+      const auto lock = ControllerEmu::EmulatedController::GetStateLock();
+      reference->SetExpression(BuildBinding(binding, IsDigital(control), s_sdl_pads));
+    }
+    CommitPad(true);
+    s_binding_note.clear();
+    return;
+  }
+  s_binding_note = "Nothing new was pressed; the binding is unchanged.";
+}
+
+// Pad control name as printed on Xbox / PlayStation pads.
+std::string PadLabel(const std::string& name)
+{
+  static const std::pair<const char*, const char*> labels[] = {
+      {"Button A", "A / Cross"},     {"Button B", "B / Circle"},   {"Button X", "X / Square"},
+      {"Button Y", "Y / Triangle"},  {"Shoulder L", "LB / L1"},    {"Shoulder R", "RB / R1"},
+      {"Trigger L", "LT / L2"},      {"Trigger R", "RT / R2"},     {"Start", "Menu / Options"},
+      {"Thumb L", "L3"},             {"Thumb R", "R3"},            {"Pad N", "D-pad up"},
+      {"Pad S", "D-pad down"},       {"Pad W", "D-pad left"},      {"Pad E", "D-pad right"},
+      {"Left X-", "L stick left"},   {"Left X+", "L stick right"}, {"Left Y+", "L stick up"},
+      {"Left Y-", "L stick down"},   {"Right X-", "R stick left"}, {"Right X+", "R stick right"},
+      {"Right Y+", "R stick up"},    {"Right Y-", "R stick down"},
+  };
+  for (const auto& [from, to] : labels)
+  {
+    if (name == from)
+      return to;
+  }
+  return name;
+}
+
+std::string BindingSummary(const PadControl& control)
+{
+  ControlReference* reference = PadReference(control);
+  Binding binding;
+  if (!reference || !ParseBinding(reference->GetExpression(), &binding))
+    return reference ? "Custom" : "-";
+  std::string text;
+  for (const std::string& pad : binding.pads)
+    text += (text.empty() ? "" : ", ") + PadLabel(pad);
+  if (!binding.key.empty())
+    text += (text.empty() ? "" : "   ") + ("key " + (binding.key == "RETURN" ? "Enter" : binding.key));
+  return text.empty() ? "Unbound" : text;
+}
 
 void SetOpen(bool open)
 {
@@ -1359,8 +1830,58 @@ void DrawPanel(float width, float height)
 
     if (s_tab == 0 || s_tab == 5)
     {
-      header("CHEATS", 5);
-      if (ImGui::Checkbox("Moon jump (hold A / X)", &s.moon_jump))
+      header("CONTROLS", 5);
+      ImGui::PushTextWrapPos(inner + pad);
+      ImGui::TextDisabled("GameCube layout: A bottom, B left, X right, Y top. Select a control, "
+                          "then press the new button or key.");
+      ImGui::PopTextWrapPos();
+      for (int i = 0; i < static_cast<int>(std::size(kPadControls)); ++i)
+      {
+        const PadControl& control = kPadControls[i];
+        if (!control.label)
+          continue;
+        row(control.label);
+        ImGui::PushID(i);
+        std::string text = s_binding == i ?
+                               fmt::format("Press a button or key...  {:.0f}",
+                                           std::ceil(std::max(6.0f - s_binding_time, 0.0f))) :
+                               BindingSummary(control);
+        if (ImGui::Button((text + "###bind").c_str(), ImVec2(field, 0.0f)) && !s_detector)
+          StartBinding(i);
+        ImGui::PopID();
+      }
+      if (!s_binding_note.empty())
+        ImGui::TextDisabled("%s", s_binding_note.c_str());
+      if (ImGui::Checkbox("Rumble", &s.rumble))
+      {
+        ApplyRumble();
+        CommitPad(true);
+        changed = true;
+      }
+      ImGui::BeginDisabled(!s.rumble);
+      row("Rumble strength");
+      if (ImGui::SliderInt("##rumble_strength", &s.rumble_strength, 0, 100, "%d%%"))
+        ApplyRumble();
+      if (ImGui::IsItemDeactivatedAfterEdit())
+      {
+        CommitPad(true);
+        changed = true;
+      }
+      ImGui::EndDisabled();
+      if (ImGui::Button("Reset controls to defaults", ImVec2(inner, 0.0f)))
+      {
+        ResetPadDefaults();
+        changed = true;
+      }
+      ImGui::PushTextWrapPos(inner + pad);
+      ImGui::TextDisabled("Back and Tab always open this menu. Sticks keep their defaults.");
+      ImGui::PopTextWrapPos();
+    }
+
+    if (s_tab == 0 || s_tab == 6)
+    {
+      header("CHEATS", 6);
+      if (ImGui::Checkbox("Jump height (hold A to rise)", &s.moon_jump))
         changed = true;
       ImGui::BeginDisabled(!s.moon_jump);
       row("Rise speed");
@@ -1370,9 +1891,9 @@ void DrawPanel(float width, float height)
       ImGui::EndDisabled();
     }
 
-    if (s_tab == 0 || s_tab == 6)
+    if (s_tab == 0 || s_tab == 7)
     {
-      header("SYSTEM", 6);
+      header("SYSTEM", 7);
       row("UI style");
       if (ImGui::BeginCombo("##style", kThemes[s.style].name))
       {
@@ -1463,9 +1984,17 @@ void DrawPanel(float width, float height)
         if (ImGui::Button("Open last log", ImVec2(inner, 0.0f)))
           OpenPath(log_path, false);
       }
+      if (ReportSnapshotAvailable())
+      {
+        if (ImGui::Button("Save bug report snapshot (F12)", ImVec2(inner, 0.0f)))
+          SaveReportSnapshot();
+        ImGui::PushTextWrapPos(inner + pad);
+        ImGui::TextDisabled("Saves a savestate and a screenshot of this moment for a bug report.");
+        ImGui::PopTextWrapPos();
+      }
 
       static const bool test_controls = std::getenv("MODERNGEKKO_WARIO_MENU_TEST") != nullptr;
-      if (test_controls && s_tab == 6)
+      if (test_controls && s_tab == 7)
         ImGui::SetNextItemOpen(true);  // snapshots show the help text
       if (ImGui::CollapsingHeader("Controls"))
       {
@@ -1480,12 +2009,15 @@ void DrawPanel(float width, float height)
           }
           ImGui::Spacing();
         };
-        keys("Xbox controller", {{"A  B  X  Y", "As labelled"},
-                                 {"Left stick", "Move"},
-                                 {"Right stick", "C-stick"},
-                                 {"Menu", "Start"},
-                                 {"RB", "Z"},
-                                 {"LT  RT", "L  R"}});
+        keys("Xbox / PlayStation", {{"A / Cross", "A (jump)"},
+                                    {"X / Square", "B (punch)"},
+                                    {"B / Circle", "X"},
+                                    {"Y / Triangle", "Y"},
+                                    {"Left stick", "Move"},
+                                    {"Right stick", "C-stick (camera)"},
+                                    {"Menu / Options", "Start"},
+                                    {"RB / R1", "Z"},
+                                    {"LT RT / L2 R2", "L  R"}});
         keys("Keyboard", {{"Arrows", "Move"},
                           {"Enter", "Start"},
                           {"X  Z", "A  B"},
@@ -1494,8 +2026,8 @@ void DrawPanel(float width, float height)
                           {"I  J  K  L", "C-stick"},
                           {"T  F  G  H", "D-pad"}});
         ImGui::PushTextWrapPos(inner + pad);
-        ImGui::TextDisabled("Yes / No menus use the stick, not the D-pad. Back or Tab opens this "
-                            "menu.");
+        ImGui::TextDisabled("GameCube layout by position; rebind in the Controls tab. Yes / No "
+                            "menus use the stick, not the D-pad. Back or Tab opens this menu.");
         ImGui::PopTextWrapPos();
       }
     }
@@ -1612,6 +2144,25 @@ void WarioMenuDraw(u32 width, u32 height)
           SetFullscreen(requests[test_stage - 2]);
         ++test_stage;
       }
+      else if (test_stage == 2 && test_time > 8.5f && std::getenv("MODERNGEKKO_WARIO_MENU_TEST_REPORT"))
+      {
+        // MODERNGEKKO_WARIO_MENU_TEST_REPORT: "Save bug report snapshot", then a menu picture with
+        // the toast once it is showing.
+        SaveReportSnapshot();
+        test_stage = 7;
+      }
+      else if (test_stage == 7 && test_time > 9.0f)
+      {
+        g_wario_menu_snapshot.store(true);
+        test_stage = 8;
+      }
+      else if (test_stage == 2 && test_time > 8.5f && std::getenv("MODERNGEKKO_WARIO_MENU_TEST_PAD"))
+      {
+        // MODERNGEKKO_WARIO_MENU_TEST_PAD: "Reset controls to defaults" (writes GCPadNew.ini).
+        ResetPadDefaults();
+        g_wario_menu_snapshot.store(true);  // a second picture, after the reset
+        test_stage = 6;
+      }
       else if (test_stage == 2 && test_time > 9.0f && std::getenv("MODERNGEKKO_WARIO_MENU_TEST_RESTART"))
       {
         // MODERNGEKKO_WARIO_MENU_TEST_RESTART: press Restart now after the snapshot.
@@ -1620,10 +2171,14 @@ void WarioMenuDraw(u32 width, u32 height)
       }
     }
   }
-  if ((pressed & PAD_BACK) || (tab && !s_previous_tab))
+  SyncPadDevices(dt);
+  PollBinding(dt);
+  const bool binding = s_detector != nullptr;  // waiting for a new button: pad / Tab go there
+  if (!binding && ((pressed & PAD_BACK) || (tab && !s_previous_tab)))
     SetOpen(!s_open);
   s_previous_tab = tab;
-  const bool idle = !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) && !ImGui::IsAnyItemActive();
+  const bool idle = !binding && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) &&
+                    !ImGui::IsAnyItemActive();
   if (s_open && (pressed & PAD_B) && idle)
     SetOpen(false);
   if (s_open && (pressed & (PAD_LB | PAD_RB)) && idle)
@@ -1636,11 +2191,10 @@ void WarioMenuDraw(u32 width, u32 height)
   s_fullscreen_wait = std::max(s_fullscreen_wait - dt, 0.0f);
   s_anim = std::clamp(s_anim + (s_open ? dt : -dt) / 0.18f, 0.0f, 1.0f);
   g_wario_menu_open.store(s_open || s_anim > 0.0f);
-  FeedNavigation(pad, s_open);
-  MoonJump(dt, (pad.buttons & PAD_A) != 0 || KeyDown('X'));
+  FeedNavigation(pad, s_open && !binding);
+  // Jump height follows the GameCube A button, so it moves with a rebinding.
+  MoonJump(dt, (Pad::GetStatus(0).button & PAD_BUTTON_A) != 0);
 #ifdef _WIN32
-  // The game module tags its matrices only while object interpolation is wanted, so the default
-  // GX command stream stays exactly the original.
   // Game audio mix (module exports, docs/engine/AUDIO.md), written every frame. A module built
   // before the exports existed has none, and the Music / SFX controls say so.
   static volatile s32* const audio_music = WarioModuleS32("wario_audio_music");
@@ -1653,6 +2207,8 @@ void WarioMenuDraw(u32 width, u32 height)
     *audio_sfx = s_settings.sfx;
     *audio_mute_pause = s_settings.mute_pause_music ? 1 : 0;
   }
+  // The game module tags its matrices only while object interpolation is wanted, so the default
+  // GX command stream stays exactly the original.
   static volatile s32* const tagging = [] {
     HMODULE module = GetModuleHandleW(L"gGWWE01_recomp.dll");
     return module ? reinterpret_cast<volatile s32*>(GetProcAddress(module, "wario_fps_tagging"))
@@ -1668,8 +2224,37 @@ void WarioMenuDraw(u32 width, u32 height)
     QueueFps();
   }
   PollExtract();
+  // F12: bug report snapshot, with or without the menu open.
+  static bool previous_f12 = false;
+  const bool f12 = KeyDown(VK_F12);
+  if (f12 && !previous_f12 && ReportSnapshotAvailable())
+    SaveReportSnapshot();
+  previous_f12 = f12;
   if (s_anim > 0.0f)
     DrawPanel(static_cast<float>(width), static_cast<float>(height));
+  if (s_toast_time > 0.0f)
+  {
+    // Small note at the bottom centre; fades out over its last half second.
+    s_toast_time -= dt;
+    const float font = std::clamp(18.0f * UiScale(), 10.0f, 96.0f);
+    ImGui::SetNextWindowPos(ImVec2(width * 0.5f, height - font * 2.0f), ImGuiCond_Always,
+                            ImVec2(0.5f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.85f);
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, std::clamp(s_toast_time / 0.5f, 0.0f, 1.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, font * 0.4f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(font * 0.9f, font * 0.5f));
+    if (ImGui::Begin("##wario_toast", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                         ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
+                         ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoSavedSettings))
+    {
+      ImGui::PushFont(nullptr, font);
+      ImGui::TextUnformatted(s_toast.c_str());
+      ImGui::PopFont();
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(3);
+  }
 }
 
 // Called by Presenter::Present after Finalize, outside the ImGui lock.

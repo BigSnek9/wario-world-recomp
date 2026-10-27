@@ -2,7 +2,7 @@ import configparser
 from pathlib import Path
 import unittest
 from uuid import uuid4
-from configure_controls import ROOT,install
+from configure_controls import ROOT,install,migrate,legacy_profile,profile
 
 class ControllerConfigTests(unittest.TestCase):
     def setUp(self):
@@ -29,5 +29,28 @@ class ControllerConfigTests(unittest.TestCase):
         d=self.user/'Config/Dolphin.ini';d.write_text('[Core]\nSlotA=8\nSIDevice1=7\n[DSP]\nVolume=23\n')
         install(self.user);c=configparser.ConfigParser();c.read(d)
         self.assertEqual(save.read_bytes(),b'KEEP MY SAVE');self.assertEqual(c['Core']['SlotA'],'8');self.assertEqual(c['Core']['SIDevice1'],'7');self.assertEqual(c['DSP']['Volume'],'23')
+
+    def test_gamecube_layout_and_rumble(self):
+        report=install(self.user)
+        c=configparser.ConfigParser(interpolation=None);c.optionxform=str;c.read(report['profile'])
+        self.assertIn('Gamepad:Button X`',c['GCPad1']['Buttons/B'])
+        self.assertIn('Gamepad:Button B`',c['GCPad1']['Buttons/X'])
+        self.assertIn('Gamepad:Motor L`',c['GCPad1']['Rumble/Motor'])
+        self.assertIn('Gamepad:Motor R`',c['GCPad1']['Rumble/Motor'])
+    def test_migrate_old_defaults_keeps_custom(self):
+        p=self.user/'Config/GCPadNew.ini'
+        c=configparser.ConfigParser(interpolation=None);c.optionxform=str;c.add_section('GCPad1')
+        for key,value in legacy_profile().items():c.set('GCPad1',key,value)
+        c.set('GCPad1','Buttons/Y','`XInput/0/Gamepad:Thumb L`')
+        with p.open('w',encoding='utf-8') as out:c.write(out)
+        before=p.read_bytes();report=migrate(self.user)
+        self.assertEqual(Path(report['previous_profile_backup']).read_bytes(),before)
+        m=configparser.ConfigParser(interpolation=None);m.optionxform=str;m.read(p)
+        self.assertEqual(m['GCPad1']['Buttons/B'],profile()['Buttons/B'])
+        self.assertEqual(m['GCPad1']['Buttons/X'],profile()['Buttons/X'])
+        self.assertEqual(m['GCPad1']['Rumble/Motor'],profile()['Rumble/Motor'])
+        self.assertEqual(m['GCPad1']['Buttons/Y'],'`XInput/0/Gamepad:Thumb L`')
+        self.assertIn('Buttons/Y',report['kept_custom'])
+        again=migrate(self.user);self.assertIsNone(again['previous_profile_backup']);self.assertEqual(again['updated'],[])
 
 if __name__=='__main__':unittest.main()

@@ -67,7 +67,7 @@ int main(int argc,char** argv){
  auto check=[&](bool ok,const char* name){++cases;if(!ok){++failed;std::printf("FAIL %s\n",name);}};
  auto clear=[&](){keyboard->Clear();for(auto& d:pads)d->Clear();};
  check(gc.GetInput().isConnected,"connected");
- const std::vector<std::pair<std::string,u16>> buttons={{"Button A",PAD_BUTTON_A},{"Button B",PAD_BUTTON_B},{"Button X",PAD_BUTTON_X},{"Button Y",PAD_BUTTON_Y},{"Shoulder R",PAD_TRIGGER_Z},{"Start",PAD_BUTTON_START},{"Pad N",PAD_BUTTON_UP},{"Pad S",PAD_BUTTON_DOWN},{"Pad W",PAD_BUTTON_LEFT},{"Pad E",PAD_BUTTON_RIGHT},{"Shoulder L",PAD_TRIGGER_L}};
+ const std::vector<std::pair<std::string,u16>> buttons={{"Button A",PAD_BUTTON_A},{"Button X",PAD_BUTTON_B},{"Button B",PAD_BUTTON_X},{"Button Y",PAD_BUTTON_Y},{"Shoulder R",PAD_TRIGGER_Z},{"Start",PAD_BUTTON_START},{"Pad N",PAD_BUTTON_UP},{"Pad S",PAD_BUTTON_DOWN},{"Pad W",PAD_BUTTON_LEFT},{"Pad E",PAD_BUTTON_RIGHT},{"Shoulder L",PAD_TRIGGER_L}};
  for(int slot=0;slot<4;slot++)for(auto& [key,mask]:buttons){clear();pads[slot]->values[key]=1;check((gc.GetInput().button&mask)!=0,(std::to_string(slot)+" "+key).c_str());}
  for(auto& key:std::vector<std::string>{"Left X+","Left X-","Left Y+","Left Y-","Right X+","Right X-","Right Y+","Right Y-"}){
    clear();pads[0]->values[key]=1;auto state=gc.GetInput();int value=key.starts_with("Left X")?state.stickX:key.starts_with("Left Y")?state.stickY:key.starts_with("Right X")?state.substickX:state.substickY;
