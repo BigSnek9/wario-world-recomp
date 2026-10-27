@@ -108,8 +108,8 @@ between each pair of real frames with the camera halfway between them.
 - Objects drawn with the main projection but not in world space (for example a
   3D HUD model, if any) move with the camera correction in the in-between
   frame.
-- Effects that read back the previous frame (stage-entry afterimage) can differ
-  slightly in the in-between frame.
+- Screen-copy effects (afterimage, blur) are isolated: the replay sees the
+  start-of-frame copies and the real copies are restored afterwards.
 - If the game changes a buffer that frame N used (indexed matrices, vertex
   arrays) before the video thread reaches the copy, the replay uses the newer
   data. Not seen in testing.

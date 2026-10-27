@@ -105,9 +105,99 @@ def widen_fullscreen_quads(text):
         pattern = re.compile(r"(    // %08X: li\s+r(\d+), (-?)320\n    ctx->gpr\[\2\] = )\(u32\)\(s32\)\(-?320\);" % address)
         text, count = pattern.subn(r"\1(u32)(s32)(\3wario_fullscreen_half_width);", text)
         quad_sites += count
-    if "wario_fullscreen_half_width" in text:
+    text = anchor_hud_edges(text)
+    if "wario_fullscreen_half_width" in text or "WARIO_HUD_DX" in text or "wario_hud_edge" in text:
         text = text.replace('#include "../generated.h"',
-                            '#include "../generated.h"\nextern volatile s32 wario_fullscreen_half_width;', 1)
+                            '#include "../generated.h"\nextern volatile s32 wario_fullscreen_half_width;' +
+                            HUD_EDGE_HELPERS, 1)
+    return text
+
+
+# WS-003 (docs/engine/WIDESCREEN.md): edge-anchored HUD x positions. The extra
+# half width of the widened 2D ortho (WARIO_HUD_DX = wario_fullscreen_half_width
+# - 320; 0 in 4:3, so the default build computes exactly the original values)
+# moves left-anchored elements left and right-anchored ones right. Applied where
+# the x is read for drawing (not where the objects are built), so a live aspect
+# change moves HUD objects that already exist. Covers the community 16:9 Gecko
+# code's HUD sites (it hard-codes DX = 106/107 at the constructors instead).
+#   fn_80080954 (left slide-in coin panel, fn_80080658): screen-left edge -320.
+#   fn_800814E0 (top-left slide-in counters, children of fn_80082044): x passed
+#     to the three draw virtuals.
+#   fn_80082344 sprite rows: hearts (fn_800829C4, x -280, bottom-left) and the
+#     stage counter row (fn_80082E4C via fn_80082D84, x +280, bottom-right); the
+#     stored x (+0x1C) is read by fn_80082594 (item n x), fn_800825C8 and
+#     fn_8008284C (draw) and fn_800824A0 (position getter, s16 -> float via
+#     GQR5). Pushed away from the centre by sign: x<0 left, x>0 right.
+#   fn_80080BA4 indicator (x +272 at +0x36, bottom-right): fn_80080E54 and
+#     fn_80080FF0 (draw, including the s16 -> float matrix x at 0x80081148).
+_EDGE_I = "(u32)wario_hud_edge_x((s32)(s16)mem_read16(ctx, ea));"
+HUD_EDGE_SITES = {
+    0x800809D0: ("u64 res = (u64)(u32)(s32)(-320) +", "u64 res = (u64)(u32)(s32)(-320 - WARIO_HUD_DX) +"),
+    0x80081528: ("ctx->gpr[4] = ctx->gpr[31] | ctx->gpr[31];", "ctx->gpr[4] = ctx->gpr[31] - (u32)WARIO_HUD_DX;"),
+    0x80081538: ("ctx->gpr[4] = ctx->gpr[31] | ctx->gpr[31];", "ctx->gpr[4] = ctx->gpr[31] - (u32)WARIO_HUD_DX;"),
+    0x8008155C: ("ctx->gpr[4] = ctx->gpr[31] | ctx->gpr[31];", "ctx->gpr[4] = ctx->gpr[31] - (u32)WARIO_HUD_DX;"),
+    0x800825B0: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _EDGE_I),
+    0x800825BC: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _EDGE_I),
+    0x80082600: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _EDGE_I),
+    0x800828C4: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _EDGE_I),
+    0x800824A0: ("ppc_psq_load_inline(ctx, 1u, ea, true, 5u, false, 0x800824A0u);",
+                 "ppc_psq_load_inline(ctx, 1u, ea, true, 5u, false, 0x800824A0u);\n"
+                 "        ctx->fpr[1] = wario_hud_edge_f(ctx->fpr[1]);"),
+    0x80080E78: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _EDGE_I),
+    0x8008101C: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _EDGE_I),
+    0x80081148: ("ppc_psq_load_inline(ctx, 1u, ea, true, 5u, false, 0x80081148u);",
+                 "ppc_psq_load_inline(ctx, 1u, ea, true, 5u, false, 0x80081148u);\n"
+                 "        ctx->fpr[1] = wario_hud_edge_f(ctx->fpr[1]);"),
+    # fn_8006F954 (2D camera apply, GXSetProjection(obj+0x14, ortho)): the 2D
+    # camera bakes HC-0007 into m[0][0] = 2/(r-l) only when it is constructed
+    # (fn_8006F7CC -> C_MTXOrtho fn_8019C6E8), so a camera built before an aspect
+    # change (or restored from a savestate) kept the old width while the HUD
+    # offsets above follow the live value. Recompute m[0][0] from the live
+    # HC-0007 with C_MTXOrtho's arithmetic (l = -r, so m[0][3] stays -0). Inert
+    # until the adapter first widens the half width, so a 4:3-only session never
+    # writes; switching back to 4:3 restores exactly 2*(1/640).
+    0x8006F978: ("ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(20);",
+                 "ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(20);\n    wario_sync_2d_ortho(ctx, ctx->gpr[3]);"),
+}
+HUD_EDGE_HELPERS = """
+#define WARIO_HUD_DX ((s32)wario_fullscreen_half_width - 320)
+static inline s32 wario_hud_edge_x(s32 x) {
+    const s32 dx = WARIO_HUD_DX;
+    return dx == 0 ? x : x < 0 ? x - dx : x > 0 ? x + dx : x;
+}
+static inline f64 wario_hud_edge_f(f64 x) {
+    const s32 dx = WARIO_HUD_DX;
+    return dx == 0 ? x : x < 0.0 ? x - (f64)dx : x > 0.0 ? x + (f64)dx : x;
+}
+static inline void wario_sync_2d_ortho(CPUState* ctx, u32 m00_address) {
+    static int wide_seen;
+    union { u32 u; float f; } half, m00;
+    if (wario_fullscreen_half_width != 320)
+        wide_seen = 1;
+    if (!wide_seen)
+        return;
+    half.u = mem_read32(ctx, 0x801FE6CCu);
+    m00.f = 2.0f * (1.0f / (half.f - -half.f));
+    if (mem_read32(ctx, m00_address) != m00.u)
+        mem_write32(ctx, m00_address, m00.u);
+}"""
+hud_sites = 0
+
+
+def anchor_hud_edges(text):
+    global hud_sites
+    for address, (old, new) in HUD_EDGE_SITES.items():
+        marker = "    // %08X: " % address
+        start = text.find(marker)
+        if start < 0:
+            continue
+        end = text.find("\n    // ", start + len(marker))  # next instruction comment
+        end = len(text) if end < 0 else end
+        block = text[start:end]
+        if block.count(old) != 1:
+            raise SystemExit(f"HUD edge site {address:08X}: unexpected generated code")
+        text = text[:start] + block.replace(old, new) + text[end:]
+        hud_sites += 1
     return text
 
 
@@ -124,6 +214,8 @@ for source, chunk in chunk_sources:
     sites += count
 if quad_sites != len(FULLSCREEN_QUAD_X):
     raise SystemExit(f"expected {len(FULLSCREEN_QUAD_X)} full-screen quad sites, patched {quad_sites}")
+if hud_sites != len(HUD_EDGE_SITES):
+    raise SystemExit(f"expected {len(HUD_EDGE_SITES)} HUD edge sites, patched {hud_sites}")
 for model in models:
     mid, name = model["module_id"], model["name"]
     write_changed(destination / f"rel_bridge_{mid}.c",

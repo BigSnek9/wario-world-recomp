@@ -62,6 +62,81 @@ VSM_APPLY_NEW = """    corrected_matrix *= g_freelook_camera.GetView();
 
   g_freelook_camera.GetController()->SetClean();"""
 
+TC_HEADER_OLD = "  void FlushStaleBinds();\n"
+TC_HEADER_NEW = TC_HEADER_OLD + (
+    "\n  // Wario World frame interpolation: the game's EFB-to-texture copies (screen feedback effects)\n"
+    "  // as they were at the start of the frame and after the real frame. The replay runs with the\n"
+    "  // start-of-frame textures and the real ones are put back afterwards, so the in-between frame\n"
+    "  // never feeds into the next real frame.\n"
+    "  void WarioSwapFrameCopies(bool to_frame_start);\n"
+    "  void WarioResetFrameCopies() { m_wario_frame_copies.clear(); }\n"
+    "  struct WarioCopyRecord\n"
+    "  {\n"
+    "    u32 address;\n"
+    "    RcTcacheEntry before, after;\n"
+    "  };\n"
+    "  std::vector<WarioCopyRecord> m_wario_frame_copies;\n")
+
+TC_RECORD_OLD = "  const bool is_xfb_copy = !is_depth_copy && !isIntensity && dstFormat == EFBCopyFormat::XFB;\n"
+TC_RECORD_NEW = TC_RECORD_OLD + """  const bool wario_track = !is_xfb_copy && g_wario_fps_record && !g_wario_fps_replaying;
+  if (wario_track && std::ranges::find(m_wario_frame_copies, dstAddr, &WarioCopyRecord::address) ==
+                         m_wario_frame_copies.end())
+  {
+    RcTcacheEntry before;
+    const auto range = m_textures_by_address.equal_range(dstAddr);
+    for (auto it = range.first; it != range.second; ++it)
+    {
+      if (it->second->IsEfbCopy() && it->second->addr == dstAddr)
+      {
+        before = it->second;
+        break;
+      }
+    }
+    m_wario_frame_copies.push_back({dstAddr, std::move(before), {}});
+  }
+"""
+
+TC_AFTER_OLD = """    entry->SetHashes(hash, hash);
+    m_textures_by_address.emplace(dstAddr, std::move(entry));"""
+TC_AFTER_NEW = """    entry->SetHashes(hash, hash);
+    if (wario_track)
+    {
+      for (auto& record : m_wario_frame_copies)
+        if (record.address == dstAddr)
+          record.after = entry;
+    }
+    m_textures_by_address.emplace(dstAddr, std::move(entry));"""
+
+TC_SWAP_OLD = "void TextureCacheBase::FlushStaleBinds()\n"
+TC_SWAP_NEW = """void TextureCacheBase::WarioSwapFrameCopies(bool to_frame_start)
+{
+  for (auto& record : m_wario_frame_copies)
+  {
+    const auto range = m_textures_by_address.equal_range(record.address);
+    for (auto it = range.first; it != range.second;)
+    {
+      if (it->second->IsEfbCopy() && it->second->addr == record.address)
+        it = InvalidateTexture(it, true);
+      else
+        ++it;
+    }
+    const RcTcacheEntry& entry = to_frame_start ? record.before : record.after;
+    if (entry)
+    {
+      entry->invalidated = false;
+      m_textures_by_address.emplace(record.address, entry);
+    }
+  }
+  for (auto& bound : m_bound_textures)
+    bound.reset();
+  TMEM::InvalidateAll();
+}
+
+""" + TC_SWAP_OLD
+
+TC_EXTERN_OLD = '#include "VideoCommon/VideoConfig.h"\n'
+TC_EXTERN_NEW = TC_EXTERN_OLD + "\nextern bool g_wario_fps_record;     // VideoCommon/BPStructs.cpp\nextern bool g_wario_fps_replaying;\n"
+
 TC_GLOBALS_OLD = "void TextureCacheBase::CopyRenderTargetToTexture("
 TC_GLOBALS_NEW = """// Wario World frame interpolation: copy into a private entry (no RAM, no cache registration).
 bool g_wario_private_xfb_copy = false;
@@ -345,7 +420,7 @@ static bool WarioFpsEnabled()
 bool g_wario_fps_record = WarioFpsEnabled();
 // Wanted state, switched live by the in-game menu (VideoCommon/OnScreenUI.cpp).
 std::atomic<bool> g_wario_fps_enabled{WarioFpsEnabled()};
-static bool g_wario_fps_replaying = false;
+bool g_wario_fps_replaying = false;
 
 namespace
 {
@@ -945,6 +1020,7 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
   g_wario_fps_replaying = true;
   std::vector<u8> tmem_end(s_tex_mem.begin(), s_tex_mem.end());
   std::copy(s_wfps.tmem.begin(), s_wfps.tmem.end(), s_tex_mem.begin());
+  g_texture_cache->WarioSwapFrameCopies(true);
   WarioRun(s_wfps.prologue);
   g_wario_view_correction_active = true;
   xf_state_manager.SetProjectionChanged();
@@ -963,6 +1039,7 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
     WarioRun(s_wfps.commands);
   }
   g_vertex_manager->Flush();
+  g_texture_cache->WarioSwapFrameCopies(false);
   g_wario_view_correction_active = false;
   xf_state_manager.SetProjectionChanged();
   std::copy(tmem_end.begin(), tmem_end.end(), s_tex_mem.begin());
@@ -1011,6 +1088,7 @@ void WarioFpsRecordCommand(const u8* data, u32 size)
     // This is the XFB copy that ended the previous frame.
     s_wfps.reset_pending = false;
     s_wfps.commands.clear();
+    g_texture_cache->WarioResetFrameCopies();
     std::swap(s_wfps.matrices, s_wfps.previous_matrices);
     s_wfps.matrices.Clear();
     WarioSnapshotFrameStart();
@@ -1080,7 +1158,12 @@ def apply(replace, runtime):
     replace(video / "OpcodeDecoding.cpp", OPCODE_HOOK_OLD, OPCODE_HOOK_NEW)
     replace(video / "VertexShaderManager.cpp", VSM_GLOBALS_OLD, VSM_GLOBALS_NEW)
     replace(video / "VertexShaderManager.cpp", VSM_APPLY_OLD, VSM_APPLY_NEW)
+    replace(video / "TextureCacheBase.h", TC_HEADER_OLD, TC_HEADER_NEW)
+    replace(video / "TextureCacheBase.cpp", TC_EXTERN_OLD, TC_EXTERN_NEW)
     replace(video / "TextureCacheBase.cpp", TC_GLOBALS_OLD, TC_GLOBALS_NEW)
+    replace(video / "TextureCacheBase.cpp", TC_RECORD_OLD, TC_RECORD_NEW)
+    replace(video / "TextureCacheBase.cpp", TC_AFTER_OLD, TC_AFTER_NEW)
+    replace(video / "TextureCacheBase.cpp", TC_SWAP_OLD, TC_SWAP_NEW)
     replace(video / "TextureCacheBase.cpp", TC_CAPTURE_OLD, TC_CAPTURE_NEW)
     replace(video / "TextureCacheBase.cpp", TC_GUARD_OLD, TC_GUARD_NEW)
     replace(video / "Present.h", PRESENT_DECL_OLD, PRESENT_DECL_NEW)

@@ -383,10 +383,10 @@ index d084fea..a2a5dc7 100644
    std::vector<u64> m_effective_chunk_hashes;
    u64 m_rel_mapping_generation = 0;
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
-index 7b3d845..0cc8d77 100644
+index 7b3d845..87cab0d 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
-@@ -13,6 +13,198 @@
+@@ -13,6 +13,206 @@
  #include "Common/Logging/Log.h"
  
  #include <cstdio>
@@ -582,10 +582,18 @@ index 7b3d845..0cc8d77 100644
 +#include <cstring>
 +#include "Core/CoreTiming.h"
 +#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
  
  namespace
  {
-@@ -367,6 +559,13 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -367,6 +567,13 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
    auto* core = static_cast<StaticRecompCore*>(cpu->external_user_data);
    cia = core->TranslateRelAddress(cia);
    ++core->m_hook_fallback_instructions;
@@ -599,7 +607,7 @@ index 7b3d845..0cc8d77 100644
  
    // Lockstep: a block that fell back to the interpreter for an unmodeled
    // instruction (DMA mtspr, cache op, ...) performed side effects not captured
-@@ -397,6 +596,7 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -397,6 +604,7 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
          ppc.iCache.Invalidate(system.GetMemory(), system.GetJitInterface(), ea);
        else
          system.GetJitInterface().InvalidateICacheLine(ea);
@@ -607,7 +615,7 @@ index 7b3d845..0cc8d77 100644
        // These bypass SingleStepInner, so charge Dolphin's PPCTables cost
        // here (icbi 4, dcbf/dcbst/dcbi 5); their emitted block cost is zero.
        ppc.downcount -= (xo == 982u) ? 4 : 5;
-@@ -405,12 +605,102 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -405,12 +613,102 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
      }
    }
  
@@ -1194,7 +1202,7 @@ index 3402fda..1e7ea6a 100644
 +  return std::make_unique<PlatformWin32>(hidden);
  }
 diff --git a/Source/Core/VideoCommon/BPStructs.cpp b/Source/Core/VideoCommon/BPStructs.cpp
-index 180bc86..890f8b9 100644
+index 180bc86..0abcac6 100644
 --- a/Source/Core/VideoCommon/BPStructs.cpp
 +++ b/Source/Core/VideoCommon/BPStructs.cpp
 @@ -4,8 +4,16 @@
@@ -1229,7 +1237,7 @@ index 180bc86..890f8b9 100644
  #include "VideoCommon/Fifo.h"
  #include "VideoCommon/FramebufferManager.h"
  #include "VideoCommon/GeometryShaderManager.h"
-@@ -46,6 +60,726 @@ using namespace BPFunctions;
+@@ -46,6 +60,729 @@ using namespace BPFunctions;
  static constexpr Common::EnumMap<float, GammaCorrection::Invalid2_2> s_gammaLUT = {1.0f, 1.7f, 2.2f,
                                                                                     2.2f};
  
@@ -1264,7 +1272,7 @@ index 180bc86..890f8b9 100644
 +bool g_wario_fps_record = WarioFpsEnabled();
 +// Wanted state, switched live by the in-game menu (VideoCommon/OnScreenUI.cpp).
 +std::atomic<bool> g_wario_fps_enabled{WarioFpsEnabled()};
-+static bool g_wario_fps_replaying = false;
++bool g_wario_fps_replaying = false;
 +
 +namespace
 +{
@@ -1864,6 +1872,7 @@ index 180bc86..890f8b9 100644
 +  g_wario_fps_replaying = true;
 +  std::vector<u8> tmem_end(s_tex_mem.begin(), s_tex_mem.end());
 +  std::copy(s_wfps.tmem.begin(), s_wfps.tmem.end(), s_tex_mem.begin());
++  g_texture_cache->WarioSwapFrameCopies(true);
 +  WarioRun(s_wfps.prologue);
 +  g_wario_view_correction_active = true;
 +  xf_state_manager.SetProjectionChanged();
@@ -1882,6 +1891,7 @@ index 180bc86..890f8b9 100644
 +    WarioRun(s_wfps.commands);
 +  }
 +  g_vertex_manager->Flush();
++  g_texture_cache->WarioSwapFrameCopies(false);
 +  g_wario_view_correction_active = false;
 +  xf_state_manager.SetProjectionChanged();
 +  std::copy(tmem_end.begin(), tmem_end.end(), s_tex_mem.begin());
@@ -1930,6 +1940,7 @@ index 180bc86..890f8b9 100644
 +    // This is the XFB copy that ended the previous frame.
 +    s_wfps.reset_pending = false;
 +    s_wfps.commands.clear();
++    g_texture_cache->WarioResetFrameCopies();
 +    std::swap(s_wfps.matrices, s_wfps.previous_matrices);
 +    s_wfps.matrices.Clear();
 +    WarioSnapshotFrameStart();
@@ -1956,7 +1967,7 @@ index 180bc86..890f8b9 100644
  void BPInit()
  {
    memset(reinterpret_cast<u8*>(&bpmem), 0, sizeof(bpmem));
-@@ -94,6 +828,14 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager&
+@@ -94,6 +831,14 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager&
  
    ((u32*)&bpmem)[bp.address] = bp.newvalue;
  
@@ -1971,7 +1982,7 @@ index 180bc86..890f8b9 100644
    switch (bp.address)
    {
    case BPMEM_GENMODE:  // Set the Generation Mode
-@@ -312,6 +1054,10 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager&
+@@ -312,6 +1057,10 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager&
              s_gammaLUT[PE_copy.gamma], bpmem.triggerEFBCopy.clamp_top,
              bpmem.triggerEFBCopy.clamp_bottom, bpmem.copyfilter.GetCoefficients());
        }
@@ -1982,7 +1993,7 @@ index 180bc86..890f8b9 100644
        else
        {
          // We should be able to get away with deactivating the current bbox tracking
-@@ -352,6 +1098,9 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager&
+@@ -352,6 +1101,9 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager&
          // https://dolphin-emu.org/blog/2017/11/19/hybridxfb/ for examples and more detail.
          system.GetVideoEvents().after_frame_event.Trigger(system);
  
@@ -2817,10 +2828,20 @@ index 91ba870..bd0466b 100644
    void SetNextSwapEstimatedTime(u64 ticks, TimePoint host_time);
  
 diff --git a/Source/Core/VideoCommon/TextureCacheBase.cpp b/Source/Core/VideoCommon/TextureCacheBase.cpp
-index c5d6096..c965c24 100644
+index c5d6096..135fe5e 100644
 --- a/Source/Core/VideoCommon/TextureCacheBase.cpp
 +++ b/Source/Core/VideoCommon/TextureCacheBase.cpp
-@@ -2126,6 +2126,10 @@ bool TextureCacheBase::CopyFilterCanOverflow(const std::array<u32, 3>& coefficie
+@@ -58,6 +58,9 @@
+ #include "VideoCommon/VideoCommon.h"
+ #include "VideoCommon/VideoConfig.h"
+ 
++extern bool g_wario_fps_record;     // VideoCommon/BPStructs.cpp
++extern bool g_wario_fps_replaying;
++
+ static const u64 TEXHASH_INVALID = 0;
+ // Sonic the Fighters (inside Sonic Gems Collection) loops a 64 frames animation
+ static const int TEXTURE_KILL_THRESHOLD = 64;
+@@ -2126,6 +2129,10 @@ bool TextureCacheBase::CopyFilterCanOverflow(const std::array<u32, 3>& coefficie
    return coefficients[0] + coefficients[1] + coefficients[2] >= 128;
  }
  
@@ -2831,7 +2852,30 @@ index c5d6096..c965c24 100644
  void TextureCacheBase::CopyRenderTargetToTexture(
      u32 dstAddr, EFBCopyFormat dstFormat, u32 width, u32 height, u32 dstStride, bool is_depth_copy,
      const MathUtil::Rectangle<int>& srcRect, bool isIntensity, bool scaleByHalf, float y_scale,
-@@ -2301,6 +2305,8 @@ void TextureCacheBase::CopyRenderTargetToTexture(
+@@ -2191,6 +2198,22 @@ void TextureCacheBase::CopyRenderTargetToTexture(
+   // Disadvantage of all methods: Calling this function requires the GPU to perform a pipeline flush
+   // which stalls any further CPU processing.
+   const bool is_xfb_copy = !is_depth_copy && !isIntensity && dstFormat == EFBCopyFormat::XFB;
++  const bool wario_track = !is_xfb_copy && g_wario_fps_record && !g_wario_fps_replaying;
++  if (wario_track && std::ranges::find(m_wario_frame_copies, dstAddr, &WarioCopyRecord::address) ==
++                         m_wario_frame_copies.end())
++  {
++    RcTcacheEntry before;
++    const auto range = m_textures_by_address.equal_range(dstAddr);
++    for (auto it = range.first; it != range.second; ++it)
++    {
++      if (it->second->IsEfbCopy() && it->second->addr == dstAddr)
++      {
++        before = it->second;
++        break;
++      }
++    }
++    m_wario_frame_copies.push_back({dstAddr, std::move(before), {}});
++  }
+   bool copy_to_vram = g_backend_info.bSupportsCopyToVram && !g_ActiveConfig.bDisableCopyToVRAM;
+   bool copy_to_ram =
+       !(is_xfb_copy ? g_ActiveConfig.bSkipXFBCopyToRam : g_ActiveConfig.bSkipEFBCopyToRam) ||
+@@ -2301,6 +2324,8 @@ void TextureCacheBase::CopyRenderTargetToTexture(
        (scaleByHalf || g_framebuffer_manager->GetEFBScale() != 1 || y_scale > 1.0f);
  
    RcTcacheEntry entry;
@@ -2840,7 +2884,7 @@ index c5d6096..c965c24 100644
    if (copy_to_vram)
    {
      // create the texture
-@@ -2328,6 +2334,11 @@ void TextureCacheBase::CopyRenderTargetToTexture(
+@@ -2328,6 +2353,11 @@ void TextureCacheBase::CopyRenderTargetToTexture(
        CopyEFBToCacheEntry(entry, is_depth_copy, srcRect, scaleByHalf, linear_filter, dstFormat,
                            isIntensity, gamma, clamp_top, clamp_bottom,
                            GetVRAMCopyFilterCoefficients(filter_coefficients));
@@ -2852,6 +2896,74 @@ index c5d6096..c965c24 100644
  
        if (g_ActiveConfig.bGraphicMods)
        {
+@@ -2509,6 +2539,12 @@ void TextureCacheBase::CopyRenderTargetToTexture(
+   {
+     const u64 hash = entry->CalculateHash();
+     entry->SetHashes(hash, hash);
++    if (wario_track)
++    {
++      for (auto& record : m_wario_frame_copies)
++        if (record.address == dstAddr)
++          record.after = entry;
++    }
+     m_textures_by_address.emplace(dstAddr, std::move(entry));
+   }
+ }
+@@ -2523,6 +2559,30 @@ void TextureCacheBase::FlushEFBCopies()
+   m_pending_efb_copies.clear();
+ }
+ 
++void TextureCacheBase::WarioSwapFrameCopies(bool to_frame_start)
++{
++  for (auto& record : m_wario_frame_copies)
++  {
++    const auto range = m_textures_by_address.equal_range(record.address);
++    for (auto it = range.first; it != range.second;)
++    {
++      if (it->second->IsEfbCopy() && it->second->addr == record.address)
++        it = InvalidateTexture(it, true);
++      else
++        ++it;
++    }
++    const RcTcacheEntry& entry = to_frame_start ? record.before : record.after;
++    if (entry)
++    {
++      entry->invalidated = false;
++      m_textures_by_address.emplace(record.address, entry);
++    }
++  }
++  for (auto& bound : m_bound_textures)
++    bound.reset();
++  TMEM::InvalidateAll();
++}
++
+ void TextureCacheBase::FlushStaleBinds()
+ {
+   for (u32 i = 0; i < m_bound_textures.size(); i++)
+diff --git a/Source/Core/VideoCommon/TextureCacheBase.h b/Source/Core/VideoCommon/TextureCacheBase.h
+index d596f84..3eaf703 100644
+--- a/Source/Core/VideoCommon/TextureCacheBase.h
++++ b/Source/Core/VideoCommon/TextureCacheBase.h
+@@ -300,6 +300,19 @@ public:
+   // Flush any Bound textures that can't be reused
+   void FlushStaleBinds();
+ 
++  // Wario World frame interpolation: the game's EFB-to-texture copies (screen feedback effects)
++  // as they were at the start of the frame and after the real frame. The replay runs with the
++  // start-of-frame textures and the real ones are put back afterwards, so the in-between frame
++  // never feeds into the next real frame.
++  void WarioSwapFrameCopies(bool to_frame_start);
++  void WarioResetFrameCopies() { m_wario_frame_copies.clear(); }
++  struct WarioCopyRecord
++  {
++    u32 address;
++    RcTcacheEntry before, after;
++  };
++  std::vector<WarioCopyRecord> m_wario_frame_copies;
++
+   // Texture Serialization
+   void SerializeTexture(AbstractTexture* tex, const TextureConfig& config, PointerWrap& p);
+   std::optional<TexPoolEntry> DeserializeTexture(PointerWrap& p);
 diff --git a/Source/Core/VideoCommon/VertexShaderManager.cpp b/Source/Core/VideoCommon/VertexShaderManager.cpp
 index 6d69803..cbf81ac 100644
 --- a/Source/Core/VideoCommon/VertexShaderManager.cpp

@@ -2,6 +2,20 @@
 
 Newest first. Earlier history (2026-10-24..26 morning): ../PROGRESS.md and ../HANDOFF.md.
 
+## 2026-10-27: FPS replay no longer feeds screen-copy effects
+
+- Symptom (human): standing still in some areas, the in-between frames grew
+  ever more blurred. Cause: the replay re-ran the frame's EFB-to-texture copies
+  (screen feedback blur/afterimage); the replay's copy replaced the real one in
+  the texture cache, so the next real frame blended an extra pass in and the
+  blur compounded.
+- Fix (tool_fix_wario_fps.py): the texture cache records, per frame, each
+  EFB-copy address's entry before the first real copy and after the last. The
+  replay runs with the start-of-frame entries, and the real entries are restored
+  afterwards (TextureCacheBase::WarioSwapFrameCopies).
+- Identity replay is now pixel-identical in 32/32 sampled frames, including
+  the stage-entry afterimage frames that differed before. Hub/boss 1.000x.
+
 ## 2026-10-27 (night): in-game menu, live settings, flicker fix
 
 - FPS object flicker: loads were paired by occurrence order only; when draw
