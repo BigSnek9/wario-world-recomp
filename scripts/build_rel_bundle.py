@@ -234,8 +234,33 @@ HUD_EDGE_SITES = {
 BOOK_SCISSOR_CALLS = (0x8005AAB0, 0x8005C4F4, 0x8005DE1C, 0x8005EBA0, 0x800605C0, 0x80061084)
 BOOK_VIEWPORT_CALLS = (0x8005AAD8, 0x8005C51C, 0x8005DE40, 0x8005EBFC, 0x8005EC74, 0x8006062C,
                        0x800611F8, 0x800612BC, 0x80061384, 0x80061490)
-for _address in BOOK_SCISSOR_CALLS + BOOK_VIEWPORT_CALLS:
-    _hook = "wario_book_scissor(ctx);" if _address in BOOK_SCISSOR_CALLS else "wario_book_viewport(ctx);"
+# WS-009 hint/message board figure: the board (fn_8009E5BC, vtable lbl_801C0CB8,
+# built by fn_800A85B0 / fn_800AC250 / fn_800EABAC) holds a parchment object
+# fn_8009DC84 (lbl_801C0CE8; 512x160 in the WS-007 ortho at (0, 0), text at
+# offset (-48, 0) inside the board's matrix, so text follows the synced ortho)
+# and a figure object fn_8009E304 (lbl_801C0CD0) whose draw method fn_8009E52C
+# sets GXSetScissor(obj+0x34..0x3A) and GXSetViewport(obj+0x24..0x30) in EFB
+# pixels: (336, 160, 128, 128), centre x 400 of 512. Like the book, that pixel
+# viewport ignored the widened layout and pushed the figure over the board's
+# right edge at 16:9. Same mapping as WS-008. lbl_801C0CD0 is referenced only
+# by its constructor fn_8009E304 / destructor fn_8009E3F0, and fn_8009E304 is
+# called only by the board constructor fn_8009E5BC, so these calls are
+# board-only.
+BOARD_SCISSOR_CALLS = (0x8009E55C,)
+BOARD_VIEWPORT_CALLS = (0x8009E578,)
+# WS-010 stage results paper: the results screen fn_80077A88 builds the paper
+# fn_8007669C (lbl_801BF748, WS-007 ortho) and its icon layer fn_80076B60
+# (lbl_801BF730, WS-007 perspective; its only caller). The icon layer's draw
+# fn_80076EDC calls three row helpers twice each (left/right column), each
+# setting an EFB-pixel GXSetViewport per icon: fn_800770FC 64x64 grid
+# (0x800771D0; Sprite slots from the lbl_801CE3A4 rescue table), fn_80077400
+# 256x256 (0x80077438) and fn_800778C4 128x128 (0x80077974). The three helpers
+# are called only from fn_80076EDC. Its full-screen GXSetScissor (0x80076F18)
+# stays. Same mapping as WS-008.
+RESULTS_VIEWPORT_CALLS = (0x800771D0, 0x80077438, 0x80077974)
+_SCISSOR_CALLS = BOOK_SCISSOR_CALLS + BOARD_SCISSOR_CALLS
+for _address in _SCISSOR_CALLS + BOOK_VIEWPORT_CALLS + BOARD_VIEWPORT_CALLS + RESULTS_VIEWPORT_CALLS:
+    _hook = "wario_book_scissor(ctx);" if _address in _SCISSOR_CALLS else "wario_book_viewport(ctx);"
     _lr = "ctx->lr = 0x%08Xu;" % (_address + 4)
     HUD_EDGE_SITES[_address] = (_lr, _hook + "\n            " + _lr)
 # The pause book is drawn at 4:3 in the centre, and the HUD rows drawn with it

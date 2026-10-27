@@ -152,6 +152,57 @@ widened), so the book is squeezed to 3/4 and the row looks too wide even with
 original code (also with --reference). Use a 4:3 savestate, or an aspect
 just above 4:3 (e.g. MODERNGEKKO_WARIO_ASPECT=1.34) to see the 4:3 layout.
 
+## WS-009 Message board figure drawn in an EFB-pixel viewport (confirmed code)
+
+The hint/message board is fn_8009E5BC (vtable lbl_801C0CB8; constructed by
+fn_800A85B0, fn_800AC250 and fn_800EABAC). It builds two parts:
+- fn_8009DC84 (vtable lbl_801C0CE8; draw fn_8009DF4C): the parchment and text,
+  drawn through the WS-007 ortho (screen manager lbl_801FDB28 +0x2c[0xC]).
+  Arguments (0, 0, -48, 0), size 512x160 (r5/r6). fn_8009DF4C translates
+  to the board position (+0x24/+0x28), scales by +0x20 (pop-in), draws the
+  parchment (fn_8009E090 / fn_8009E104), then translates by the text offset
+  (+0x2c/+0x30 = -48, 0) inside the board's matrix and draws the text at
+  scale 0.75 (fn_8009E234). The text is therefore board-relative and follows
+  the synced WS-007 ortho.
+- fn_8009E304 (vtable lbl_801C0CD0; draw fn_8009E52C): the 3D figure, drawn
+  through the WS-007 perspective (+0x2c[0x10]). It stores an EFB-pixel
+  viewport (336, 160, 128, 128) (lbl_801FEEA0/A4/A8) at +0x24..+0x30 and
+  its rounded copy at +0x34..+0x3A, and sets GXSetScissor (0x8009E55C) and
+  GXSetViewport (0x8009E578) from them. Centre x 400 of 512 lands near the
+  board's right end at 4:3.
+With a widened 2D half width the board shrinks to its 4:3 size in the centre
+(WS-007), but the pixel viewport stays at 400/512 of the screen width, so at
+16:9 the figure moved right onto and past the board's right edge. Fixed like
+WS-008 (viewport centre and scissor edges mapped about the EFB centre by
+320/half). lbl_801C0CD0 is referenced only by fn_8009E304 (constructor) and
+fn_8009E3F0 (destructor), and fn_8009E304 has the single caller fn_8009E5BC,
+so the two calls are board-only.
+A similar unhooked pattern exists in fn_8009878C (vtable draw of the object
+built by fn_80098550, only from fn_80099684 via fn_80090930): viewport
+(280, 88, 240, 240), centre x 400. Its screen is not identified; it is left
+alone until it is seen.
+
+## WS-010 Stage results paper icons in EFB-pixel viewports (confirmed code)
+
+The results screen fn_80077A88 (called from fn_80078D44) builds the paper
+fn_8007669C (vtable lbl_801BF748, draw fn_80076940, WS-007 ortho) and its
+icon layer fn_80076B60 (vtable lbl_801BF730, WS-007 perspective; only
+caller fn_80077A88). The icon layer's draw fn_80076EDC sets a full-screen
+GXSetScissor (0x80076F18) and calls three row helpers, each twice (left and
+right column, r5 = 0/1), with EFB-pixel bases from lbl_801FE77C..7A4:
+- fn_800770FC: a grid of 64x64 viewports at x = 148.06 + 46.82*(col - 2),
+  y = 159.67 / 340.57 + 51.77*(row - 1) (GXSetViewport 0x800771D0); bits of
+  the lbl_801CE3A4 rescue table pick the model, as in the pause book row.
+- fn_80077400: one 256x256 viewport at x 221.03, y 15.14 / 195.59
+  (0x80077438).
+- fn_800778C4: 128x128 viewports at x 290.8 + step, y 130.4 / 311.5
+  (0x80077974).
+The three helpers have no other caller. As with the pause book (WS-008) the
+paper art follows the widened 2D layer and stays 4:3 in the centre while
+the pixel viewports keep their full-screen positions, so at 16:9 the icons
+spread by half/320 (user report, 2026-10-27). Fixed with the WS-008 mapping
+at the three viewport calls; the full-screen scissor is left alone.
+
 ## Open questions
 
 - Which code writes camera `+0x44` besides fn_80068250 (cutscenes, bosses)?

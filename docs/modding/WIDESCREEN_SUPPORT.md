@@ -141,3 +141,31 @@ and the 2D half-width (WS-002) still need their own changes.
   An earlier report that the original also overhangs at 4:3 came from running
   a 16:9 savestate at 4:3: the savestate's 2D camera stays 16:9 there, which
   squeezes the book (WS-008 caution in the engine doc).
+- WS-009 message board figure (2026-10-27): with WS-007 the board is 4:3 and
+  centred, but its 3D figure (user report: "the little guy" sat over the
+  board's right edge at 16:9) is drawn by fn_8009E52C, the draw method of the
+  figure part fn_8009E304 of the board fn_8009E5BC, in a fixed EFB-pixel
+  viewport (336, 160, 128, 128) with a matching scissor. Hooked like WS-008:
+  scissor 0x8009E55C and viewport 0x8009E578 (BOARD_SCISSOR_CALLS /
+  BOARD_VIEWPORT_CALLS in scripts/build_rel_bundle.py). Board-only: the
+  figure vtable lbl_801C0CD0 is used only by fn_8009E304 / fn_8009E3F0, and
+  fn_8009E304 is called only by fn_8009E5BC. The board text is drawn in the
+  board's own matrix (offset -48, 0, scale 0.75) through the synced WS-007
+  ortho, so it is board-relative and needs no change. At 16:9 the figure
+  centre maps from EFB x 400 to 256 + 144 * 320/half = 364, i.e. 180 ortho
+  units right of centre, the same place as at 4:3 (board half width 256).
+  Not yet seen in a hidden capture: no savestate with a board open was found
+  (CF/AR/AP/CB/COP states and probe walks through the hub into Greenhorn
+  Forest showed none). Pause book and gameplay HUD captures are unchanged
+  against the WS-008 behaviour (states 112331_CF11, 112627_AR11).
+- WS-010 stage results paper (2026-10-27): the results screen's icon layer
+  (fn_80076B60, draw fn_80076EDC) draws its icons in EFB-pixel viewports,
+  like the pause book, through three helpers: fn_800770FC (64x64 grid,
+  0x800771D0), fn_80077400 (256x256, 0x80077438) and fn_800778C4 (128x128,
+  0x80077974). User report: icons misaligned the same way as the pause book.
+  The three viewport calls get the WS-008 mapping (RESULTS_VIEWPORT_CALLS);
+  the helpers are called only from fn_80076EDC, whose object is built only by
+  the results screen fn_80077A88. The full-screen scissor at 0x80076F18 is
+  left alone. Not yet seen in a hidden capture: no savestate near a stage
+  clear exists in private/play-sessions (states are taken 25 s after an
+  area's first load; none follows a boss defeat).
