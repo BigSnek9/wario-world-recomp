@@ -9,6 +9,9 @@ game is playable from start to finish.
 autonomously at the owner's direction: the recompilation, the runtime fixes, the
 enhancements, the tests and these docs.
 
+**Windows only.** It runs on Windows 10/11 (x64), the only system it has been built
+and tested on. Linux, macOS and Steam Deck are not supported.
+
 ## You need your own copy of the game
 
 No game files are included or ever will be. You need your own dump of the
