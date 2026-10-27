@@ -138,6 +138,7 @@ def widen_fullscreen_quads(text):
         quad_sites += count
     text = anchor_hud_edges(text)
     text = hook_matrix_stack(text)
+    text = hook_audio(text)
     if any(name in text for name in ("wario_fullscreen_half_width", "WARIO_HUD_DX", "wario_hud_edge", "wario_quad_half", "wario_sync_2d_ortho", "wario_sync_screen_perspective", "wario_book_")):
         text = text.replace('#include "../generated.h"',
                             '#include "../generated.h"\nextern volatile s32 wario_fullscreen_half_width;' +
@@ -319,6 +320,69 @@ static inline void wario_book_scissor(CPUState* ctx) {
 }"""
 hud_sites = 0
 
+# Audio mixer (docs/engine/AUDIO.md AU-001..AU-006): per-category volume for the
+# runtime menu, read from exported module variables (100 = original, 0 = silent).
+#   Music: every BGM is a MusyX stream (BGM/*.dsp L/R pairs, three slots of the
+#     sound manager [0x801FDB08]); the stream object's mix method fn_80056FE8
+#     passes its fade/volume byte to sndStreamMixParameterEx (fn_80176F64), which
+#     programs the DSP voice directly (hwSetVolume, no synth volume group). The
+#     stream callback re-sends it on every buffer refill, so the r4 byte is scaled
+#     at the 0x80057008 call.
+#   SFX / voice / pause-menu music: all are MusyX synth SFX (sndFXStartEx and the
+#     3D emitters both reach fxStart fn_801741F8). sndPushGroup forces every SFX's
+#     volume group byte (entry +9) to 31 (fn_80178C88), so the game has one SFX
+#     group. While any setting differs from the original, fxStart (0x80174254,
+#     where it reads the group byte into r28) routes the pause-menu music (SFX
+#     0x3BF, fn_8006CC58) to unused group 29 and the voice clips (wario_audio_voice_fid
+#     bit set) to unused group 30; other SFX stay in 31. MusyX multiplies each
+#     voice's volume by its group's float (fn_8017334C), so the synth tick entry
+#     (fn_80173EAC) keeps groups 29/30/31 (0x801E28AC/28DC/290C: +0 current, +4 target)
+#     at the menu values. Groups 29..31 hold 1.0 in the original and nothing else
+#     changes them after sndInit, so default settings never write guest memory.
+#   The menu percent is an amplitude: MusyX's DSP volume follows the square of the
+#   volume value, so the factor written is sqrt(pct / 100) (1.0 exactly at 100).
+AUDIO_SITES = {
+    0x80057008: ("ctx->lr = 0x8005700Cu;", "wario_audio_stream_mix(ctx);\n            ctx->lr = 0x8005700Cu;"),
+    0x80174254: ("ctx->gpr[28] = mem_read8(ctx, ea);",
+                 "ctx->gpr[28] = mem_read8(ctx, ea);\n        wario_audio_fx_group(ctx);"),
+    # fn_8017334C aux (reverb) sends: f28 (aux A) and f3 (aux B) add terms that do not
+    # include the group volume (send controllers +0x190..+0x192 x velocity f30) to the
+    # group-scaled terms in f29; those are scaled too, so a silent group leaves no reverb.
+    0x801738D0: ("ppc_fadds(ctx, 28, 0, 1);", "ppc_fadds(ctx, 28, 0, 1);\n    wario_audio_aux(ctx, 28);"),
+    0x80173950: ("ppc_fadds(ctx, 3, 0, 29);", "ppc_fadds(ctx, 3, 0, 29);\n    wario_audio_aux(ctx, 3);"),
+}
+AUDIO_ENTRY_HOOKS = {0x80173EAC: "wario_audio_tick(ctx);"}
+audio_sites = 0
+
+
+def hook_audio(text):
+    global audio_sites
+    for address, (old, new) in AUDIO_SITES.items():
+        marker = "    // %08X: " % address
+        start = text.find(marker)
+        if start < 0:
+            continue
+        end = text.find("\n    // ", start + len(marker))
+        end = len(text) if end < 0 else end
+        block = text[start:end]
+        if block.count(old) != 1:
+            raise SystemExit(f"audio site {address:08X}: unexpected generated code")
+        text = text[:start] + block.replace(old, new) + text[end:]
+        audio_sites += 1
+    for address, call in AUDIO_ENTRY_HOOKS.items():
+        old = "label_%08X:\n    ctx->pc = 0x%08Xu;\n" % (address, address)
+        if old in text:
+            if text.count(old) != 1:
+                raise SystemExit(f"audio entry hook {address:08X}: unexpected generated code")
+            text = text.replace(old, old + "    " + call + "\n")
+            audio_sites += 1
+    if "wario_audio_" in text:
+        text = text.replace('#include "../generated.h"',
+                            '#include "../generated.h"\nvoid wario_audio_stream_mix(CPUState* ctx);\n'
+                            'void wario_audio_fx_group(CPUState* ctx);\nvoid wario_audio_tick(CPUState* ctx);\n'
+                            'void wario_audio_aux(CPUState* ctx, int reg);', 1)
+    return text
+
 
 def anchor_hud_edges(text):
     global hud_sites
@@ -354,6 +418,8 @@ if hud_sites != len(HUD_EDGE_SITES):
     raise SystemExit(f"expected {len(HUD_EDGE_SITES)} HUD edge sites, patched {hud_sites}")
 if mtx_sites != len(MATRIX_STACK_HOOKS):
     raise SystemExit(f"expected {len(MATRIX_STACK_HOOKS)} matrix stack hooks, patched {mtx_sites}")
+if audio_sites != len(AUDIO_SITES) + len(AUDIO_ENTRY_HOOKS):
+    raise SystemExit(f"expected {len(AUDIO_SITES) + len(AUDIO_ENTRY_HOOKS)} audio sites, patched {audio_sites}")
 for model in models:
     mid, name = model["module_id"], model["name"]
     write_changed(destination / f"rel_bridge_{mid}.c",
@@ -592,8 +658,127 @@ void wario_mtx_hook(CPUState* ctx, int kind) {
     }
     }
 }
+/* Audio mixer (AUDIO_SITES above; docs/engine/AUDIO.md). Percent of the original volume,
+   0..100; 100 everywhere (and mute 0) is the original game and writes nothing. */
+WARIO_REL_EXPORT volatile s32 wario_audio_music = 100;
+WARIO_REL_EXPORT volatile s32 wario_audio_sfx = 100;
+WARIO_REL_EXPORT volatile s32 wario_audio_voice = 100;
+WARIO_REL_EXPORT volatile s32 wario_audio_mute_pause_music = 0;
+/* Bit n set = SFX id n is a voice clip (routed to the voice volume). */
+WARIO_REL_EXPORT volatile u32 wario_audio_voice_fid[32] = { VOICE_FID_BITS };
+#define WARIO_AUDIO_PAUSE_MUSIC_FID 0x3BFu
+#define WARIO_AUDIO_GROUP(g) (0x801E233Cu + (u32)(g) * 0x30u) /* synth volume group: +0 current, +4 target */
+#include <time.h>
+#include <math.h>
+static s32 wario_audio_pct(volatile s32* v) {
+    const s32 x = *v;
+    return x < 0 ? 0 : x > 100 ? 100 : x;
+}
+/* MusyX's DSP volume follows the square of the volume value (measured: 50% of the value
+   gives 0.24x amplitude), so the menu percent is an amplitude: value factor = sqrt(pct). */
+static float wario_audio_factor(volatile s32* v) {
+    return sqrtf((float)wario_audio_pct(v) / 100.0f);
+}
+/* Diagnostics: WARIO_AUDIO_TEST="music,sfx,voice,mute[,delay_ms]" sets the variables after
+   delay_ms (hidden tests); WARIO_AUDIO_TRACE=<file> logs every fxStart (fid, group, callers). */
+static void wario_audio_env(void) {
+    static int state = -1; /* -1 unread, 0 nothing pending, 1 pending */
+    static int values[4];
+    static long delay;
+    static clock_t start;
+    if (state < 0) {
+        const char* text = getenv("WARIO_AUDIO_TEST");
+        state = 0;
+        if (text && sscanf(text, "%d,%d,%d,%d,%ld", &values[0], &values[1], &values[2], &values[3], &delay) >= 4) {
+            state = 1;
+            start = clock();
+        }
+    }
+    if (state == 1 && (clock() - start) * 1000 / CLOCKS_PER_SEC >= delay) {
+        wario_audio_music = values[0];
+        wario_audio_sfx = values[1];
+        wario_audio_voice = values[2];
+        wario_audio_mute_pause_music = values[3];
+        state = 0;
+    }
+}
+static int wario_audio_default(void) {
+    return wario_audio_pct(&wario_audio_music) == 100 && wario_audio_pct(&wario_audio_sfx) == 100 &&
+           wario_audio_pct(&wario_audio_voice) == 100 && !wario_audio_mute_pause_music;
+}
+/* 0x80057008: fn_80056FE8 -> sndStreamMixParameterEx(stid, r4 = volume 0..127, ...). */
+void wario_audio_stream_mix(CPUState* ctx) {
+    const s32 music = wario_audio_pct(&wario_audio_music);
+    if (music != 100)
+        ctx->gpr[4] = (u32)((float)(ctx->gpr[4] & 0xFFu) * wario_audio_factor(&wario_audio_music) + 0.5f);
+}
+/* 0x80174254: fxStart read the SFX entry's volume group into r28 (r3 = entry, +0 = SFX id). */
+void wario_audio_fx_group(CPUState* ctx) {
+    static FILE* trace;
+    static int trace_state = -1;
+    const u32 fid = mem_read16(ctx, ctx->gpr[3]);
+    if (!wario_audio_default()) {
+        if (fid == WARIO_AUDIO_PAUSE_MUSIC_FID)
+            ctx->gpr[28] = 29u;
+        else if (fid < 1024u && (wario_audio_voice_fid[fid >> 5] >> (fid & 31u) & 1u))
+            ctx->gpr[28] = 30u;
+    }
+    if (trace_state < 0) {
+        const char* path = getenv("WARIO_AUDIO_TRACE");
+        trace = path && *path ? fopen(path, "a") : NULL;
+        trace_state = trace != NULL;
+    }
+    if (trace) {
+        /* return addresses: fxStart's caller (saved at its frame +0x64), then the back chain
+           (each with the word its frame saved at +0x18, often a caller's r30) */
+        u32 sp = mem_read32(ctx, ctx->gpr[1]);
+        fprintf(trace, "%u %u %u %08X", mem_read32(ctx, 0x801FD934u), fid, ctx->gpr[28], mem_read32(ctx, ctx->gpr[1] + 0x64u));
+        for (int i = 0; i < 6 && sp >= 0x80000000u && sp < 0x81800000u; ++i) {
+            const u32 next = mem_read32(ctx, sp);
+            if (next < 0x80000000u || next >= 0x81800000u)
+                break;
+            fprintf(trace, " %08X/%X", mem_read32(ctx, next + 4u), mem_read32(ctx, sp + 0x18u));
+            sp = next;
+        }
+        fputs("\\n", trace);
+        fflush(trace);
+    }
+}
+static void wario_audio_group(CPUState* ctx, u32 group, float value) {
+    union { u32 u; float f; } v;
+    v.f = value;
+    const u32 address = WARIO_AUDIO_GROUP(group);
+    if (mem_read32(ctx, address) != v.u)
+        mem_write32(ctx, address, v.u);
+    if (mem_read32(ctx, address + 4u) != v.u)
+        mem_write32(ctx, address + 4u, v.u);
+}
+/* fn_8017334C after an aux send sum (r30 = synth voice, +0x11E = its volume group). */
+void wario_audio_aux(CPUState* ctx, int reg) {
+    union { u32 u; float f; } g;
+    const u32 group = mem_read8(ctx, ctx->gpr[30] + 0x11Eu);
+    if (group < 29u || group > 31u)
+        return;
+    g.u = mem_read32(ctx, WARIO_AUDIO_GROUP(group));
+    if (g.f == 1.0f)
+        return;
+    ctx->fpr[reg] = (f64)(float)(ctx->fpr[29] + (f64)g.f * (ctx->fpr[reg] - ctx->fpr[29]));
+}
+/* fn_80173EAC entry (MusyX synth tick, every audio frame). */
+void wario_audio_tick(CPUState* ctx) {
+    wario_audio_env();
+    wario_audio_group(ctx, 29u, wario_audio_mute_pause_music ? 0.0f : wario_audio_factor(&wario_audio_music));
+    wario_audio_group(ctx, 30u, wario_audio_factor(&wario_audio_voice));
+    wario_audio_group(ctx, 31u, wario_audio_factor(&wario_audio_sfx));
+}
 JOURNAL_GLOBALS
 '''
+# AU-005 voice clips: SFX ids whose samples are Wario's recorded voice (docs/engine/AUDIO.md).
+VOICE_FIDS = ()
+_voice_bits = [0] * 32
+for _fid in VOICE_FIDS:
+    _voice_bits[_fid >> 5] |= 1 << (_fid & 31)
+glue = glue.replace("VOICE_FID_BITS", ", ".join("0x%08Xu" % b for b in _voice_bits))
 journal_globals = ("u64 wario_instruction_count=0;\n"
                    "int wario_count_enabled=0;\n"
                    "WARIO_REL_EXPORT u64 wario_instruction_journal(int enabled) {\n"

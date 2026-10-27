@@ -15,13 +15,13 @@ Look up any main.dol address in the private disassembly with
 | Culling / draw distance | CULLING.md | HC-0004, HC-0005 |
 | Rendering | RENDERING.md | F-0005, F-0006 |
 | Input | INPUT.md | T002 |
-| Audio | AUDIO.md | |
+| Audio (MusyX, BGM streams, runtime mixer) | AUDIO.md | AU-001..AU-007 |
 | Memory / module loading | MEMORY.md | |
 | Disc assets / texture banks | ASSETS.md | |
 | Physics, animation, scripting | PHYSICS.md, ANIMATION.md, SCRIPTING.md | (mostly unmapped) |
 
 ID prefixes: F- function (FUNCTION_DATABASE.json), HC- hardcoded constant
-(HARDCODED_CONSTANTS.json), T- timing (TIMING.md), WS- widescreen, CAM- camera,
+(HARDCODED_CONSTANTS.json), T- timing (TIMING.md), WS- widescreen, CAM- camera, AU- audio,
 KI- known issue (../progress/KNOWN_ISSUES.md), A- accuracy issue
 (../ACCURACY_ISSUES.md).
 

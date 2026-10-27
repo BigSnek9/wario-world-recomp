@@ -511,6 +511,179 @@
    "confidence": "probable",
    "evidence": "docs/TIMING.md T009; docs/engine/ARCHITECTURE.md main loop",
    "source": ""
+  },
+  {
+   "id": "F-0027",
+   "module": "main.dol",
+   "address": "0x8005908C",
+   "name": "fn_8005908C",
+   "role": "sound system init: sndSetHooks, sndInit(64 voices, 0 music, 56 sfx, 1 studio), sndVolume(127,0,0xFF), sound manager [0x801FDB08]",
+   "systems": [
+    "audio"
+   ],
+   "callers": [
+    "main"
+   ],
+   "callees": [
+    "0x801868EC",
+    "0x801754C8",
+    "0x800591D0"
+   ],
+   "globals": [
+    "0x801FDB08"
+   ],
+   "confidence": "confirmed",
+   "evidence": "docs/engine/AUDIO.md",
+   "source": ""
+  },
+  {
+   "id": "F-0028",
+   "module": "main.dol",
+   "address": "0x800594B0",
+   "name": "fn_800594B0",
+   "role": "game SFX start wrapper -> sndFXStartEx(fid, vol, pan, studio 0)",
+   "systems": [
+    "audio"
+   ],
+   "callers": [],
+   "callees": [
+    "0x801753CC"
+   ],
+   "globals": [
+    "0x801FDB08"
+   ],
+   "confidence": "confirmed",
+   "evidence": "docs/engine/AUDIO.md",
+   "source": ""
+  },
+  {
+   "id": "F-0029",
+   "module": "main.dol",
+   "address": "0x80056FE8",
+   "name": "fn_80056FE8",
+   "role": "BGM stream object mix method (vtable +0x28) -> sndStreamMixParameterEx; audio mixer music hook at 0x80057008",
+   "systems": [
+    "audio"
+   ],
+   "callers": [
+    "fn_80056AAC",
+    "fn_80056C40",
+    "fn_80056404",
+    "fn_800566F4"
+   ],
+   "callees": [
+    "0x80176F64"
+   ],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/engine/AUDIO.md",
+   "source": ""
+  },
+  {
+   "id": "F-0030",
+   "module": "main.dol",
+   "address": "0x801741F8",
+   "name": "fn_801741F8",
+   "role": "MusyX fxStart (inferred): reads SFX entry (fid, macro, group byte +9) and starts the macro/keymap/layer; audio mixer routing at 0x80174254",
+   "systems": [
+    "audio"
+   ],
+   "callers": [
+    "fn_801753CC",
+    "fn_80185708",
+    "fn_801862B0",
+    "fn_801864D8"
+   ],
+   "callees": [
+    "0x80179804"
+   ],
+   "globals": [],
+   "confidence": "probable",
+   "evidence": "docs/engine/AUDIO.md",
+   "source": ""
+  },
+  {
+   "id": "F-0031",
+   "module": "main.dol",
+   "address": "0x80174708",
+   "name": "fn_80174708",
+   "role": "MusyX synthVolume (inferred): volume groups at 0x801E233C + g*0x30",
+   "systems": [
+    "audio"
+   ],
+   "callers": [
+    "fn_801754C8",
+    "fn_801701B8",
+    "fn_8016EE70"
+   ],
+   "callees": [],
+   "globals": [
+    "0x801E233C",
+    "0x801FDC50"
+   ],
+   "confidence": "probable",
+   "evidence": "docs/engine/AUDIO.md",
+   "source": ""
+  },
+  {
+   "id": "F-0032",
+   "module": "main.dol",
+   "address": "0x8017334C",
+   "name": "fn_8017334C",
+   "role": "MusyX per-voice volume/pan update (inferred): group x master x studio, aux sends, hwSetVolume",
+   "systems": [
+    "audio"
+   ],
+   "callers": [],
+   "callees": [
+    "0x80189330"
+   ],
+   "globals": [
+    "0x801E233C"
+   ],
+   "confidence": "probable",
+   "evidence": "docs/engine/AUDIO.md",
+   "source": ""
+  },
+  {
+   "id": "F-0033",
+   "module": "main.dol",
+   "address": "0x80173EAC",
+   "name": "fn_80173EAC",
+   "role": "MusyX synth tick (inferred): group ramps, voice event queues; audio mixer group sync at entry",
+   "systems": [
+    "audio"
+   ],
+   "callers": [
+    "fn_80188AD4"
+   ],
+   "callees": [
+    "0x8017334C"
+   ],
+   "globals": [
+    "0x801E233C"
+   ],
+   "confidence": "probable",
+   "evidence": "docs/engine/AUDIO.md",
+   "source": ""
+  },
+  {
+   "id": "F-0034",
+   "module": "main.dol",
+   "address": "0x8006CC58",
+   "name": "fn_8006CC58",
+   "role": "pause book opened: SFX 0x1FE and pause music SFX 0x3BF (vid -> pause object +0x70)",
+   "systems": [
+    "audio"
+   ],
+   "callers": [],
+   "callees": [
+    "0x800594B0"
+   ],
+   "globals": [],
+   "confidence": "confirmed",
+   "evidence": "docs/engine/AUDIO.md",
+   "source": ""
   }
  ],
  "globals": [
