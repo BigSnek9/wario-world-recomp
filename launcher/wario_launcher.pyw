@@ -162,7 +162,11 @@ def run_once(module, env):
     # Frame-timing evidence for Claude in the play-session folder: frame generation stats and a
     # per-event pacing trace (a few MB per hour), so slowdowns on the real screen can be diagnosed.
     env = dict(env, MODERNGEKKO_WARIO_FPS_STATS=str(tracker.folder / "fps-stats.txt"),
-               MODERNGEKKO_WARIO_FPS_TRACE=str(tracker.folder / "pacing-trace.txt"))
+               MODERNGEKKO_WARIO_FPS_TRACE=str(tracker.folder / "pacing-trace.txt"),
+               # Menu "Save bug report snapshot": automation commands go to CONTROL/commands, the
+               # savestate and screenshot to the session's reports folder.
+               MODERNGEKKO_WARIO_CONTROL_DIR=str(CONTROL),
+               MODERNGEKKO_WARIO_REPORT_DIR=str(tracker.folder / "reports"))
     try:
         with LOG.open("w", encoding="utf-8") as log:
             process = subprocess.Popen(
