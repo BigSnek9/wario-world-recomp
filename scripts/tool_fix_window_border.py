@@ -59,6 +59,20 @@ VB_RESET_NEW = """  g_frame_dumper.reset();
 """
 
 
+# 3. Config writes after a layer is gone. During core shutdown the CurrentRun layer is removed;
+#    any later Config::SetCurrent (Dolphin's own shutdown path on Alt+F4 included) wrote through a
+#    null layer: access violation in Config::Layer::Set, 0xC000041D (WER offsets 0x92B08 and
+#    0x92B38 in two builds). Set and DeleteKey now skip a missing layer.
+CONFIG_SET_OLD = """  if (GetLayer(layer)->Set(info, value))
+    OnConfigChanged();"""
+CONFIG_SET_NEW = """  if (const auto target = GetLayer(layer); target && target->Set(info, value))
+    OnConfigChanged();"""
+CONFIG_DELETE_OLD = """  if (GetLayer(layer)->DeleteKey(info.GetLocation()))
+    OnConfigChanged();"""
+CONFIG_DELETE_NEW = """  if (const auto target = GetLayer(layer); target && target->DeleteKey(info.GetLocation()))
+    OnConfigChanged();"""
+
+
 def apply(replace, runtime):
     # fix_silent_headless (apply_tool_fixes.py) now writes the edge-free line itself; this converts
     # source trees patched before 2026-10-27 and is a no-op otherwise.
@@ -75,3 +89,5 @@ def apply_late(replace, runtime):
     replace(dolphin / "VideoCommon/VideoBackendBase.cpp", VB_INCLUDE_OLD, VB_INCLUDE_NEW)
     replace(dolphin / "VideoCommon/VideoBackendBase.cpp", VB_SHUTDOWN_OLD, VB_SHUTDOWN_NEW)
     replace(dolphin / "VideoCommon/VideoBackendBase.cpp", VB_RESET_OLD, VB_RESET_NEW)
+    replace(dolphin / "Common/Config/Config.h", CONFIG_SET_OLD, CONFIG_SET_NEW)
+    replace(dolphin / "Common/Config/Config.h", CONFIG_DELETE_OLD, CONFIG_DELETE_NEW)

@@ -200,6 +200,7 @@ PRESENT_EXTERN_NEW = PRESENT_EXTERN_OLD + (
     "\n#ifdef _WIN32\n#ifndef NOMINMAX\n#define NOMINMAX\n#endif\n#include <windows.h>\n#endif\n"
     "extern void* g_wario_hwnd;                         // DolphinNoGUI (in-game menu fix)\n"
     "extern std::atomic<int> g_wario_fps_multiplier;    // VideoCommon/BPStructs.cpp (1 = off)\n"
+    "extern std::atomic<double> g_wario_rate_scale;     // Core/CoreTiming.cpp (display rate lock)\n"
     "\n// Wario World frame interpolation: throttle-sleep present hooks (Core/CoreTiming.cpp).\n"
     "extern bool (*g_wario_throttle_present_due)(TimePoint* due);\n"
     "extern void (*g_wario_throttle_present_flush)();\n")
@@ -209,7 +210,25 @@ CT_GLOBALS_NEW = CT_GLOBALS_OLD + (
     "\n// Wario World frame interpolation (scripts/tool_fix_wario_fps.py): set by the video side in\n"
     "// single-thread mode so queued frames are shown during throttle sleeps instead of stalling.\n"
     "bool (*g_wario_throttle_present_due)(TimePoint* due) = nullptr;\n"
-    "void (*g_wario_throttle_present_flush)() = nullptr;\n")
+    "void (*g_wario_throttle_present_flush)() = nullptr;\n"
+    "// Display rate lock: the presenter nudges emulation speed by at most 0.5% so the game's frames\n"
+    "// (times the frame generation multiplier) line up with the monitor's real refresh. 1 = off.\n"
+    "std::atomic<double> g_wario_rate_scale{1.0};\n")
+
+# The rate lock applies through the speed limiter's own clock (UpdateSpeedLimit keeps the
+# transition seamless); unlimited speed (clock 0) stays unlimited.
+CT_RATE_CLOCK_OLD = ("  const u32 new_clock_per_sec =\n"
+                     "      std::lround(m_system.GetSystemTimers().GetTicksPerSecond() * new_speed);\n")
+CT_RATE_CLOCK_NEW = ("  const u32 new_clock_per_sec = std::lround(m_system.GetSystemTimers().GetTicksPerSecond() *\n"
+                     "                                            new_speed * g_wario_rate_scale.load());\n")
+CT_RATE_APPLY_OLD = ("  // Push throttle reference values forward by exact seconds.\n")
+CT_RATE_APPLY_NEW = ("  static double wario_applied_rate = 1.0;\n"
+                     "  if (const double rate = g_wario_rate_scale.load(std::memory_order_relaxed);\n"
+                     "      rate != wario_applied_rate)\n"
+                     "  {\n"
+                     "    wario_applied_rate = rate;\n"
+                     "    UpdateSpeedLimit(target_cycle, m_emulation_speed);\n"
+                     "  }\n\n" + CT_RATE_APPLY_OLD)
 
 CT_SLEEP_OLD = "  UpdateVISkip(time, target_time);\n\n  SleepUntil(target_time);\n}"
 CT_SLEEP_NEW = ("  UpdateVISkip(time, target_time);\n\n"
@@ -256,9 +275,45 @@ double Presenter::PresentInterpolated(RcTcacheEntry entry, u32 fb_width, u32 fb_
   // instead of the overdue ones going out back to back.
   const auto now = Clock::now();
   const TimePoint base = s_wario_pending_present ? s_wario_pending_due : s_wario_last_real_present;
-  TimePoint due = base + std::chrono::duration_cast<DT>(std::chrono::duration<double>(delay_seconds));
-  due = std::max(due, s_wario_last_mid_due + s_wario_interval);
-  due = std::max(due, now);
+  TimePoint due;
+  WarioStartDisplayClock();
+  const int multiplier = static_cast<int>(std::lround(1.0 / (59.94 * interval_seconds)));
+  if (WarioDisplayLocked(multiplier))
+  {
+    // One frame per refresh: the slot after the previous frame's slot (real or in-between), never
+    // one already passed.
+    // Chained on scheduled slots, not on actual present times: a present that runs a little late
+    // must not push every following frame back by a whole refresh.
+    const DT period{std::chrono::nanoseconds(s_wario_period_ns.load(std::memory_order_relaxed))};
+    due = WarioSlotAt(std::max(s_wario_last_slot + period / 2, now));
+    s_wario_last_slot = due;
+    if (delay_seconds < interval_seconds * 1.5)
+    {
+      // Rate lock, once per game frame: the first in-between frame should go out about one
+      // refresh after it is ready. Waiting longer means the game runs ahead of the display (slow
+      // it down slightly); less means it runs behind (speed it up). Bounded to +-0.5%.
+      static double lead_average = 1.0;
+      static double integral = 0.0;
+      const double lead = std::chrono::duration<double>(due - now) /
+                          std::chrono::duration<double>(period);
+      // Target: half a refresh of margin. The integral only runs while the error is small (after a
+      // savestate load or a hitch the backlog is large for a moment and must not wind it up); the
+      // steady state needs about +0.1% (4 x 59.94 Hz against a 239.99 Hz display).
+      lead_average += (std::min(lead, 4.0) - lead_average) * 0.05;
+      g_wario_lead_average = lead_average;
+      const double error = lead_average - 0.5;
+      if (std::abs(error) < 1.0)
+        integral = std::clamp(integral - error * 0.00005, -0.003, 0.003);
+      g_wario_rate_scale.store(std::clamp(1.0 + integral - error * 0.0005, 0.995, 1.005));
+    }
+  }
+  else
+  {
+    g_wario_rate_scale.store(1.0);
+    due = base + std::chrono::duration_cast<DT>(std::chrono::duration<double>(delay_seconds));
+    due = std::max(due, s_wario_last_mid_due + s_wario_interval);
+    due = std::max(due, now);
+  }
   s_wario_last_mid_due = due;
   m_wario_pending_mids.push_back(
       {std::move(entry), fb_width, fb_height, (WarioFpsDebug() & 1) ? now : due});
@@ -311,6 +366,12 @@ void Presenter::WarioFlushPendingPresent(bool force)
       if (!force && now < m_wario_pending_mids.front().due)
         return;
       WarioQueuedFrame frame = std::move(m_wario_pending_mids.front());
+      {
+        // Stats: how late the present call is against its slot (< ~3.6 ms still hits the intended
+        // refresh with VSync; more slips a refresh).
+        const double late = std::chrono::duration<double, std::milli>(now - frame.due).count();
+        g_wario_slot_late[late < 1.0 ? 0 : late < 2.0 ? 1 : late < 3.5 ? 2 : 3]++;
+      }
       m_wario_pending_mids.erase(m_wario_pending_mids.begin());
       ReleaseXFBContentLock();
       m_xfb_entry = std::move(frame.entry);
@@ -366,7 +427,8 @@ PRESENT_STATIC_NEW = """// Wario World frame interpolation pacing. The game issu
 // interpolation). Nothing sleeps: queued frames are shown from the command loop or from the
 // speed limiter's own sleep once due.
 // MODERNGEKKO_WARIO_FPS_DEBUG bits (diagnostics only): 1 = show in-between frames at once,
-// 2 = build but do not show in-between frames, 4 = do not hold real frames, 8 = no forced VSync.
+// 2 = build but do not show in-between frames, 4 = do not hold real frames, 8 = no forced VSync,
+// 16 = no display-locked pacing.
 static int WarioFpsDebug()
 {
   static const int bits = [] {
@@ -395,6 +457,168 @@ void WarioTrace(char kind)
 static TimePoint s_wario_last_real_present{};
 static TimePoint s_wario_last_mid_present{};
 static TimePoint s_wario_last_mid_due{};  // planned time of the latest in-between frame
+
+// Display clock (display-locked pacing). A background thread waits for every vertical blank of the
+// monitor showing the game (D3DKMTWaitForVerticalBlankEvent) and keeps the refresh period and a
+// phase-locked estimate of the latest vblank. Frames are then presented one per refresh, shortly
+// after a vblank, so the swap chain never holds more than one waiting image and presenting never
+// blocks the emulation thread; the presenter also nudges emulation speed (g_wario_rate_scale) so
+// the game's frames line up with the refresh.
+static TimePoint s_wario_last_slot{};  // scheduled present slot of the latest frame (locked pacing)
+double g_wario_lead_average = 0.0;     // stats: first in-between frame's wait, in refreshes
+long long g_wario_period_ns_stat = 0;  // stats: measured refresh period
+static std::atomic<long long> s_wario_vblank_ns{0};  // Clock time of the latest vblank
+static std::atomic<long long> s_wario_period_ns{0};  // refresh period; 0 = no display clock
+#ifdef _WIN32
+static void WarioVblankThread()
+{
+  struct OpenFromName
+  {
+    WCHAR device_name[32];
+    UINT adapter;
+    LUID luid;
+    UINT source;
+  };
+  struct WaitVblank
+  {
+    UINT adapter;
+    UINT device;
+    UINT source;
+  };
+  struct CloseAdapter
+  {
+    UINT adapter;
+  };
+  using OpenFn = LONG(APIENTRY*)(OpenFromName*);
+  using WaitFn = LONG(APIENTRY*)(const WaitVblank*);
+  using CloseFn = LONG(APIENTRY*)(const CloseAdapter*);
+  const HMODULE gdi = LoadLibraryW(L"gdi32.dll");
+  const auto open = reinterpret_cast<OpenFn>(GetProcAddress(gdi, "D3DKMTOpenAdapterFromGdiDisplayName"));
+  const auto wait = reinterpret_cast<WaitFn>(GetProcAddress(gdi, "D3DKMTWaitForVerticalBlankEvent"));
+  const auto close = reinterpret_cast<CloseFn>(GetProcAddress(gdi, "D3DKMTCloseAdapter"));
+  if (!open || !wait || !close)
+    return;
+  std::wstring device;
+  OpenFromName adapter{};
+  bool have_adapter = false;
+  int failures = 0;
+  double period = 0.0;
+  TimePoint last{};
+  TimePoint predicted{};
+  TimePoint next_check{};
+  for (;;)
+  {
+    const TimePoint now = Clock::now();
+    if (now >= next_check)
+    {
+      // Follow the window to whichever monitor it is on.
+      next_check = now + std::chrono::seconds(2);
+      MONITORINFOEXW info{};
+      info.cbSize = sizeof(info);
+      if (g_wario_hwnd &&
+          GetMonitorInfoW(MonitorFromWindow(static_cast<HWND>(g_wario_hwnd), MONITOR_DEFAULTTONEAREST),
+                          &info) &&
+          device != info.szDevice)
+      {
+        if (have_adapter)
+        {
+          const CloseAdapter request{adapter.adapter};
+          close(&request);
+          have_adapter = false;
+        }
+        OpenFromName request{};
+        wcsncpy_s(request.device_name, info.szDevice, _TRUNCATE);
+        if (open(&request) == 0)
+        {
+          adapter = request;
+          have_adapter = true;
+          device = info.szDevice;
+          period = 0.0;
+          last = predicted = TimePoint{};
+          s_wario_period_ns = 0;
+        }
+      }
+    }
+    if (!have_adapter)
+    {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      continue;
+    }
+    const WaitVblank request{adapter.adapter, 0, adapter.source};
+    if (wait(&request) != 0)
+    {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      if (++failures > 50)
+      {
+        have_adapter = false;
+        device.clear();
+        s_wario_period_ns = 0;
+      }
+      continue;
+    }
+    failures = 0;
+    const TimePoint t = Clock::now();
+    if (last != TimePoint{})
+    {
+      const double dt = std::chrono::duration<double>(t - last).count();
+      if (period == 0.0)
+        period = dt;
+      else if (dt > period * 0.5 && dt < period * 1.5)
+        period += (dt - period) * 0.01;  // missed vblanks are ignored
+    }
+    last = t;
+    if (period > 0.0)
+    {
+      // Phase-locked vblank time: the predicted grid, pulled 10% towards each (wake-up jittered)
+      // measurement.
+      const DT p = std::chrono::duration_cast<DT>(std::chrono::duration<double>(period));
+      if (predicted == TimePoint{} || t - predicted > p * 4 || predicted - t > p * 4)
+        predicted = t;
+      while (predicted + p / 2 < t)
+        predicted += p;
+      predicted += (t - predicted) / 10;
+      s_wario_vblank_ns =
+          std::chrono::duration_cast<std::chrono::nanoseconds>(predicted.time_since_epoch()).count();
+      s_wario_period_ns = std::llround(period * 1e9);
+      g_wario_period_ns_stat = s_wario_period_ns;
+    }
+  }
+}
+#endif
+
+static void WarioStartDisplayClock()
+{
+#ifdef _WIN32
+  static std::once_flag started;
+  std::call_once(started, [] { std::thread(WarioVblankThread).detach(); });
+#endif
+}
+
+// Display-locked pacing applies while the clock runs and multiplier x 59.94 is within 0.6% of the
+// refresh rate (the rate lock covers the rest).
+static bool WarioDisplayLocked(int multiplier)
+{
+  // Opt-in while the real frame still uses its own single held slot (MODERNGEKKO_WARIO_FPS_LOCKED=1):
+  // with it, a real frame that would wait more than 17 ms is shown early and backs up the schedule.
+  static const bool enabled = std::getenv("MODERNGEKKO_WARIO_FPS_LOCKED") != nullptr;
+  const long long period_ns = s_wario_period_ns.load(std::memory_order_relaxed);
+  if (!enabled || period_ns <= 0 || multiplier < 2 || (WarioFpsDebug() & 16))
+    return false;
+  const double refresh = 1e9 / static_cast<double>(period_ns);
+  return std::abs(refresh / (multiplier * 59.94) - 1.0) < 0.006;
+}
+
+// The first present slot (vblank + 0.5 ms) at or after t.
+static TimePoint WarioSlotAt(TimePoint t)
+{
+  const DT period{std::chrono::nanoseconds(s_wario_period_ns.load(std::memory_order_relaxed))};
+  const TimePoint vblank{std::chrono::duration_cast<DT>(
+      std::chrono::nanoseconds(s_wario_vblank_ns.load(std::memory_order_relaxed)))};
+  const TimePoint first = vblank + std::chrono::microseconds(500);
+  if (t <= first)
+    return first - period * ((first - t) / period);
+  return first + period * ((t - first + period - DT{1}) / period);
+}
 static DT s_wario_interval = std::chrono::duration_cast<DT>(std::chrono::duration<double>(0.5 / 59.94));
 static bool s_wario_pending_present = false;
 static TimePoint s_wario_pending_due{};
@@ -405,6 +629,8 @@ u64 g_wario_pending_count = 0, g_wario_pending_forced = 0;
 // Gaps between consecutive presents while interpolating, relative to the target interval:
 // <0.5, 0.5-0.8, 0.8-1.2 (on pace), 1.2-1.5, 1.5-1.8, >=1.8.
 u64 g_wario_present_gaps[6] = {};
+// In-between presents by lateness against their due time: <1, 1-2, 2-3.5, >=3.5 ms.
+u64 g_wario_slot_late[4] = {};
 static TimePoint s_wario_last_any_present{};
 
 // VSync while interpolating: with it off, frames paced by the clock drift against the display's
@@ -527,8 +753,14 @@ PRESENT_VI_NEW = """    WarioSyncVSync();
       // Hold the real frame one interval after the last in-between frame (queued or shown).
       const TimePoint after = m_wario_pending_mids.empty() ? s_wario_last_mid_present :
                                                              m_wario_pending_mids.back().due;
-      const auto due = after + s_wario_interval;
       const auto now = Clock::now();
+      const int multiplier = static_cast<int>(
+          std::lround(1.0 / (59.94 * std::chrono::duration<double>(s_wario_interval).count())));
+      const bool locked = WarioDisplayLocked(multiplier);
+      const auto due = locked ? WarioSlotAt(std::max(s_wario_last_slot + s_wario_interval / 2, now)) :
+                                after + s_wario_interval;
+      if (locked)
+        s_wario_last_slot = due;
       if (due > now && due - now <= std::chrono::milliseconds(17))
       {
         s_wario_pending_present = true;
@@ -555,7 +787,8 @@ PRESENT_VI_FLUSH_NEW = ("  // A real frame still held from the previous VI goes 
                         "  WarioFlushPendingPresent(s_wario_pending_present);\n" + PRESENT_VI_FLUSH_OLD)
 
 PRESENT_INCLUDE_OLD = '#include "VideoCommon/Present.h"\n\n#include "Common/ChunkFile.h"\n'
-PRESENT_INCLUDE_NEW = ('#include "VideoCommon/Present.h"\n\n#include <algorithm>\n#include <chrono>\n#include <cstdio>\n#include <cstdlib>\n\n'
+PRESENT_INCLUDE_NEW = ('#include "VideoCommon/Present.h"\n\n#include <algorithm>\n#include <atomic>\n#include <chrono>\n#include <cmath>\n'
+                       '#include <cstdio>\n#include <cstdlib>\n#include <mutex>\n#include <string>\n#include <thread>\n\n'
                        '#include "Common/ChunkFile.h"\n')
 
 BP_INCLUDE_OLD = '#include "VideoCommon/BPStructs.h"\n\n#include <algorithm>\n#include <cstring>\n#include <string>\n'
@@ -573,6 +806,7 @@ BP_FUNC_OLD = "void BPInit()\n{"
 BP_FUNC_NEW = r"""// ---------------------------------------------------------------------------
 // Optional Wario World frame interpolation (scripts/tool_fix_wario_fps.py).
 extern bool g_wario_view_correction_active;
+extern std::atomic<double> g_wario_rate_scale;  // Core/CoreTiming.cpp
 extern Common::Matrix44 g_wario_view_correction;
 extern float g_wario_main_projection[2];
 extern bool g_wario_private_xfb_copy;
@@ -580,6 +814,9 @@ extern RcTcacheEntry g_wario_private_xfb_entry;
 namespace VideoCommon
 {
 extern u64 g_wario_present_gaps[6];
+extern u64 g_wario_slot_late[4];
+extern double g_wario_lead_average;
+extern long long g_wario_period_ns_stat;
 void WarioTrace(char kind);
 extern double g_wario_pending_late_sum, g_wario_pending_late_max;
 extern u64 g_wario_pending_count, g_wario_pending_forced;
@@ -670,8 +907,6 @@ struct WarioFpsState
   std::vector<u8> tmem;
   WarioCamera current, previous;
   u64 frames = 0, interpolated = 0, skipped_cut = 0, skipped_nocam = 0, skipped_late = 0;
-  int budget = 4;  // adaptive cap on the multiplier (see WarioFpsOnXfbCopy)
-  u64 reduced = 0, skipped_budget = 0;
   double offset_sum = 0.0, offset_min = 1e9, offset_max = 0.0;
   u64 offset_count = 0;
 };
@@ -1228,9 +1463,14 @@ void WarioWriteStats()
                  s_wfps.offset_count ? s_wfps.offset_sum / s_wfps.offset_count : 0.0,
                  s_wfps.offset_count ? s_wfps.offset_min : 0.0, s_wfps.offset_max,
                  s_wfps.commands.size());
-    std::fprintf(file, "budget=%d\nbudget_reduced=%llu\nskipped_budget=%llu\n", s_wfps.budget,
-                 static_cast<unsigned long long>(s_wfps.reduced),
-                 static_cast<unsigned long long>(s_wfps.skipped_budget));
+    std::fprintf(file, "rate_scale=%.5f\nlead_average=%.3f\nrefresh_period_ns=%lld\n",
+                 g_wario_rate_scale.load(), VideoCommon::g_wario_lead_average,
+                 VideoCommon::g_wario_period_ns_stat);
+    std::fprintf(file, "slot_late_lt1=%llu\nslot_late_1_2=%llu\nslot_late_2_3.5=%llu\nslot_late_ge3.5=%llu\n",
+                 static_cast<unsigned long long>(VideoCommon::g_wario_slot_late[0]),
+                 static_cast<unsigned long long>(VideoCommon::g_wario_slot_late[1]),
+                 static_cast<unsigned long long>(VideoCommon::g_wario_slot_late[2]),
+                 static_cast<unsigned long long>(VideoCommon::g_wario_slot_late[3]));
     std::fprintf(file, "matrices_matched=%llu\nmatrices_unmatched=%llu\ntags_seen=%llu\ntagged_loads=%llu\ntag_repeats=%llu\ntag_repeat_diff=%llu\nscreen_locked=%llu\ncamera_locked=%llu\n",
                  static_cast<unsigned long long>(s_wfps.matrices_matched),
                  static_cast<unsigned long long>(s_wfps.matrices_unmatched),
@@ -1265,36 +1505,6 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
   if (g_wario_fps_replaying)
     return;
   VideoCommon::WarioTrace('C');
-  // Adaptive frame generation: every in-between frame re-renders the whole frame on the emulation
-  // thread, and with VSync the presents also wait for the display. When game frames start to
-  // arrive late (heavy moments such as the hub charge dash at 4x / 4K), fewer in-between frames
-  // are made for a while instead of letting the game itself slow down; one more is allowed back
-  // after a second of frames on time.
-  {
-    using SteadyClock = std::chrono::steady_clock;
-    static SteadyClock::time_point last_copy{};
-    static double average_ms = 1000.0 / 59.94;
-    static int on_time = 0;
-    const auto now = SteadyClock::now();
-    const double dt_ms = std::chrono::duration<double, std::milli>(now - last_copy).count();
-    last_copy = now;
-    if (dt_ms < 100.0)
-    {
-      average_ms = average_ms * 0.75 + dt_ms * 0.25;
-      if (average_ms > 17.4 && s_wfps.budget > 1)
-      {
-        s_wfps.budget--;
-        s_wfps.reduced++;
-        average_ms = 1000.0 / 59.94;
-        on_time = 0;
-      }
-      else if (average_ms < 16.9 && ++on_time >= 60)
-      {
-        s_wfps.budget = std::min(s_wfps.budget + 1, 4);
-        on_time = 0;
-      }
-    }
-  }
   // Live on/off from the in-game menu, switched at a frame boundary.
   if (const bool wanted = g_wario_fps_multiplier.load(std::memory_order_relaxed) > 1;
       wanted != g_wario_fps_record)
@@ -1352,13 +1562,7 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
   const Common::Matrix44 view_now = WarioLookAt(current.eye, current.up, current.target);
   s_wfps.camera_delta =
       view_now * WarioRigidInverse(WarioLookAt(previous.eye, previous.up, previous.target));
-  const int multiplier =
-      std::min(std::clamp(g_wario_fps_multiplier.load(std::memory_order_relaxed), 2, 4), s_wfps.budget);
-  if (multiplier < 2)
-  {
-    s_wfps.skipped_budget++;
-    return;
-  }
+  const int multiplier = std::clamp(g_wario_fps_multiplier.load(std::memory_order_relaxed), 2, 4);
   const double interval = 1.0 / 59.94 / multiplier;
 
   // Diagnostics: MODERNGEKKO_WARIO_FPS_DUMP=<dir> saves two consecutive real/in-between pairs every
@@ -1602,6 +1806,8 @@ def apply(replace, runtime):
     core = runtime / "vendor/dolphin/Source/Core/Core"
     replace(core / "CoreTiming.cpp", CT_GLOBALS_OLD, CT_GLOBALS_NEW)
     replace(core / "CoreTiming.cpp", CT_SLEEP_OLD, CT_SLEEP_NEW)
+    replace(core / "CoreTiming.cpp", CT_RATE_CLOCK_OLD, CT_RATE_CLOCK_NEW)
+    replace(core / "CoreTiming.cpp", CT_RATE_APPLY_OLD, CT_RATE_APPLY_NEW)
     replace(video / "Present.cpp", PRESENT_STATIC_OLD, PRESENT_STATIC_NEW)
     replace(video / "Present.cpp", PRESENT_FUNC_OLD, PRESENT_FUNC_NEW)
     replace(video / "Present.cpp", PRESENT_VI_OLD, PRESENT_VI_NEW)
