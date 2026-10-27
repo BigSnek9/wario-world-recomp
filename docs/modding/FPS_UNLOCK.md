@@ -1,8 +1,12 @@
 # FPS unlock (frame interpolation)
 
-Status 2026-10-26: **implemented (camera + objects), optional, off by default** (launcher checkbox
-"Smooth 120 FPS", runtime env `MODERNGEKKO_WARIO_FPS=1`). The accurate baseline
-is the original 59.94 Hz loop; with the option off, nothing below runs.
+Status 2026-10-27: **done, optional.** In-game menu Frame rate 60 / 120 / 180 /
+240 / Auto (monitor refresh / 59.94, at most 4x) and Motion (camera only, or
+camera + objects); hidden tests can still use `MODERNGEKKO_WARIO_FPS`. The
+accurate baseline is "Original 60": the 59.94 Hz loop with nothing below
+running. The simulation runs at 59.94 Hz in every mode; only presented frames
+are added. Sections below are in the order the work was done; the pacing
+notes are dated.
 Runtime change: `scripts/tool_fix_wario_fps.py` (applied by
 `scripts/apply_tool_fixes.py`).
 
@@ -23,10 +27,12 @@ a rewrite of the game, not a recompilation enhancement.
 | T009 | soft reset / frame counter | B+X+Start needs >10 frames + 30-frame countdown; 0x801FD934 +1/frame |
 | CAM-004 | camera | projection/view rebuilt per camera update |
 
-## What was built: simulation at 59.94 Hz, presentation at ~120 Hz
+## What was built: simulation at 59.94 Hz, presentation at 2-4x
 
-The guest runs exactly as before. The video thread renders one extra frame
-between each pair of real frames with the camera halfway between them.
+The guest runs exactly as before. The video thread renders one to three extra
+frames between each pair of real frames (t = 1/2, or 1/3 and 2/3, ...), with
+the camera and objects in between. The steps below describe the first (2x)
+version; higher multiples replay at each t.
 
 1. **Record.** Every GPU command of a frame is appended to a buffer from
    `OpcodeDecoder::RunCallback::OnCommand` (display-list contents inline,
@@ -132,7 +138,8 @@ between each pair of real frames with the camera halfway between them.
      - Not yet verified by eye.
      - Settings: menu `VideoCommon::g_wario_vsync_mode` (1 = off); debug bit
        8 skips it.
-   - Adaptive budget (2026-10-27):
+   - Adaptive budget (2026-10-27, later removed: the hub slowdowns were HD
+     texture uploads, fixed by upload streaming below):
      - Behaviour: when the game frame period (smoothed) goes above 17.4 ms,
        the multiplier cap drops by one, down to 1 (= no in-between frames).
        It rises again after 60 game frames on time. Heavy moments then trade
@@ -146,6 +153,16 @@ between each pair of real frames with the camera halfway between them.
        overstate what a player sees.
      - The player's display is 239.991 Hz (QueryDisplayConfig), above
        4 x 59.94.
+   - Display-locked pacing (2026-10-27, default): a background thread waits
+     for every vertical blank of the game's monitor
+     (D3DKMTWaitForVerticalBlankEvent) and keeps the refresh period and a
+     phase-locked vblank estimate. Real and in-between frames share one slot
+     queue and are presented one per refresh; the presenter nudges emulation
+     speed by at most 0.5% (g_wario_rate_scale) so game frames line up with
+     the refresh. Applies when multiplier x 59.94 is within 0.6% of the
+     refresh rate. `MODERNGEKKO_WARIO_FPS_LOCKED=0` restores the previous
+     pacing; debug bit 16 skips it. Hidden 1x Vulkan hub walk: 90% of
+     presents within 1 ms of their slot.
    - Diagnostics: MODERNGEKKO_WARIO_FPS_TRACE=<file> logs every pacing event
      with a timestamp: C copy, Q queued, M/R in-between/real shown, V VI swap,
      H real held, r real shown at the VI.
@@ -190,14 +207,15 @@ between each pair of real frames with the camera halfway between them.
 - If the game changes a buffer that frame N used (indexed matrices, vertex
   arrays) before the video thread reaches the copy, the replay uses the newer
   data. Not seen in testing.
-- Needs VSync off (the launcher sets it) and is best on a 120 Hz+ display.
+- Best on a 120 Hz+ display. The starter sets Dolphin's own VSync off; the
+  menu's VSync setting (Auto = on while interpolating) is separate.
 - Camera cuts and loading screens show only the real 60 Hz frames.
 
-## Next steps
+## Follow-ups
 
-1. Higher multiples (180/240 Hz) by replaying at t = 1/3, 2/3, ... when the
-   video thread has the headroom.
-2. Pacing on a separate present thread (Vulkan), to drop the 8 ms delay.
+Both earlier next steps are done: higher multiples (180/240) and
+display-locked pacing. Open: draws outside the matrix stack keep frame N (see
+Known limits); trapdoor glow flicker (../progress/KNOWN_ISSUES.md KI-007).
 
 ## HD texture streaming (2026-10-27, scripts/tool_fix_hd_texture_streaming.py)
 
@@ -220,8 +238,10 @@ Hidden hub run at 4K with the pack, frame gen off:
 | After the fix | 0.998 | 0 |
 | After the fix, 4x frame gen | 0.996 | 0 |
 
-Dual core (Core.CPUThread=True) is not an option yet: it desyncs the GPU FIFO
-at once ("Unknown Opcode") with the static recomp.
+At the time, dual core (Core.CPUThread=True) desynced the GPU FIFO at once
+("Unknown Opcode") in that test. Fresh boots in dual core were later verified
+without FIFO errors; it is now the optional performance mode below (loading a
+single-core savestate still desyncs).
 
 ## Performance mode (dual core, 2026-10-27)
 

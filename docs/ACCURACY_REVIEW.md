@@ -1,5 +1,12 @@
 # Accuracy review - 26 October 2026
 
+Status note (2026-10-27): this review is dated. Since then the game has been
+played start to finish, all RELs run as native code, the water and slowdown
+reports are closed (progress/KNOWN_ISSUES.md) and optional enhancements exist
+as switchable layers. What stays true: none of that is bit-accuracy proof, the
+rendering/video/DSP shortcuts in the table remain unvalidated against hardware,
+and the acceptance gates below are still the bar for any accuracy claim.
+
 The current build is an experimental, partially validated recompilation. It is
 not a completed static-only port and it has not demonstrated whole-game or
 original-hardware bit accuracy. The user's Greenhorn Forest stage clear confirms

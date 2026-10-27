@@ -136,7 +136,7 @@
     "0x801FD960"
    ],
    "confidence": "confirmed",
-   "evidence": "docs/HANDOFF.md module transition",
+   "evidence": "docs/PROGRESS.md (2026-10-25 handoff notes) module transition",
    "source": ""
   },
   {
@@ -156,7 +156,7 @@
    ],
    "globals": [],
    "confidence": "confirmed",
-   "evidence": "docs/HANDOFF.md",
+   "evidence": "docs/PROGRESS.md (2026-10-25 handoff notes)",
    "source": ""
   },
   {

@@ -1,17 +1,23 @@
 # Frame and refresh dependency ledger
 
-Intent: preserve original simulation speed and video cadence. No guest FPS,
-widescreen, logic or speed patches are applied. Review correction (2026-10-26):
-the host inherited ForceProgressive=true and previously Auto aspect/3x manual
-rendering; original video fields/cadence have NOT been validated. See ACCURACY_REVIEW.md. A future renderer
-must preserve the original guest simulation clock, interrupt schedule and input
-sampling until measured evidence justifies a change. Do not assume that display
-refresh, VI interrupts, rendered frames and game updates have identical rates.
-Actual cadence and region-specific timing have not yet been measured.
+Intent: preserve original simulation speed and video cadence. The game's
+simulation still runs at 59.94 Hz in every mode. The optional frame generation
+(modding/FPS_UNLOCK.md) only adds presented frames by replaying GPU commands;
+it does not change the guest loop, input sampling or any update math below
+(display-locked pacing only nudges the host speed limiter, by at most 0.5%).
+The optional widescreen mode changes guest aspect / HUD values only while it is
+on (modding/WIDESCREEN_SUPPORT.md).
 
-## Uncap mod pointers (summary for the later FPS project)
+Review correction (2026-10-26): the host inherited ForceProgressive=true and
+previously Auto aspect / 3x manual rendering; original video fields and cadence
+have NOT been validated against hardware. See ACCURACY_REVIEW.md. Do not assume
+that display refresh, VI interrupts, rendered frames and game updates have
+identical rates.
 
-Nothing below is patched today; these are the documented intervention points.
+## Uncap mod pointers (summary written for the FPS project)
+
+These were the documented intervention points; frame generation keeps all of
+them on the original schedule and interpolates presentation only.
 
 1. Simulation gate: main.dol 0x8002FD2C -> 0x801A87C4 retrace wait (T001).
    The main loop updates gameplay, then sleeps until the VI counter changes.

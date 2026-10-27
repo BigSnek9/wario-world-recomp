@@ -1,9 +1,17 @@
-# Experimental native REL integration
+# Native REL integration
 
-This is a separate diagnostic build, preserving the main-only baseline DLL.
+Status 2026-10-27: this is how the shipping module works.
+build_rel_bundle.py --clean --vectors (with --clang --pgo-use for the shipped
+build) builds main plus all eight RELs; the checked twin without --clean
+carries the lockstep journal. The run notes below
+are the 2026-10-25 bring-up history; their "not yet exercised" remarks are
+superseded by later routes and the full playthrough.
+
+Originally a separate diagnostic build, preserving the main-only baseline DLL.
 Run scripts/build_rel_bundle.py to prepare and compile it. Bounded diagnostics:
 smoke_boot.py --rel-bundle --lockstep --lockstep-limit 0 --seconds 90
---graphics OpenGL --windowed --capture --menu-probe --pad-hold 12.
+--graphics OpenGL --capture --menu-probe --pad-hold 12 (smoke_boot.py now
+rejects --windowed; tests are hidden).
 Do not treat compilation as execution coverage or whole-game accuracy.
 scripts/build_rel_bundle.py --clean emits the same integration without
 instruction counters as the shipping port (build/module-full), selected by

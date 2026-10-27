@@ -12,14 +12,20 @@ disc and plays. The disc supplies every asset; it is verified and extracted on t
 player's PC on first run. This distributes game-derived compiled code: a widely
 used but legally untested practice, accepted by the owner.
 
+The other route is the build-from-ISO installer (`Install-WarioWorld.cmd`,
+`installer/`): it fetches the pinned sources and builds everything on the
+player's PC, so it distributes no compiled game code.
+
 Keep ISO/extracted files, game-derived C/assembly sources and objects, resource
 data, saves, screenshots and memory captures out of the repository and releases.
-The compiled module and runtime go only into release archives, never into Git.
+They live under ignored original/, generated/, reports/, build/, captures/ and
+private/. The compiled module and runtime go only into release archives, never
+into Git. Do not place a ROM in Git LFS.
+
 GPL note: the runtime is GPL-licensed (Dolphin-derived); a public binary release
 must make the corresponding source available (this repository plus the pinned
-upstream commits) and keep the licence notices in the zip.
-They live under ignored original/, generated/, reports/, build/, captures/ and
-private/. Do not place a ROM in Git LFS. .gitignore does not remove files already
+upstream commits) and keep the licence notices in the zip. Open before going
+public (progress/KNOWN_ISSUES.md KI-010), together with a full credits pass. .gitignore does not remove files already
 in history; review the actual index, history and release archive before posting.
 
 Run scripts/check_public_tree.py before staging/releasing and inspect the staged

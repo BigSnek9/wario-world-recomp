@@ -1,102 +1,122 @@
 # Wario World Recomp
 
-A native Windows PC version of **Wario World** (Nintendo GameCube, 2003), made by
-*static recompilation*: the game's own code is translated into C and compiled for
-your PC, then run on a GameCube-compatible runtime based on Dolphin. The whole
-game is playable from start to finish.
+**Wario World** (Nintendo GameCube, 2003) as a native Windows PC game.
 
-**Everything in this project was made by Claude (Anthropic's AI)**, working
-autonomously at the owner's direction: the recompilation, the runtime fixes, the
-enhancements, the tests and these docs.
+This is a *static recompilation*: the game's own code was translated into C and
+compiled for the PC, running on a GameCube-compatible runtime based on Dolphin. It
+plays the whole game, start to finish, and adds optional enhancements such as high
+frame rates, widescreen and HDR.
 
-**Windows only.** It runs on Windows 10/11 (x64), the only system it has been built
-and tested on. Linux, macOS and Steam Deck are not supported.
+**Made entirely by Claude** (Anthropic's AI), working autonomously at the project
+owner's direction: the recompilation, runtime fixes, enhancements, tools, tests and
+these docs.
 
-## You need your own copy of the game
+> **You need your own copy of the game.** No game files are included. You need a
+> plain `.iso` dump of the **USA disc (GWWE01, revision 0)**; other regions and
+> revisions are not supported. The game checks the disc before using it.
 
-No game files are included or ever will be. You need your own dump of the
-**USA disc, GWWE01 (revision 0)** as a plain `.iso`. The starter and the installer
-check that it is the right version.
+> **Windows only.** Windows 10 or 11 (64-bit), the only system it has been built and
+> tested on.
+
+## Quick start
+
+1. Download `WarioWorldRecomp-vX.Y.zip` from the
+   [Releases](https://github.com/BigSnek9/wario-world-recomp/releases) page (about 46 MB).
+2. Unzip it into a folder you own (your Desktop or Documents, not Program Files).
+3. Double-click **`WarioWorldRecomp.exe`** and pick your `.iso`.
+
+The first time, it checks the disc and copies the game files next to the exe, which
+takes a few seconds. After that it starts straight away. Nothing else needs installing.
+
+To update, unzip a new version over the old folder. Your saves and settings in
+`user\` are kept.
 
 ## Enhancements
 
-All optional, all in an in-game menu (press **Back** on the controller or **Tab**),
-applied instantly. With everything off, the game behaves like the original.
+Open the in-game menu with **Back** on the controller or **Tab** on the keyboard.
+Options apply straight away. Out of the box the picture fills your screen at its
+resolution and shape; the game itself plays exactly like the original, and
+every enhancement can be switched off for the original 4:3 look.
 
-- **Smooth frame rate:** 60, 120, 180 or 240 FPS (or match your monitor). Extra
-  frames are generated from the game's own camera and objects, not by guessing
-  from the picture.
-- **Widescreen:** any aspect ratio (16:9, 16:10, 21:9, 32:9). The view widens
-  instead of stretching, the HUD sits at the screen edges, and menus, speech boxes
-  and the pause book keep their original shape.
-- **Resolution:** up to 8x, or match your window/monitor (4K and above).
-- **HDR** (Vulkan), with brightness, paper white and colour controls.
-- **HD texture packs**, loaded smoothly in the background, plus a tool to
-  extract all of the game's textures for upscaling.
-- **Audio mixer:** master, music and sound effect volume, and an option to mute
-  the pause-menu music.
-- **Performance mode:** runs the graphics on their own thread.
-- **Cheats:** higher jumps (more coming).
-- Controller and keyboard support, fullscreen, OpenGL or Vulkan.
+| Feature | What you get |
+|---|---|
+| **Frame rate** | 60, 120, 180 or 240 FPS, or match your monitor. The extra frames come from the game's own camera and object positions, not from guessing between pictures, and are paced to your display. |
+| **Widescreen** | Any aspect ratio (16:9, 16:10, 21:9, 32:9). You see more of the world instead of a stretched picture; the HUD moves to the screen edges and menus, speech boxes and the pause book keep their shape. |
+| **Resolution** | Up to 8x the original, or match your window or monitor (4K and above). |
+| **HDR** | On Vulkan, with paper white, peak brightness, white level, contrast, saturation, vibrance and menu brightness, each with a reset. |
+| **HD textures** | Texture packs load in the background without stutter. Builds made with the installer can also extract every game texture for upscaling. |
+| **Audio** | Master, music and sound-effect volume, and an option to mute the pause-menu music. |
+| **Controls** | Xbox and PlayStation pads and keyboard out of the box, with buttons where they sit on a GameCube pad. Rebind any button; rumble on/off and strength. |
+| **Cheats** | Jump height, walk through walls, super punches, unlock all stages, collect everything. The last two are permanent once you save. |
+| **Performance mode** | Runs the graphics on their own thread for slower PCs (takes effect after a restart). |
+| **Other** | OpenGL or Vulkan, fullscreen (F11 / Alt+Enter), menu themes and size, and **F12** saves a bug-report snapshot to `data\reports`. |
 
-## Install
+## Controls
 
-**Release zip (recommended).** Download `WarioWorldRecomp-vX.Y.zip` from the
-releases page (about 46 MB), unzip it anywhere you own (not Program Files) and
-double-click **`WarioWorldRecomp.exe`**. The first time, pick your `.iso`: it is
-checked (GWWE01 revision 0, by its SHA-256), its files are copied into `game\` next
-to the exe and the game starts. Setup takes seconds on an SSD and only happens once;
-nothing else needs installing.
+| GameCube | Xbox | PlayStation | Keyboard | In the game |
+|---|---|---|---|---|
+| A | A | Cross | X | Jump |
+| B | X | Square | Z | Punch, grab, throw |
+| R | RT | R2 | W | Dash, ground pound, piledriver |
+| L / Z | LT / RB | L2 / R1 | Q / D | Hyper Suction (pull in coins) |
+| Control Stick | Left stick | Left stick | Arrows | Move |
+| C Stick | Right stick | Right stick | I J K L | Camera |
+| Start | Menu | Options | Enter | Pause book |
 
-The zip holds the compiled runtime and game module, the starter, licences and a
-README; no game files. Your saves and settings are in `user\`, logs and F12
-bug-report snapshots in `data\`. To update, unzip the new version over the old
-folder (your `user\` folder is kept). Starter options for tests and tools:
-`WarioWorldRecomp.exe --iso <your.iso> --setup-only` sets up without a dialog
-(`--quiet` writes errors only to `data\launcher.log`).
+The game's Yes/No prompts use the stick, not the D-pad. Full details:
+[docs/CONTROLS.md](docs/CONTROLS.md).
 
-**Build it yourself from the ISO (alternative).** Double-click
-**`Install-WarioWorld.cmd`**. The installer asks for your `.iso` (it checks that it is
-GWWE01 revision 0) and for an install folder (any folder), then builds the game on
-your PC and installs it there. Building takes 20-60 minutes; you can stop it and
-resume it later.
+## Your files
 
-It needs Windows 10/11 and these free tools; the installer checks for each one and
-links to it (or installs it with `winget`, only if you click that button):
-Python 3.11+, Git, CMake, Ninja, Visual Studio 2022 C++ build tools
-("Desktop development with C++") and LLVM/clang. Allow about 5 GB of free space while
-it builds; the finished install is about 0.5 GB.
+Everything stays in the folder you unzipped to:
 
-What it does: downloads the pinned DolRecomp and ModernGekko sources, applies this
-project's fixes, builds the tools and the runtime, extracts your disc, translates the
-game's code to C and compiles it into a game module, then copies the runtime, module,
-game files and starter into the install folder, makes a game icon from the coin
-texture on your disc and adds desktop / Start-menu shortcuts. The build files are
-deleted when it finishes. Everything runs from the install folder: your saves and
-settings are in `user\`, logs in `data\`. Start the game with the shortcut or
-`Play Wario World.cmd`. Running the installer again on the same folder with your disc
-rebuilds it and keeps your saves; without the disc, **Update** just remakes the icon
-and shortcuts.
+- `game\` the files copied from your disc
+- `user\` saves, settings and HD texture packs (`user\Load\Textures\GWWE01`)
+- `data\` logs and F12 bug-report snapshots
+
+To set up from the command line without a dialog:
+`WarioWorldRecomp.exe --iso <your.iso> --setup-only` (add `--quiet` to write errors
+only to `data\launcher.log`).
+
+## Build it yourself (optional)
+
+If you would rather build everything on your own PC, double-click
+**`Install-WarioWorld.cmd`** in this repository. It asks for your `.iso` and an
+install folder, then downloads the pinned DolRecomp and ModernGekko sources, applies
+this project's fixes, translates the game's code to C, compiles it and installs the
+result with desktop and Start-menu shortcuts. Build files are deleted when it
+finishes.
+
+- Takes 20-60 minutes and needs about 5 GB free while it builds (about 0.5 GB after).
+- Needs Python 3.11+, Git, CMake, Ninja, Visual Studio 2022 C++ build tools
+  ("Desktop development with C++") and LLVM/clang. The installer checks each one and
+  links to it, or installs it with `winget` if you click that button.
+- It can be stopped and resumed. Running it again on the same folder rebuilds and
+  keeps your saves.
 
 Without the window: `python installer\wario_installer.pyw --no-gui --iso <your.iso>
---install-dir <folder> [--desktop-shortcut] [--start-menu-shortcut]` (`--check` only
-checks the prerequisites; `--refresh` only remakes the icon and shortcuts). Manual build
-steps: [docs/START_HERE.md](docs/START_HERE.md). Making a release zip:
+--install-dir <folder>` (`--check` only checks the prerequisites). Manual build steps
+are in [docs/START_HERE.md](docs/START_HERE.md); making a release zip is in
 [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
 ## Status
 
-- Complete playthrough done on this build.
-- Being polished: frame pacing on high-refresh monitors, a few widescreen screens,
-  more cheats and controller options.
-- Details and test evidence: [docs/progress/CURRENT_STATUS.md](docs/progress/CURRENT_STATUS.md).
+- The full game has been played through on this build.
+- Known issues: [docs/progress/KNOWN_ISSUES.md](docs/progress/KNOWN_ISSUES.md).
+- Current status and test results:
+  [docs/progress/CURRENT_STATUS.md](docs/progress/CURRENT_STATUS.md).
+- All documentation: [docs/README.md](docs/README.md).
+
+Found a bug? Press **F12** where it happens and include the snapshot from
+`data\reports` in your report.
 
 ## Credits and licences
 
 - Built on [DolRecomp](https://github.com/ExpansionPak/DolRecomp) and
-  [ModernGekko](https://github.com/ExpansionPak/ModernGekko), which includes the
-  [Dolphin](https://dolphin-emu.org/) emulator code (GPLv2 or later).
-- This project's own scripts and patches are GPLv3; upstream components keep their
-  own licences.
+  [ModernGekko](https://github.com/ExpansionPak/ModernGekko), which includes code from
+  the [Dolphin](https://dolphin-emu.org/) emulator (GPLv2 or later).
+- This project's scripts and patches are GPLv3 ([LICENSE](LICENSE)). Upstream
+  components keep their own licences, included in the release zip under `LICENSES\`.
 - Wario World is © Nintendo. This is an unofficial fan project, not affiliated with
-  or endorsed by Nintendo. It contains no Nintendo code or assets.
+  or endorsed by Nintendo. Neither this repository nor the release zip contains any
+  game files: the graphics, sound and data all come from your own disc.

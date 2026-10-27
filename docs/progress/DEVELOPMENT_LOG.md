@@ -1,6 +1,37 @@
 # Development log
 
-Newest first. Earlier history (2026-10-24..26 morning): ../PROGRESS.md and ../HANDOFF.md.
+Newest first. Earlier history (2026-10-24..26 morning): ../PROGRESS.md.
+Current state: CURRENT_STATUS.md.
+
+## 2026-10-27 (day and evening): menu features, cheats, release package
+
+Summary of the commits; details are in the linked docs.
+
+- Frame generation: frame N's own copy is shown as the real frame (fixed the
+  afterimages); VSync while interpolating; a display clock thread and slot
+  pacing, display-locked by default; the adaptive multiplier cap was removed
+  (the hub slowdowns were HD texture uploads). ../modding/FPS_UNLOCK.md.
+- HD textures: uploads streamed across frames (32 MB per frame).
+- Widescreen: HUD kept inside the 4:3 pause book; every pause-book page,
+  the message-board figure and the results-paper icons mapped to 4:3
+  (WS-008..WS-010). ../modding/WIDESCREEN_SUPPORT.md.
+- Menu: UI styles, tabs, HDR tuning (white level and vibrance added, warmth
+  removed), HDR menu brightness, performance mode, audio mixer, absolute
+  fullscreen, GameCube-layout controls with rebinding and rumble, F12
+  bug-report snapshot, Cheats tab. ../modding/IN_GAME_MENU.md.
+- Audio: MusyX volume control mapped; music / SFX / pause-music hooks; pause
+  music always routed to its group. ../engine/AUDIO.md.
+- Cheats in the module: walk through walls, super punch, jump height, unlock
+  stages (all 12 clear bits), collect all (incl. the world-boss pieces).
+  ../modding/CHEATS.md.
+- Windowless starter replaced the launcher window; installer (ISO + any folder
+  -> self-contained install) with the disc's coin icon; release package
+  (native WarioWorldRecomp.exe starter, make_release.py, clean-folder test).
+  ../PUBLISHING.md.
+- Cleanup: launcher/cheats.pyw, launcher/enhancements.py and
+  Launch-WarioWorld.cmd removed (cheats live in the menu); Play-WarioWorld.cmd
+  stays.
+- Owner finished the full playthrough.
 
 ## 2026-10-27 (early morning): world sweep, identity and haze fixes
 

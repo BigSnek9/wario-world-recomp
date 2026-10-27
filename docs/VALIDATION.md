@@ -4,6 +4,14 @@ The PC executable cannot have the same machine-code bytes as a GameCube DOL.
 The acceptance goal is equivalent guest-visible behavior. Source extraction
 can and does have a separate literal byte-for-byte check.
 
+## Status (2026-10-27)
+
+Sections below are dated checkpoints. Current state: progress/CURRENT_STATUS.md.
+The criteria in "Not established" still define what a parity claim needs; the
+full human playthrough and zero-interpreter routes are playability and coverage
+evidence, not proof. The FPS work was done as a separate, optional layer
+(modding/FPS_UNLOCK.md).
+
 ## Review correction, 2026-10-26
 
 Read ACCURACY_REVIEW.md before interpreting historical results below. Manual
@@ -131,5 +139,5 @@ parity claim follows from this alignment. Neither WAV was played.
 
 A fresh-boot outer-card-read test passes 18678 checks / zero reports / zero JIT,
 with genuine copied diagnostic user data. Slots still say New: actual gameplay
-save-point/stage-clear/reboot/Continue progression is NOT validated. Manual
-playtest launcher is prepared but has not been executed by the agent.
+save-point/stage-clear/reboot/Continue progression is NOT validated by this test
+(the owner's later playthrough exercised it in practice).

@@ -1,18 +1,23 @@
 # Open accuracy and coverage issues
 
-## Current status correction - 2026-10-26
+## Status (2026-10-27)
 
-Read ACCURACY_REVIEW.md for the current status. Historical A004/A006/A007 and
-A009 narratives below describe earlier builds; later resolutions supersede them.
-New open A015: manual 3x/Auto versus test 1x drift and unvalidated runtime graphics,
-video-field and DSP shortcuts. Presentation drift corrected to 4:3/1x; broader
-accuracy remains open. A016: Win32 constant-focus bug repaired/rebuilt, six
-compiled controls pass; human integration remains untested. A017: frozen water
-in Greenhorn Forest, unresolved. A018: general/box-breaking slowdowns there,
-unresolved. A019: native/JIT reference shares graphics/audio/device runtime,
-so common defects can pass; independent rendering and guest-poll replay needed.
-User confirms controller works and stage one cleared; not an accuracy proof.
+| ID | Status |
+|---|---|
+| A001, A002, A008, A010-A013 | Fixed (verifier, FMA helper, MMU restore, hidden HWND, mapping lifetime, stale headers). |
+| A003 | Resolved on tested routes: hook_interp=0, JIT 0. |
+| A004, A006, A007 | Superseded: all eight RELs are compiled into the module with live OSLink mapping and independent code-hash checks (REL_RUNTIME.md); JIT entries are counted. |
+| A005 | Vulkan now renders in the release runner and HDR runs; the old headless Vulkan stall is historical. |
+| A009 | Not a runtime bug: an input-probe mistake (resolution below). |
+| A014 | Harness limitation (probes are navigation, not input-poll replay). |
+| A015 | Presentation drift corrected (explicit 4:3 / native 1x baseline). Rendering, video-field and DSP shortcuts remain unvalidated against hardware (ACCURACY_REVIEW.md). |
+| A016 | Win32 focus query repaired and rebuilt; Alt-Tab behaviour was not specifically tested by a human. |
+| A017 | Closed: frozen water is the original behaviour (progress/KNOWN_ISSUES.md KI-002). |
+| A018 | Resolved: slowdowns (KI-001, KI-006). |
+| A019 | Open by nature: the native and JIT reference paths share the renderer, DSP and devices, so common defects can pass both. |
 
+The owner's full playthrough is playability evidence, not an accuracy proof.
+Entries below are the original narratives; their dates matter.
 
 No bit-accuracy claim is made. Reproduce these before choosing fixes; do not
 silence the validator or force fallback to make the reports disappear.
@@ -75,7 +80,11 @@ The six cache sites use an existing direct fast path when data-cache emulation
 is disabled; system-register operations can enter the interpreter. The helper
 counter aggregates both paths. Preserve hardware side effects and cycle costs.
 
-## A004 - Missing compiled REL integration
+## A004 - Missing compiled REL integration (superseded 2026-10-25/26)
+
+Superseded: build_rel_bundle.py compiles main plus all eight RELs into one
+module (REL_RUNTIME.md). Original note:
+
 
 All eight original RELs translate as local C artifacts with zero unknown-opcode
 reports after the empty-section fix. The current loaded DLL includes main DOL

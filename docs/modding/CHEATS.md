@@ -1,8 +1,9 @@
 # Cheats (engine side)
 
-Game-module cheats for the in-game menu's Cheats tab. They are built into the game
+Game-module cheats for the in-game menu's Cheats tab (status 2026-10-27: done;
+the menu's jump height slider covers 100-500 %). They are built into the game
 module by `scripts/build_rel_bundle.py` (the `CHEAT_SITES` section: hook sites, C glue
-`CHEAT_GLUE`). Engine findings behind them: `docs/engine/PHYSICS.md` G-0010..G-0016.
+`CHEAT_GLUE`). Engine findings behind them: `docs/engine/PHYSICS.md` G-0007, G-0010..G-0015.
 
 Every cheat is an exported `volatile s32` in `gGWWE01_recomp.dll` (look it up with
 `GetProcAddress`, like `wario_audio_*`). All of them are **inert at 0**: each hook returns
@@ -110,10 +111,12 @@ sets the variables after delay_ms; `WARIO_CHEAT_LOG=<file>` logs cheat events an
   memory only (late hub save: unlock gives 0x07FF -> 0x0FFF; Pecan Sands save: collect gives
   0x0BFF, the one missing bit being the uncleared stage itself), not watched in a capture; the exact meaning of record fields +0xA / +0xC is unverified.
 
-## Note on the menu's existing "Moon jump" (scripts/tool_fix_wario_menu.py)
+## The retired "Moon jump"
 
-`MoonJump()` runs on the host/UI side: while A is held it adds `moon_speed * 20 * dt` to
-Wario's **position** y (player+0x18; dt is host frame time, capped at 0.05 s). It is a
-levitation nudge outside the game's physics (frame-rate dependent, not synchronized with
-the CPU thread), not a jump-height change. A height control can instead write
-`wario_cheat_jump_percent` (100 = original; the game's own launch is scaled).
+The first cheat (a host-side `MoonJump()` in the menu, and before that the
+`launcher/cheats.pyw` helper) pushed Wario's **position** y up while A was held:
+a levitation nudge outside the game's physics, frame-rate dependent and not
+synchronized with the CPU thread. It was replaced by Jump height
+(`wario_cheat_jump_percent`), which scales the game's own launch. The menu drops
+the old `moon_jump` / `moon_speed` keys on the next save; the helper script was
+removed.

@@ -1,15 +1,17 @@
 # Test results
 
-All runs hidden + muted (OpenGL, 1x, 4:3), clean module
-build/module-full-vectors/Release/gGWWE01_recomp.dll unless stated. Run folders
-are under private/runs/ (private). Summaries: `python scripts/run_summary.py <run>`.
+All runs hidden + muted. Sections are dated; the early ones used OpenGL, 1x,
+4:3 and the MSVC module build/module-full-vectors/Release/gGWWE01_recomp.dll,
+later ones the clang PGO module unless stated. Run folders are under
+private/runs/ (private). Summaries: `python scripts/run_summary.py <run>`.
+Current state: CURRENT_STATUS.md.
 
 ## Gameplay test matrix
 
 | Area | Status | Evidence |
 |---|---|---|
 | Boot, Nintendo logo, title | pass | many runs |
-| New save creation | pass (earlier session) | docs/HANDOFF.md |
+| New save creation | pass (earlier session) | ../PROGRESS.md (2026-10-26) |
 | Load progressed save (copy of human save, stage 1 cleared) | pass: slot shows 10/26/26 12:37, Start loads hub | 20261026T162208773301Z-b814d6ac |
 | Hub / World 1 entry | pass | probes enter_world1 / enter_greenhorn |
 | Greenhorn Forest walk to first river | pass, speed ~1.0 | 20261026T162357957453Z-71be5d71 |
@@ -18,10 +20,11 @@ are under private/runs/ (private). Summaries: `python scripts/run_summary.py <ru
 | Stage clear | human only (stage 1) | user report |
 | Save after progression, reboot, Continue | pass via human save file loading | above |
 | Stage 2 (first half) | human: no issues (2026-10-26 evening, clang build, fullscreen) | private/playtest-last.log |
-| Rest of stage 2, boss, worlds 2-4, ending | untested | |
-| REL modules 1-4, 6 executed | untested | |
-| Audio equivalence | one idle capture only | docs/HANDOFF.md |
-| Long-session stability | untested | |
+| Whole game, all worlds, bosses, ending | human playthrough finished (by 2026-10-27) | owner report; play-tracker states in private/play-sessions |
+| Every play-tracker area with frame generation | 46 states, 2x camera + objects | reports/fps-world-sweep.json |
+| REL modules 1-4, 6 | loaded during the playthrough; only REL 5, 7, 8 independently audited | ../engine/ARCHITECTURE.md |
+| Audio equivalence | one idle capture only | ../PROGRESS.md |
+| Long-session stability | the full human playthrough; no dedicated soak test | |
 
 ## 2026-10-26 performance probes
 

@@ -1,18 +1,8 @@
-# Focused follow-up work
+# Research follow-ups (accuracy)
 
-## Current accuracy review - 2026-10-26
-
-ACCURACY_REVIEW.md supersedes historical accuracy/settings assumptions below.
-User confirms Xbox controls and stage-one clear; Greenhorn Forest has reported
-frozen water, box/general slowdown and intermittent stretching. Human progression
-save/reboot restoration is still unverified. Auto aspect and manual 3x drift
-were found; manual/test presentation is now explicitly 4:3/native 1x with backups.
-Win32 focus query fixed and runtime/runner rebuilt; six compiled predicate/dispatch
-controls pass. Other framebuffer/video/DSP shortcuts remain unvalidated. No
-whole-game, hardware or static-only claim is justified. Read the review's
-acceptance gates before adding features or uncapping FPS. Historical notes
-about pending user controller feedback are superseded by their confirmation.
-
+The current task list is progress/NEXT_ACTIONS.md. This file keeps longer
+research notes for accuracy work that is not on that list. Written 2026-10-26;
+status updated 2026-10-27.
 
 ## Deterministic input and capture
 
@@ -36,35 +26,19 @@ before claiming register/memory parity; a host/GPU frame pause is insufficient.
 No movie support was added to the recomp runtime in this turn; this is researched
 implementation direction, not a finished feature.
 
-## Interpreter helper reduction
+## Interpreter helper reduction - done on tested routes
 
-inventory_helpers.py identifies observed helper sites: mfspr/mtspr for SPRG0,
-HID0, L2CR, DEC, WPAR and BATs; plus dcbst/dcbf/dcbi/icbi. New counters distinguish
-actual cache fast paths from SingleStepInner. Do not reduce a counter by renaming
-an interpreter handler or removing faithful hardware side effects.
+Supervisor mtspr/mfspr and cache operations now run natively with Dolphin's
+side effects inside the same SyncOut/SyncIn (ACCURACY_ISSUES.md A003,
+scripts/tool_fix_native_spr.py); hook_interp=0 on the tested routes and the
+regression suite fails if it is not. Routes not yet observed use the same code
+path. Do not reduce a counter by renaming an interpreter handler or removing
+faithful hardware side effects.
 
-Existing HookSPRRead/HookSPRWrite implement many operations, but blanket routing
-would need precise privilege/trap behavior, register masks, BAT invalidation,
-HID0 cache flushing, decrementer/interrupt ordering, gather-pipe behavior and cycle
-charges. SyncOut/SyncIn also refresh timebase caches, so removing their calls can
-change later mftb observations even for an apparently simple SPRG register move.
-Check the local Interpreter_SystemRegisters.cpp and SingleStepInner paths, then
-write differential tests before changing a whitelist. Keep interpreted fallbacks
-explicit until behavior is established. No helper semantics were changed here.
+## Gameplay/save coverage - superseded
 
-## Gameplay/save coverage
-
-Greenhorn Forest entry is preserved in private/runs/
-20261026T111939310041Z-8d4aab64/control/checkpoint.savestate, paired with user/.
-Later movement state: 20261026T112414167280Z-ff64d01b/control/checkpoint.savestate.
-Inputs so far do not establish enemy hits, defeat, collectibles, stage completion,
-actual progression saving/Continue, boss modules or all REL unload/reload paths.
-All slots remain New in the persisted-card boot test; do not conflate creating
-and reading the outer GCI with saving a progressed slot. Do not fabricate a save
-or modify game memory to bypass this work. Preserve the human's separate
-private/playtest-user folder. Their later playtest is useful but not required
-for continuing analysis, instrumentation and silent tests.
-
-T007 newly documents opening-module signed update-call countdowns. Continue
-this audit in movement, timers, camera, cutscenes, audio and bosses; negative
-named-symbol timing scans do not exclude fixed-step dependencies.
+The owner's full playthrough covers enemies, collectibles, stage clears, bosses,
+saving and Continue in practice. What it does not give is a deterministic
+replay or a parity proof (ACCURACY_REVIEW.md gates). Fixed-step audits of
+movement, timers, camera, cutscenes, audio and bosses (TIMING.md) remain
+relevant for any change to the simulation clock.

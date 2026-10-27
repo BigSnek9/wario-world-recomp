@@ -20,7 +20,7 @@
 - Regression test needed: compare a stage screenshot before/after changing one
   value in a private experiment build; never in the baseline.
 
-Constants file: research/HARDCODED_CONSTANTS.json (HC-0001..HC-0008).
+Constants file: ../research/HARDCODED_CONSTANTS.json (HC-0001..HC-0008).
 
 ## CAM-002 Camera block layout - CONFIRMED at runtime (2026-10-26)
 

@@ -1,6 +1,12 @@
-# Widescreen support plan
+# Widescreen support
 
-Findings: ../engine/WIDESCREEN.md (WS-001..003).
+Status 2026-10-27: done, optional (in-game menu Aspect: Auto, Original 4:3,
+16:9, 16:10, 21:9, 32:9). Hor+ view, edge HUD, and the pause book, message
+boards and results paper keep their 4:3 shape. WS-009 and WS-010 are not yet
+confirmed in a capture (../progress/KNOWN_ISSUES.md KI-008). The plan and
+implementation notes follow in the order they were written.
+
+Findings: ../engine/WIDESCREEN.md (WS-001..010).
 
 ## Strategy (Hor+)
 
@@ -37,16 +43,17 @@ the same aspect. So a Hor+ mod can write aspect into the active camera block
 follow; no separate culling patch is needed for the side planes. HUD (WS-003)
 and the 2D half-width (WS-002) still need their own changes.
 
-## Implemented (optional, launcher; 2026-10-26)
+## Implemented (2026-10-26; the launcher pickers are now the in-game menu)
 
 - Runtime: MODERNGEKKO_WARIO_ASPECT=auto|w:h (scripts/tool_fix_wario_aspect.py)
   rewrites HC-0001, HC-0007 and the live camera +0x44 after every presented
   frame; "auto" follows the window/backbuffer aspect (GFX AspectRatio=Stretch),
   fixed ratios use AspectRatio=Custom. Resolution "auto" leaves the EFB scale
   to Dolphin's window-size mode (InternalResolution=0).
-- Launcher: Resolution and Aspect pickers default to "Auto (match window)";
-  "Original" choices restore the accurate native 1x / 4:3 baseline. Hidden
-  tests always use the baseline.
+- Choice: originally launcher pickers, now the in-game menu's Resolution and
+  Aspect (IN_GAME_MENU.md); "Original" choices restore the accurate native
+  1x / 4:3 values. Hidden tests use the baseline unless they set
+  `MODERNGEKKO_WARIO_ASPECT`.
 - Verified hidden at 16:9: Greenhorn Forest Hor+ (same vertical framing, more
   scenery at the sides, no missing geometry at the new edges, live camera from
   a savestate adapts), title/file select/hub 2D art keeps its proportions, HUD

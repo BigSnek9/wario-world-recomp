@@ -8,9 +8,9 @@ Look up any main.dol address in the private disassembly with
 | System | Doc | Key IDs |
 |---|---|---|
 | Architecture / main loop / modules | ARCHITECTURE.md | F-0001, F-0007, F-0008 |
-| Frame timing | FRAME_TIMING.md -> ../TIMING.md | T001-T007 |
-| Camera | CAMERA.md | CAM-001, HC-0001..0006 |
-| Widescreen / 4:3 assumptions | WIDESCREEN.md | WS-001..003 |
+| Frame timing | FRAME_TIMING.md -> ../TIMING.md | T001-T009 |
+| Camera | CAMERA.md | CAM-001..004, HC-0001..0006 |
+| Widescreen / 4:3 assumptions | WIDESCREEN.md | WS-001..010 |
 | UI / HUD | UI.md | HC-0007, WS-003 |
 | Culling / draw distance | CULLING.md | HC-0004, HC-0005 |
 | Rendering | RENDERING.md | F-0005, F-0006 |
@@ -21,8 +21,9 @@ Look up any main.dol address in the private disassembly with
 | Physics, player, progress/save data, cheats | PHYSICS.md, ../modding/CHEATS.md | G-0007, G-0010..G-0015 |
 | Animation, scripting | ANIMATION.md, SCRIPTING.md | (mostly unmapped) |
 
-ID prefixes: F- function (FUNCTION_DATABASE.json), HC- hardcoded constant
-(HARDCODED_CONSTANTS.json), T- timing (TIMING.md), WS- widescreen, CAM- camera, AU- audio,
+ID prefixes: F- function, G- global or gameplay finding (FUNCTION_DATABASE.json up to G-0007;
+G-0010..G-0015 are only in PHYSICS.md), HC- hardcoded constant
+(HARDCODED_CONSTANTS.json), T- timing (../TIMING.md), WS- widescreen, CAM- camera, AU- audio,
 KI- known issue (../progress/KNOWN_ISSUES.md), A- accuracy issue
 (../ACCURACY_ISSUES.md).
 

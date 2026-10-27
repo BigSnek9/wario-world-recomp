@@ -21,7 +21,8 @@ and AGENTS.md before modifying those repositories.
   directory; an absolute F: path was misparsed. Disc extraction accepted it.
 - Python 3.12.6 for independent standard-library format/hash audits.
 - MSVC 19.39.33521, CMake 4.3.3, Ninja; LLVM 23.1.3 present.
-- Existing Dolphin for future isolated reference captures (not launched yet).
+- Existing Dolphin 2606a for isolated reference comparisons (used by the owner
+  for side-by-sides; agents do not launch its GUI for tests).
 - Java 21 present; Ghidra itself not found in checked project/program locations.
 
 ## Chosen implementation route
@@ -35,9 +36,10 @@ does not satisfy it, so it is disabled. This does not prevent the C backend.
 Source pins are in config/project.json. ModernGekko has its own separately pinned
 DolRecomp in vendor/dolphin/DolRecomp (71ce7f97419b1bb1ba9a9596c41507f6629e0fb0).
 Do not mix its ABI/runtime with standalone output without checking compatibility.
-The port builder currently recompiles only the main DOL. Automatically loading
-the disc's REL data in the runtime is not equivalent to compiling the REL code.
-Full Wario REL integration is a required game-specific milestone.
+The upstream port builder recompiles only the main DOL. Automatically loading
+the disc's REL data in the runtime is not equivalent to compiling the REL code;
+this project's scripts/build_rel_bundle.py compiles all eight RELs into the
+module (REL_RUNTIME.md).
 
 ## Local fixes
 

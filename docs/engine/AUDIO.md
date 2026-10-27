@@ -1,7 +1,7 @@
 # Audio
 
 DSP runs in HLE in the runtime. One 16 s idle-stage DSP capture matched the
-original-code JIT path after alignment (../HANDOFF.md).
+original-code JIT path after alignment (../PROGRESS.md, silent audio comparison).
 
 The game uses Factor 5 MusyX (GameCube library linked at about 0x8016D100..0x8018B000)
 plus a small game-side sound manager. Names below are MusyX API names inferred from
@@ -90,6 +90,7 @@ but the table is empty: the voice ids are not identified. Evidence collected:
 Filling the table needs a listening pass (the user, not automated tests): trace a
 session, play the candidate samples, list the voice SFX ids. Until then the menu
 should not show a Voice slider (the variable is inert while the table is empty).
+Status 2026-10-27: parked (../progress/KNOWN_ISSUES.md KI-009).
 
 ## AU-006 Pause-menu music (confirmed)
 
@@ -109,7 +110,7 @@ using samples 183/184/186/187), not a BGM. Sequence (`r4` = pause object):
 Muting it by routing 0x3BF to its own group keeps the keyoff/volume edges valid and
 does not touch the BGM pause/resume, so the stage music resumes as before.
 
-## AU-007 Runtime mixer (prototype, `scripts/build_rel_bundle.py` AUDIO_SITES)
+## AU-007 Runtime mixer (`scripts/build_rel_bundle.py` AUDIO_SITES; used by the in-game menu)
 
 Exported module variables (GetProcAddress on the game DLL, like
 `wario_fullscreen_half_width`):

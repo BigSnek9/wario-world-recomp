@@ -3,7 +3,8 @@
 All addresses are main.dol (GWWE01 rev 0) virtual addresses. Original values
 come from the private dtk disassembly (`generated/analysis/asm`) and can be
 re-derived with `python scripts/asm_lookup.py <addr>`. Nothing here is patched
-in the baseline build.
+in the original 4:3 mode; the optional widescreen mode built on these findings
+is described in ../modding/WIDESCREEN_SUPPORT.md.
 
 ## Source of these leads
 
@@ -73,11 +74,12 @@ keeping the HUD inside the 4:3 book.
 
 ## Host side (runtime, not game code)
 
-- Presentation is forced to 4:3 (`AspectRatio=2` ForceStandard, widescreen
-  hack off) by `scripts/configure_baseline.py`. Dolphin's Auto mode switches
+- The baseline presentation is 4:3 (`AspectRatio=2` ForceStandard, widescreen
+  hack off, `scripts/configure_baseline.py`); the widescreen modes set the
+  host aspect explicitly (Stretch / CustomStretch, ../modding/IN_GAME_MENU.md). Dolphin's Auto mode switches
   aspect heuristically; the Dolphin wiki reports this game flipping between
   4:3 and 16:9 at the World 1 boss under Auto. That matches the human report of
-  "transient stretching" before the baseline fix (see KNOWN_ISSUES.md).
+  "transient stretching" before the baseline fix (see ../progress/KNOWN_ISSUES.md).
 - A real widescreen mod therefore needs BOTH guest changes (WS-001..003) and
   host presentation set to the matching aspect.
 
@@ -206,6 +208,6 @@ at the three viewport calls; the full-screen scissor is left alone.
 ## Open questions
 
 - Which code writes camera `+0x44` besides fn_80068250 (cutscenes, bosses)?
-- Where the camera block's +0x54 matrix is rebuilt from +0x44/+0x48 (needed so
-  aspect/FOV edits take effect).
+- (Answered: the per-frame camera update fn_80042714 rebuilds +0x54 from
+  +0x44/+0x48, CAMERA.md CAM-004.)
 - Whether fn_8007BEAC is the main HUD draw.
