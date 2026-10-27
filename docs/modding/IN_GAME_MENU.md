@@ -1,14 +1,15 @@
 # In-game menu
 
-Status 2026-10-26: implemented (scripts/tool_fix_wario_menu.py); needs a human
-check of look and feel (the menu cannot be seen in hidden tests, which run
-headless).
+Status 2026-10-27: implemented (scripts/tool_fix_wario_menu.py). Hidden tests
+can render it: `MODERNGEKKO_WARIO_MENU_TEST=<png>` opens the menu after 6 s
+and saves the game picture with the menu on top once.
 
 - **Open/close:** Back on the controller, or Tab on the keyboard. B also
   closes it (when no dropdown is open), as does Resume.
-- **Look:** an ImGui panel (Dolphin's overlay) slides in over the left half of
-  the screen in 0.18 s (ease-out). Font and spacing scale with the window
-  height.
+- **Look:** an ImGui panel (Dolphin's overlay) slides in from the left in
+  0.18 s (ease-out). Text is 18 px times the Windows display scaling of the
+  game window's monitor times the Menu size setting (0.6-1.6x); the panel is
+  26 em wide, at most half the screen.
 - **Navigation:** D-pad or left stick moves, A selects. The mouse works too:
   move, left/right click and wheel are forwarded from the Win32 game window
   (DolphinNoGUI/PlatformWin32.cpp) to ImGui.

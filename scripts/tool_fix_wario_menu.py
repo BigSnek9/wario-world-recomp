@@ -64,6 +64,9 @@ static float WarioAspectFromEnv()
 std::atomic<bool> g_wario_menu_open{false};
 std::atomic<float> g_wario_aspect_target{WarioAspectFromEnv()};  // 0 = 4:3, < 0 = window
 std::atomic<int> g_wario_mouse_wheel{0};                         // 1/120 notches
+// Diagnostics: MODERNGEKKO_WARIO_MENU_TEST=<png> opens the menu after 6 s and saves the
+// game picture with the menu on top once (Presenter::Present renders it offscreen).
+std::atomic<bool> g_wario_menu_snapshot{false};
 void* g_wario_hwnd = nullptr;
 extern std::atomic<int> g_wario_fps_multiplier;  // VideoCommon/BPStructs.cpp (1 = off)
 extern std::atomic<bool> g_wario_fps_objects;     // false = camera only
@@ -91,7 +94,7 @@ constexpr int kResolutionScales[] = {0, 1, 2, 3, 4, 5, 6, 8};
 constexpr const char* kFrameRateNames[] = {"Original 60 (accurate)", "120 (2x)", "180 (3x)",
                                            "240 (4x)", "Auto (match screen)"};
 constexpr const char* kFrameRateKeys[] = {"60", "120", "180", "240", "auto"};
-constexpr const char* kMotionNames[] = {"Camera only", "Camera + objects (recommended)"};
+constexpr const char* kMotionNames[] = {"Camera only", "Camera + objects"};
 constexpr const char* kMotionKeys[] = {"camera", "objects"};
 struct Aspect
 {
@@ -543,7 +546,7 @@ void DrawPanel(float width, float height)
       changed = true;
     }
     ImGui::BeginDisabled(!IsVulkan());
-    if (ImGui::Checkbox(IsVulkan() ? "HDR output" : "HDR output (needs Vulkan, set in launcher)",
+    if (ImGui::Checkbox(IsVulkan() ? "HDR output" : "HDR output (Vulkan only)",
                         &s.hdr))
     {
       QueueHdr();
@@ -567,8 +570,10 @@ void DrawPanel(float width, float height)
       changed = true;
     }
     ImGui::EndDisabled();
-    ImGui::TextDisabled("Extra frames are interpolated; game speed is unchanged.");
-    ImGui::TextDisabled("Adds ~8-12 ms delay. Pick no more than your screen's refresh rate.");
+    ImGui::PushTextWrapPos(inner + font * 1.2f);
+    ImGui::TextDisabled("Extra frames are interpolated; game speed is unchanged. Adds ~8-12 ms "
+                        "delay. Pick no more than your screen's refresh rate.");
+    ImGui::PopTextWrapPos();
 
     ImGui::SeparatorText("Audio");
     row("Volume");
@@ -598,8 +603,10 @@ void DrawPanel(float width, float height)
     if (ImGui::Button("Quit game", ImVec2(inner, 0.0f)))
       Quit();
     ImGui::Spacing();
-    ImGui::TextDisabled("Back / B: close    A: select    D-pad / stick: move");
-    ImGui::TextDisabled("Mouse works too. Tab opens and closes on the keyboard.");
+    ImGui::PushTextWrapPos(inner + font * 1.2f);
+    ImGui::TextDisabled("Back / B: close   A: select   D-pad / stick: move. Mouse works too; "
+                        "Tab opens and closes it on the keyboard.");
+    ImGui::PopTextWrapPos();
     ImGui::PopFont();
     if (changed)
       Save();
@@ -641,6 +648,25 @@ void WarioMenuDraw(u32 width, u32 height)
   const unsigned pressed = pad.buttons & ~s_previous_buttons;
   s_previous_buttons = pad.buttons;
   const bool tab = KeyDown(VK_TAB);
+  {
+    static const char* test = std::getenv("MODERNGEKKO_WARIO_MENU_TEST");
+    static float test_time = 0.0f;
+    static int test_stage = 0;
+    if (test && *test)
+    {
+      test_time += dt;
+      if (test_stage == 0 && test_time > 6.0f)
+      {
+        SetOpen(true);
+        test_stage = 1;
+      }
+      else if (test_stage == 1 && s_anim >= 1.0f && test_time > 7.0f)
+      {
+        g_wario_menu_snapshot.store(true);
+        test_stage = 2;
+      }
+    }
+  }
   if ((pressed & PAD_BACK) || (tab && !s_previous_tab))
     SetOpen(!s_open);
   s_previous_tab = tab;
@@ -692,7 +718,7 @@ OSUI_DRAW_NEW = ("  DrawChallengesAndLeaderboards();\n"
 
 PRESENT_DECL_OLD = '#include "VideoCommon/VideoEvents.h"\n'
 PRESENT_DECL_NEW = (PRESENT_DECL_OLD + "\n// Wario World in-game menu (scripts/tool_fix_wario_menu.py).\n"
-                    "void WarioMenuApplyPending();\n")
+                    "void WarioMenuApplyPending();\n#include <atomic>\nextern std::atomic<bool> g_wario_menu_snapshot;\n")
 
 PRESENT_APPLY_OLD = """  if (m_onscreen_ui)
   {
@@ -701,7 +727,27 @@ PRESENT_APPLY_OLD = """  if (m_onscreen_ui)
       m_onscreen_ui->DrawImGui();
   }
 """
-PRESENT_APPLY_NEW = PRESENT_APPLY_OLD + "  WarioMenuApplyPending();\n"
+PRESENT_APPLY_NEW = PRESENT_APPLY_OLD + """  WarioMenuApplyPending();
+  if (m_onscreen_ui && g_wario_menu_snapshot.exchange(false))
+  {
+    // Diagnostics (MODERNGEKKO_WARIO_MENU_TEST): game picture + menu, rendered offscreen.
+    const char* path = std::getenv("MODERNGEKKO_WARIO_MENU_TEST");
+    const TextureConfig config(m_backbuffer_width, m_backbuffer_height, 1, 1, 1,
+                               AbstractTextureFormat::RGBA8, AbstractTextureFlag_RenderTarget,
+                               AbstractTextureType::Texture_2DArray);
+    auto texture = g_gfx->CreateTexture(config, "Wario menu snapshot");
+    auto framebuffer = texture ? g_gfx->CreateFramebuffer(texture.get(), nullptr) : nullptr;
+    if (framebuffer && path)
+    {
+      g_gfx->SetAndClearFramebuffer(framebuffer.get(), {{0.0f, 0.0f, 0.0f, 1.0f}});
+      if (m_xfb_entry)
+        RenderXFBToScreen(GetTargetRectangle(), m_xfb_entry->texture.get(), AdjustForCustomCrop(m_xfb_rect));
+      m_onscreen_ui->DrawImGui();
+      texture->Save(path, 0);
+      g_gfx->BindBackbuffer({{0.0f, 0.0f, 0.0f, 1.0f}});
+    }
+  }
+"""
 
 PAD_DECL_OLD = '#include "InputCommon/InputConfig.h"\n'
 PAD_DECL_NEW = (PAD_DECL_OLD + "\n#include <atomic>\n\n"
