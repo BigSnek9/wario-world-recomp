@@ -186,6 +186,11 @@ PRESENT_DECL_NEW = PRESENT_DECL_OLD + (
     "    RcTcacheEntry entry;\n"
     "    u32 width, height;\n"
     "    TimePoint due;\n"
+    "    // Display-locked pacing queues the real frame here too, with what its VI present needs.\n"
+    "    bool real = false;\n"
+    "    MathUtil::Rectangle<int> rect{};\n"
+    "    PresentInfo info{};\n"
+    "    u64 ticks = 0;\n"
     "  };\n"
     "  std::vector<WarioQueuedFrame> m_wario_pending_mids;\n"
     "  RcTcacheEntry m_wario_real_entry;\n"
@@ -296,12 +301,13 @@ double Presenter::PresentInterpolated(RcTcacheEntry entry, u32 fb_width, u32 fb_
       static double integral = 0.0;
       const double lead = std::chrono::duration<double>(due - now) /
                           std::chrono::duration<double>(period);
-      // Target: half a refresh of margin. The integral only runs while the error is small (after a
+      // Target: one refresh of lead (in-between frames are queued only after their replays, so the
+      // natural lead averages about one refresh). The integral only runs while the error is small (after a
       // savestate load or a hitch the backlog is large for a moment and must not wind it up); the
       // steady state needs about +0.1% (4 x 59.94 Hz against a 239.99 Hz display).
       lead_average += (std::min(lead, 4.0) - lead_average) * 0.05;
       g_wario_lead_average = lead_average;
-      const double error = lead_average - 0.5;
+      const double error = lead_average - 1.0;
       if (std::abs(error) < 1.0)
         integral = std::clamp(integral - error * 0.00005, -0.003, 0.003);
       g_wario_rate_scale.store(std::clamp(1.0 + integral - error * 0.0005, 0.995, 1.005));
@@ -375,6 +381,20 @@ void Presenter::WarioFlushPendingPresent(bool force)
       m_wario_pending_mids.erase(m_wario_pending_mids.begin());
       ReleaseXFBContentLock();
       m_xfb_entry = std::move(frame.entry);
+      if (frame.real)
+      {
+        // A real frame queued by the VI (display-locked pacing): present it as the VI would.
+        m_xfb_rect = frame.rect;
+        m_xfb_entry->AcquireContentLock();
+        WarioDumpPresented(m_xfb_entry, 'R'); WarioTrace('P');
+        Present(&frame.info);
+        WarioTrace('R');
+        s_wario_last_real_present = Clock::now();
+        WarioNotePresent();
+        ProcessFrameDumping(frame.ticks);
+        GetVideoEvents().after_present_event.Trigger(frame.info);
+        continue;
+      }
       m_xfb_rect = MathUtil::Rectangle<int>(
           0, 0, static_cast<int>(frame.width * m_xfb_entry->GetWidth() / m_xfb_entry->native_width),
           static_cast<int>(frame.height * m_xfb_entry->GetHeight() / m_xfb_entry->native_height));
@@ -599,9 +619,11 @@ static void WarioStartDisplayClock()
 // refresh rate (the rate lock covers the rest).
 static bool WarioDisplayLocked(int multiplier)
 {
-  // Opt-in while the real frame still uses its own single held slot (MODERNGEKKO_WARIO_FPS_LOCKED=1):
-  // with it, a real frame that would wait more than 17 ms is shown early and backs up the schedule.
-  static const bool enabled = std::getenv("MODERNGEKKO_WARIO_FPS_LOCKED") != nullptr;
+  // On by default since real frames share the queue (MODERNGEKKO_WARIO_FPS_LOCKED=0 turns it off).
+  static const bool enabled = [] {
+    const char* value = std::getenv("MODERNGEKKO_WARIO_FPS_LOCKED");
+    return !value || std::strcmp(value, "0") != 0;
+  }();
   const long long period_ns = s_wario_period_ns.load(std::memory_order_relaxed);
   if (!enabled || period_ns <= 0 || multiplier < 2 || (WarioFpsDebug() & 16))
     return false;
@@ -758,10 +780,25 @@ PRESENT_VI_NEW = """    WarioSyncVSync();
       const int multiplier = static_cast<int>(
           std::lround(1.0 / (59.94 * std::chrono::duration<double>(s_wario_interval).count())));
       const bool locked = WarioDisplayLocked(multiplier);
-      const auto due = locked ? WarioSlotAt(std::max(s_wario_last_slot + s_wario_interval / 2, now)) :
-                                after + s_wario_interval;
-      if (locked)
-        s_wario_last_slot = due;
+      if (locked && m_wario_pending_mids.size() < 8)
+      {
+        // Display-locked pacing: the real frame takes the next refresh slot in the same queue as
+        // the in-between frames (no separate held slot, no wait limit, never forced out early).
+        const auto slot = WarioSlotAt(std::max(s_wario_last_slot + s_wario_interval / 2, now));
+        s_wario_last_slot = slot;
+        WarioQueuedFrame frame;
+        frame.entry = m_xfb_entry;
+        frame.due = slot;
+        frame.real = true;
+        frame.rect = m_xfb_rect;
+        frame.info = present_info;
+        frame.ticks = ticks;
+        m_wario_pending_mids.push_back(std::move(frame));
+        WarioTrace('H');
+        WarioFlushPendingPresent(false);
+        return;
+      }
+      const auto due = after + s_wario_interval;
       if (due > now && due - now <= std::chrono::milliseconds(17))
       {
         s_wario_pending_present = true;
