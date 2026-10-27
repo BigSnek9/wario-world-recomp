@@ -19,7 +19,9 @@ is read on the first frame of the next session:
 - controls: GameCube-layout defaults for Xbox / DualShock, rebinding (Dolphin GCPad expressions),
   rumble on/off and strength
 - volume: master (Dolphin), music, sound effects and "mute pause menu music" (game module
-  exports wario_audio_*, docs/engine/AUDIO.md); moon jump cheat (hold A), quit
+  exports wario_audio_*, docs/engine/AUDIO.md); cheats: jump height, walk through walls,
+  super punches, unlock all stages, mark all collectables (wario_cheat_*, docs/modding/CHEATS.md);
+  quit
 - System: "Save bug report snapshot" (also F12: savestate + screenshot through the runner's
   automation commands), UI style, menu size, graphics backend (saved for the starter; "Restart now" leaves a
   WarioWorld.restart marker and quits), texture tools and the log (paths from the starter's
@@ -161,8 +163,10 @@ struct Settings
   bool mute_pause_music = false;  // game module (wario_audio_mute_pause_music)
   bool rumble = true;
   int rumble_strength = 100;   // % (GCPad Rumble/Motor range)
-  bool moon_jump = false;
-  float moon_speed = 2.0f;
+  // Cheats (game module exports wario_cheat_*, docs/modding/CHEATS.md); all off = original game.
+  bool noclip = false;
+  bool super_punch = false;
+  int jump_percent = 100;  // 100 = original jump; the game's own launch speed is scaled
   float menu_scale = 1.0f;  // 0.6 .. 1.6, on top of Windows display scaling
   int style = 0;            // index into kThemes
   int backend = 0;          // index into kBackendKeys; used by the starter at the next launch
@@ -284,14 +288,14 @@ void Save()
                  "# Wario World in-game menu settings (Back / Tab in game)\n"
                  "resolution=%d\naspect=%s\nfullscreen=%d\nhd_textures=%d\nhdr=%d\nframe_rate=%s\nmotion=%s\n"
                  "volume=%d\nmusic=%d\nsfx=%d\nmute_pause_music=%d\nrumble=%d\nrumble_strength=%d\n"
-                 "moon_jump=%d\nmoon_speed=%.2f\nmenu_scale=%.2f\nmenu_style=%s\n"
+                 "cheat_noclip=%d\ncheat_super_punch=%d\ncheat_jump_percent=%d\n"
+                 "menu_scale=%.2f\nmenu_style=%s\n"
                  "hdr_paper_white=%.0f\nhdr_peak=%.0f\nhdr_boost=%d\nhdr_saturation=%d\n"
                  "hdr_warmth=%d\nhdr_contrast=%d\nhdr_gamma=%.2f\nhdr_black=%d\nhdr_menu_nits=%.0f\n"
                  "backend=%s\nvsync=%s\nperformance=%d\n",
                  kResolutionScales[s.resolution], kAspects[s.aspect].key, s.fullscreen,
                  s.hd_textures, s.hdr, kFrameRateKeys[s.frame_rate], kMotionKeys[s.motion], s.volume, s.music, s.sfx, s.mute_pause_music, s.rumble,
-                 s.rumble_strength, s.moon_jump,
-                 s.moon_speed, s.menu_scale, kThemes[s.style].key, s.hdr_paper_white, s.hdr_peak,
+                 s.rumble_strength, s.noclip, s.super_punch, s.jump_percent, s.menu_scale, kThemes[s.style].key, s.hdr_paper_white, s.hdr_peak,
                  s.hdr_boost, s.hdr_saturation, s.hdr_warmth, s.hdr_contrast, s.hdr_gamma, s.hdr_black,
                  s.hdr_menu_nits, kBackendKeys[s.backend], kVsyncKeys[s.vsync], s.performance);
     for (const std::string& line : s_other_lines)
@@ -393,12 +397,18 @@ std::vector<std::string> Load()
       s.rumble_strength = std::clamp(number, 0, 100);
     else if (key == "volume")
       s.volume = std::clamp(number, 0, 100);
-    else if (key == "moon_jump")
-      s.moon_jump = number != 0;
+    else if (key == "cheat_noclip")
+      s.noclip = number != 0;
+    else if (key == "cheat_super_punch")
+      s.super_punch = number != 0;
+    else if (key == "cheat_jump_percent")
+      s.jump_percent = std::clamp(number, 100, 500);
+    else if (key == "moon_jump" || key == "moon_speed")
+    {
+      // The old levitation cheat, replaced by the module's real jump height; dropped.
+    }
     else if (key == "menu_scale")
       s.menu_scale = std::clamp(static_cast<float>(std::atof(value.c_str())), 0.6f, 1.6f);
-    else if (key == "moon_speed")
-      s.moon_speed = std::clamp(static_cast<float>(std::atof(value.c_str())), 0.5f, 8.0f);
     else if (key == "hdr_paper_white")
       s.hdr_paper_white = std::clamp(static_cast<float>(std::atof(value.c_str())), 80.0f, 500.0f);
     else if (key == "hdr_peak")
@@ -799,26 +809,6 @@ bool KeyDown(int key)
 #endif
 }
 
-// Jump height (moon jump): while GameCube A is held, Wario's height rises (player actor
-// [0x801C5820], y at +0x18). Changes game memory; off by default.
-void MoonJump(float dt, bool a_held)
-{
-  if (!s_settings.moon_jump || g_wario_menu_open.load() || !a_held)
-    return;
-  auto& memory = Core::System::GetInstance().GetMemory();
-  const u32 player = memory.Read_U32(0x801C5820u);
-  if (player < 0x80000000u || player >= 0x817FFF00u)
-    return;
-  u32 bits = memory.Read_U32(player + 0x18u);
-  float y;
-  std::memcpy(&y, &bits, sizeof(y));
-  if (!std::isfinite(y))
-    return;
-  y += s_settings.moon_speed * 20.0f * std::min(dt, 0.05f);
-  std::memcpy(&bits, &y, sizeof(bits));
-  memory.Write_U32(bits, player + 0x18u);
-}
-
 // Like ImGui::SetKeyboardFocusHere(), but only moves the nav cursor to the next item:
 // SetKeyboardFocusHere also activates it, which opens a slider's text entry.
 void FocusNextItem()
@@ -848,6 +838,10 @@ volatile s32* WarioModuleS32(const char* name)
 }
 #endif
 bool s_audio_exports = false;  // the game module has the wario_audio_* controls
+bool s_cheat_exports = false;  // the game module has the wario_cheat_* controls
+// One-shot cheats: the menu writes 1, the module sets 2 once applied (with a save loaded).
+volatile s32* s_cheat_unlock = nullptr;
+volatile s32* s_cheat_collect = nullptr;
 
 // ---- Bug report snapshot: savestate + screenshot of exactly what the player sees ----
 // Queued as commands for the runner's automation folder (the same files launcher/play_tracker.py
@@ -1879,14 +1873,45 @@ void DrawPanel(float width, float height)
     if (s_tab == 0 || s_tab == 6)
     {
       header("CHEATS", 6);
-      if (ImGui::Checkbox("Jump height (hold A to rise)", &s.moon_jump))
-        changed = true;
-      ImGui::BeginDisabled(!s.moon_jump);
-      row("Rise speed");
-      stepped("##moon", s.moon_speed, 0.1f, 0.5f, 8.0f, "%.1f");
+      ImGui::BeginDisabled(!s_cheat_exports);
+      const auto hint = [&](const char* text) {
+        ImGui::PushTextWrapPos(inner + pad);
+        ImGui::TextDisabled("%s", text);
+        ImGui::PopTextWrapPos();
+      };
+      row("Jump height");
+      // Tens of percent, so one d-pad press is 10 % (the format prints the trailing 0).
+      int tens = s.jump_percent / 10;
+      if (ImGui::SliderInt("##jump_percent", &tens, 10, 50, tens == 10 ? "100% (original)" : "%d0%%",
+                           ImGuiSliderFlags_NoInput))
+      {
+        s.jump_percent = tens * 10;
+      }
       if (ImGui::IsItemDeactivatedAfterEdit())
         changed = true;
+      if (ImGui::Checkbox("Walk through walls", &s.noclip))
+        changed = true;
+      hint("Wario can fall out of the world where a wall has nothing behind it.");
+      if (ImGui::Checkbox("Super punches", &s.super_punch))
+        changed = true;
+      hint("Every punch hits like the 3rd combo punch.");
+      // One-shots: applied by the module at the next player update, so only with a save loaded.
+      const auto one_shot = [&](const char* label, volatile s32* request) {
+        const s32 state = request ? *request : 0;
+        if (ImGui::Button(label, ImVec2(inner, 0.0f)) && request && state != 1)
+          *request = 1;
+        if (state == 1)
+          hint("Waiting: applies once a save file is loaded and Wario is in the world.");
+        else if (state == 2)
+          hint("Applied.");
+      };
+      one_shot("Unlock all stages", s_cheat_unlock);
+      hint("Every stage and world opens; the final boss stays uncleared.");
+      one_shot("Mark all collectables as grabbed", s_cheat_collect);
+      hint("Treasures, red diamonds, Spritelings and statue parts in every stage.");
       ImGui::EndDisabled();
+      if (!s_cheat_exports)
+        hint("Cheats need the newer game module.");
     }
 
     if (s_tab == 0 || s_tab == 7)
@@ -2142,6 +2167,21 @@ void WarioMenuDraw(u32 width, u32 height)
           SetFullscreen(requests[test_stage - 2]);
         ++test_stage;
       }
+      else if (test_stage == 2 && test_time > 8.5f && std::getenv("MODERNGEKKO_WARIO_MENU_TEST_CHEATS"))
+      {
+        // MODERNGEKKO_WARIO_MENU_TEST_CHEATS: request "Unlock all stages", close the menu so the game
+        // runs, then log the module's answer (2 = applied).
+        if (s_cheat_unlock)
+          *s_cheat_unlock = 1;
+        SetOpen(false);
+        test_stage = 9;
+      }
+      else if (test_stage == 9 && test_time > 11.0f)
+      {
+        std::fprintf(stderr, "wario-menu: cheat exports=%d unlock_stages=%d\n", s_cheat_exports ? 1 : 0,
+                     s_cheat_unlock ? static_cast<int>(*s_cheat_unlock) : -1);
+        test_stage = 10;
+      }
       else if (test_stage == 2 && test_time > 8.5f && std::getenv("MODERNGEKKO_WARIO_MENU_TEST_REPORT"))
       {
         // MODERNGEKKO_WARIO_MENU_TEST_REPORT: "Save bug report snapshot", then a menu picture with
@@ -2190,8 +2230,6 @@ void WarioMenuDraw(u32 width, u32 height)
   s_anim = std::clamp(s_anim + (s_open ? dt : -dt) / 0.18f, 0.0f, 1.0f);
   g_wario_menu_open.store(s_open || s_anim > 0.0f);
   FeedNavigation(pad, s_open && !binding);
-  // Jump height follows the GameCube A button, so it moves with a rebinding.
-  MoonJump(dt, (Pad::GetStatus(0).button & PAD_BUTTON_A) != 0);
 #ifdef _WIN32
   // Game module exports are looked up again while missing: the menu can tick before
   // gGWWE01_recomp.dll is loaded.
@@ -2216,6 +2254,22 @@ void WarioMenuDraw(u32 width, u32 height)
   }
   // The game module tags its matrices only while object interpolation is wanted, so the default
   // GX command stream stays exactly the original.
+  // Cheats (docs/modding/CHEATS.md): toggles and jump height every frame (the module resets them
+  // each launch); the one-shots are only written when their button is pressed.
+  static volatile s32* cheat_noclip = nullptr;
+  static volatile s32* cheat_punch = nullptr;
+  static volatile s32* cheat_jump = nullptr;
+  s_cheat_exports = module_s32(cheat_noclip, "wario_cheat_noclip") &&
+                    module_s32(cheat_punch, "wario_cheat_super_punch") &&
+                    module_s32(cheat_jump, "wario_cheat_jump_percent") &&
+                    module_s32(s_cheat_unlock, "wario_cheat_unlock_stages") &&
+                    module_s32(s_cheat_collect, "wario_cheat_collect_all");
+  if (s_cheat_exports)
+  {
+    *cheat_noclip = s_settings.noclip ? 1 : 0;
+    *cheat_punch = s_settings.super_punch ? 1 : 0;
+    *cheat_jump = s_settings.jump_percent;
+  }
   static volatile s32* tagging = nullptr;
   if (module_s32(tagging, "wario_fps_tagging"))
     *tagging = (g_wario_fps_multiplier.load() > 1 && g_wario_fps_objects.load()) ? 1 : 0;

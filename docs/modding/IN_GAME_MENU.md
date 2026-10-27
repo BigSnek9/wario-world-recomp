@@ -64,7 +64,9 @@ and saves the game picture with the menu on top once.
 | Frame rate 60 / 120 / 180 / 240 / Auto | `g_wario_fps_multiplier` (Auto = monitor refresh / 59.94, max 4), switched at the next XFB copy |
 | Master volume | Config `MAIN_AUDIO_VOLUME` + `AudioCommon::UpdateSoundStream` (saved as `volume`) |
 | Music, Sound effects (0-100 %, default 100), Mute pause menu music | game module exports `wario_audio_music`, `wario_audio_sfx`, `wario_audio_mute_pause_music` (s32, see docs/engine/AUDIO.md), found with GetProcAddress on `gGWWE01_recomp.dll` and written every frame; saved as `music`, `sfx`, `mute_pause_music`. A module without the exports leaves the controls disabled with a hint. The pause music follows the Music slider and mute applies at once, even with the book open (module fix def8821). Export lookups retry each frame until the module is loaded. No Voice slider: Wario's voice clips are ordinary SFX whose ids are not identified yet |
-| Jump height (hold GameCube A to rise; was "Moon jump") + rise speed | while A / X is held: player actor `[0x801C5820]` y (+0x18) rises |
+| Jump height (100-500 %, 10 % per press; default 100 = original) | `wario_cheat_jump_percent`: the game's own jump launch speed is scaled (200 % = 2x peak). Replaces the old "Moon jump" levitation (it pushed Wario's y up every frame while A was held, frame-rate dependent); its `moon_jump` / `moon_speed` keys are dropped on the next save |
+| Walk through walls, Super punches | `wario_cheat_noclip`, `wario_cheat_super_punch` (0 / 1) |
+| Unlock all stages, Mark all collectables as grabbed (one-shot buttons, not saved) | `wario_cheat_unlock_stages`, `wario_cheat_collect_all`: the menu writes 1, the module applies it at the next player update (a save loaded, Wario in the world) and sets 2; the menu shows "Waiting" / "Applied". The final boss stays uncleared |
 | UI style, menu size | menu only |
 | Graphics (OpenGL / Vulkan) | saved as `backend=opengl` / `vulkan` for the starter; applies after a restart |
 | Performance mode (multithreaded) | saved as `performance=0` / `1`; the starter writes Dolphin.ini [Core] CPUThread at launch (dual core: GPU emulation on its own thread); applies after a restart |
@@ -166,3 +168,9 @@ no window) launches the runner and passes paths in environment variables.
   shows for 3 s. Verified hidden (`MODERNGEKKO_WARIO_MENU_TEST_REPORT=1`): both files
   written (25 MB state, game-only screenshot), commands processed with no error.
 - The System tab's controls help lists the GameCube-by-position layout.
+- Cheats (2026-10-27): module exports in docs/modding/CHEATS.md, looked up with
+  GetProcAddress and retried while missing; toggles and jump height are written every
+  frame (the module resets them each launch) and saved as `cheat_noclip`,
+  `cheat_super_punch`, `cheat_jump_percent`. Without the exports the tab is disabled
+  with a hint. Test hook `MODERNGEKKO_WARIO_MENU_TEST_CHEATS=1` requests "Unlock all
+  stages" after the snapshot, closes the menu and logs the module's answer.
