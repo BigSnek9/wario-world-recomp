@@ -54,7 +54,7 @@ and saves the game picture with the menu on top once.
 |---|---|
 | Resolution (Auto / 1x / 2x-8x) | Config `GFX_EFB_SCALE` (0 = follow window) |
 | Aspect (Auto / Original 4:3 / 16:9 / 16:10 / 21:9 / 32:9) | `g_wario_aspect_target` -> runtime `UpdateWarioAspect` (Original restores the game's exact 4:3 values once), host aspect mode Stretch / ForceStandard / Custom |
-| Fullscreen | posts F11 to the game window |
+| Fullscreen | absolute: the tick mirrors the real window (no `WS_CAPTION` = fullscreen, as `PlatformWin32::ToggleFullscreen` leaves it, so F11 / Alt+Enter show up too) and F11 is posted only when the request differs. It used to post F11 as a blind toggle, which inverted the tick when the starter had already launched fullscreen. Verified hidden 2026-10-27 (`MODERNGEKKO_WARIO_MENU_TEST_FULLSCREEN`): windowed, on, on again (no change), off |
 | HD textures | Config `GFX_HIRES_TEXTURES` |
 | HDR output | Config `GFX_ENHANCE_HDR_OUTPUT` (Vulkan only) |
 | HDR paper white (80-500 nits, default 203) | Config `GFX_CC_HDR_PAPER_WHITE_NITS` |
@@ -62,7 +62,8 @@ and saves the game picture with the menu on top once.
 | HDR highlight boost (Off-100 %), peak brightness (400-4000 nits, default 1000), saturation, warmth, contrast, gamma, black level | `WarioHDR` post-process shader (below) |
 | VSync Auto (on with frame gen) / Off | `VideoCommon::g_wario_vsync_mode` (VideoCommon/Present.cpp, from tool_fix_wario_fps.py), live; saved as `vsync=auto` / `off` |
 | Frame rate 60 / 120 / 180 / 240 / Auto | `g_wario_fps_multiplier` (Auto = monitor refresh / 59.94, max 4), switched at the next XFB copy |
-| Volume | Config `MAIN_AUDIO_VOLUME` + `AudioCommon::UpdateSoundStream` |
+| Master volume | Config `MAIN_AUDIO_VOLUME` + `AudioCommon::UpdateSoundStream` (saved as `volume`) |
+| Music, Sound effects (0-100 %, default 100), Mute pause menu music | game module exports `wario_audio_music`, `wario_audio_sfx`, `wario_audio_mute_pause_music` (s32, see docs/engine/AUDIO.md), found with GetProcAddress on `gGWWE01_recomp.dll` and written every frame; saved as `music`, `sfx`, `mute_pause_music`. A module without the exports leaves the controls disabled with a hint. Pause-music changes apply the next time the pause book opens. No Voice slider: Wario's voice clips are ordinary SFX whose ids are not identified yet |
 | Moon jump + rise speed | while A / X is held: player actor `[0x801C5820]` y (+0x18) rises |
 | UI style, menu size | menu only |
 | Graphics (OpenGL / Vulkan) | saved as `backend=opengl` / `vulkan` for the starter; applies after a restart |
@@ -144,3 +145,8 @@ no window) launches the runner and passes paths in environment variables.
   runner logs `ImGui pipeline rebuilt for RGBA16F (HDR)` (the SDR / HDR pair
   after it is the menu snapshot's RGBA8 texture). The brightness itself was
   not measured on screen.
+- Audio controls verified 2026-10-27 hidden with `build/module-audio-test`
+  (`--dump-audio`, savestate 093938_AR51): the DSP dump RMS was ~3500 at
+  music 100 / sfx 100 and settled to ~140 (DC level) with music 0 / sfx 0,
+  so the menu's values reach the module. That scene is mostly SFX, so music
+  0 alone changed little.

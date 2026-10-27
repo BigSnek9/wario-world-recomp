@@ -16,7 +16,8 @@ is read on the first frame of the next session:
   written to Data/Sys/Shaders; loaded only while a value differs from its default, so the
   defaults leave the picture exactly as it was)
 - frame rate 60/120/180/240/auto (g_wario_fps_multiplier -> scripts/tool_fix_wario_fps.py)
-- volume, moon jump cheat (hold A), quit
+- volume: master (Dolphin), music, sound effects and "mute pause menu music" (game module
+  exports wario_audio_*, docs/engine/AUDIO.md); moon jump cheat (hold A), quit
 - System: UI style, menu size, graphics backend (saved for the starter; "Restart now" leaves a
   WarioWorld.restart marker and quits), texture tools and the log (paths from the starter's
   MODERNGEKKO_WARIO_* environment variables), controls help
@@ -142,7 +143,10 @@ struct Settings
   int frame_rate = 0;  // index into kFrameRates
   int motion = 1;      // 0 = camera only, 1 = camera + objects
   int vsync = 0;       // index into kVsyncKeys = VideoCommon::g_wario_vsync_mode
-  int volume = 100;
+  int volume = 100;            // master (Dolphin)
+  int music = 100;             // % loudness, game module (wario_audio_music)
+  int sfx = 100;               // % loudness, game module (wario_audio_sfx)
+  bool mute_pause_music = false;  // game module (wario_audio_mute_pause_music)
   bool moon_jump = false;
   float moon_speed = 2.0f;
   float menu_scale = 1.0f;  // 0.6 .. 1.6, on top of Windows display scaling
@@ -264,12 +268,13 @@ void Save()
     std::fprintf(file,
                  "# Wario World in-game menu settings (Back / Tab in game)\n"
                  "resolution=%d\naspect=%s\nfullscreen=%d\nhd_textures=%d\nhdr=%d\nframe_rate=%s\nmotion=%s\n"
-                 "volume=%d\nmoon_jump=%d\nmoon_speed=%.2f\nmenu_scale=%.2f\nmenu_style=%s\n"
+                 "volume=%d\nmusic=%d\nsfx=%d\nmute_pause_music=%d\n"
+                 "moon_jump=%d\nmoon_speed=%.2f\nmenu_scale=%.2f\nmenu_style=%s\n"
                  "hdr_paper_white=%.0f\nhdr_peak=%.0f\nhdr_boost=%d\nhdr_saturation=%d\n"
                  "hdr_warmth=%d\nhdr_contrast=%d\nhdr_gamma=%.2f\nhdr_black=%d\nhdr_menu_nits=%.0f\n"
                  "backend=%s\nvsync=%s\nperformance=%d\n",
                  kResolutionScales[s.resolution], kAspects[s.aspect].key, s.fullscreen,
-                 s.hd_textures, s.hdr, kFrameRateKeys[s.frame_rate], kMotionKeys[s.motion], s.volume, s.moon_jump,
+                 s.hd_textures, s.hdr, kFrameRateKeys[s.frame_rate], kMotionKeys[s.motion], s.volume, s.music, s.sfx, s.mute_pause_music, s.moon_jump,
                  s.moon_speed, s.menu_scale, kThemes[s.style].key, s.hdr_paper_white, s.hdr_peak,
                  s.hdr_boost, s.hdr_saturation, s.hdr_warmth, s.hdr_contrast, s.hdr_gamma, s.hdr_black,
                  s.hdr_menu_nits, kBackendKeys[s.backend], kVsyncKeys[s.vsync], s.performance);
@@ -360,6 +365,12 @@ std::vector<std::string> Load()
     }
     else if (key == "motion")
       s.motion = value == "camera" ? 0 : 1;
+    else if (key == "music")
+      s.music = std::clamp(number, 0, 100);
+    else if (key == "sfx")
+      s.sfx = std::clamp(number, 0, 100);
+    else if (key == "mute_pause_music")
+      s.mute_pause_music = number != 0;
     else if (key == "volume")
       s.volume = std::clamp(number, 0, 100);
     else if (key == "moon_jump")
@@ -572,11 +583,31 @@ void QueueFps()
   g_wario_fps_objects.store(s_settings.motion == 1);
 }
 
-void ToggleFullscreen()
+// The game window's real state. PlatformWin32::ToggleFullscreen (F11, Alt+Enter, its own menu)
+// strips WS_OVERLAPPEDWINDOW, so a window without a caption is fullscreen.
+bool WindowFullscreen()
 {
 #ifdef _WIN32
-  if (g_wario_hwnd)
+  return g_wario_hwnd &&
+         (GetWindowLongW(static_cast<HWND>(g_wario_hwnd), GWL_STYLE) & WS_CAPTION) == 0;
+#else
+  return false;
+#endif
+}
+
+float s_fullscreen_wait = 0.0f;  // seconds the checkbox shows the request while the window catches up
+
+// Absolute, not a toggle: F11 only goes out when the window is not already in the wanted state.
+// (A toggle let the saved setting and the real window disagree, which inverted the checkbox when
+// the starter had already launched fullscreen.)
+void SetFullscreen(bool fullscreen)
+{
+#ifdef _WIN32
+  if (g_wario_hwnd && fullscreen != WindowFullscreen())
+  {
     PostMessageW(static_cast<HWND>(g_wario_hwnd), WM_KEYDOWN, VK_F11, 0);
+    s_fullscreen_wait = 0.5f;
+  }
 #endif
 }
 
@@ -785,6 +816,16 @@ void FocusNextItem()
   g.NavTabbingDir = 1;
   g.NavTabbingCounter = 1;
 }
+
+#ifdef _WIN32
+// An s32 exported by the recompiled game module, or null.
+volatile s32* WarioModuleS32(const char* name)
+{
+  HMODULE module = GetModuleHandleW(L"gGWWE01_recomp.dll");
+  return module ? reinterpret_cast<volatile s32*>(GetProcAddress(module, name)) : nullptr;
+}
+#endif
+bool s_audio_exports = false;  // the game module has the wario_audio_* controls
 
 void SetOpen(bool open)
 {
@@ -1172,9 +1213,12 @@ void DrawPanel(float width, float height)
         }
         ImGui::EndCombo();
       }
+      // The tick follows the real window (F11 / Alt+Enter change it too).
+      if (s_fullscreen_wait <= 0.0f)
+        s.fullscreen = WindowFullscreen();
       if (ImGui::Checkbox("Fullscreen", &s.fullscreen))
       {
-        ToggleFullscreen();
+        SetFullscreen(s.fullscreen);
         changed = true;
       }
       if (ImGui::Checkbox("HD textures (from the HD folder)", &s.hd_textures))
@@ -1287,11 +1331,30 @@ void DrawPanel(float width, float height)
     if (s_tab == 0 || s_tab == 4)
     {
       header("AUDIO", 4);
-      row("Volume");
+      const auto edited = [&] {
+        if (ImGui::IsItemDeactivatedAfterEdit())
+          changed = true;
+      };
+      row("Master");
       if (ImGui::SliderInt("##volume", &s.volume, 0, 100, "%d%%"))
         QueueVolume();
-      if (ImGui::IsItemDeactivatedAfterEdit())
+      edited();
+      ImGui::BeginDisabled(!s_audio_exports);
+      row("Music");
+      ImGui::SliderInt("##music", &s.music, 0, 100, "%d%%");  // applied every frame
+      edited();
+      row("Sound effects");
+      ImGui::SliderInt("##sfx", &s.sfx, 0, 100, "%d%%");
+      edited();
+      if (ImGui::Checkbox("Mute pause menu music", &s.mute_pause_music))
         changed = true;
+      ImGui::EndDisabled();
+      ImGui::PushTextWrapPos(inner + pad);
+      if (!s_audio_exports)
+        ImGui::TextDisabled("Music and sound effects need the newer game module.");
+      else
+        ImGui::TextDisabled("Pause music changes apply the next time the pause book opens.");
+      ImGui::PopTextWrapPos();
     }
 
     if (s_tab == 0 || s_tab == 5)
@@ -1537,6 +1600,18 @@ void WarioMenuDraw(u32 width, u32 height)
         g_wario_menu_snapshot.store(true);
         test_stage = 2;
       }
+      else if (test_stage >= 2 && test_stage < 6 && std::getenv("MODERNGEKKO_WARIO_MENU_TEST_FULLSCREEN") &&
+               test_time > 8.0f + (test_stage - 2))
+      {
+        // MODERNGEKKO_WARIO_MENU_TEST_FULLSCREEN: request on, on again, off, logging the real window
+        // state before each step (the last line is after "off").
+        static const bool requests[] = {true, true, false};
+        std::fprintf(stderr, "wario-menu: fullscreen test step %d, window fullscreen=%d\n",
+                     test_stage - 2, WindowFullscreen() ? 1 : 0);
+        if (test_stage < 5)
+          SetFullscreen(requests[test_stage - 2]);
+        ++test_stage;
+      }
       else if (test_stage == 2 && test_time > 9.0f && std::getenv("MODERNGEKKO_WARIO_MENU_TEST_RESTART"))
       {
         // MODERNGEKKO_WARIO_MENU_TEST_RESTART: press Restart now after the snapshot.
@@ -1558,6 +1633,7 @@ void WarioMenuDraw(u32 width, u32 height)
     s_tab_scroll = true;
     ImGui::SetNavCursorVisible(true);
   }
+  s_fullscreen_wait = std::max(s_fullscreen_wait - dt, 0.0f);
   s_anim = std::clamp(s_anim + (s_open ? dt : -dt) / 0.18f, 0.0f, 1.0f);
   g_wario_menu_open.store(s_open || s_anim > 0.0f);
   FeedNavigation(pad, s_open);
@@ -1565,6 +1641,18 @@ void WarioMenuDraw(u32 width, u32 height)
 #ifdef _WIN32
   // The game module tags its matrices only while object interpolation is wanted, so the default
   // GX command stream stays exactly the original.
+  // Game audio mix (module exports, docs/engine/AUDIO.md), written every frame. A module built
+  // before the exports existed has none, and the Music / SFX controls say so.
+  static volatile s32* const audio_music = WarioModuleS32("wario_audio_music");
+  static volatile s32* const audio_sfx = WarioModuleS32("wario_audio_sfx");
+  static volatile s32* const audio_mute_pause = WarioModuleS32("wario_audio_mute_pause_music");
+  s_audio_exports = audio_music && audio_sfx && audio_mute_pause;
+  if (s_audio_exports)
+  {
+    *audio_music = s_settings.music;
+    *audio_sfx = s_settings.sfx;
+    *audio_mute_pause = s_settings.mute_pause_music ? 1 : 0;
+  }
   static volatile s32* const tagging = [] {
     HMODULE module = GetModuleHandleW(L"gGWWE01_recomp.dll");
     return module ? reinterpret_cast<volatile s32*>(GetProcAddress(module, "wario_fps_tagging"))
