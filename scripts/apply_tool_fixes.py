@@ -118,7 +118,7 @@ def fix_silent_headless(runtime):
             '    if (!hidden)\n      MessageBox(nullptr, _T("Window registration failed."), _T("Error"), MB_ICONERROR | MB_OK);')
     replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/PlatformWin32.cpp',
             '  m_hwnd = CreateWindowEx(WS_EX_CLIENTEDGE, WINDOW_CLASS_NAME, _T("Dolphin"), WS_OVERLAPPEDWINDOW,',
-            '  m_hwnd = CreateWindowEx(WS_EX_CLIENTEDGE | (m_hidden ? WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE : 0), WINDOW_CLASS_NAME, _T("Dolphin"), WS_OVERLAPPEDWINDOW,')
+            '  m_hwnd = CreateWindowEx((m_hidden ? WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE : 0), WINDOW_CLASS_NAME, _T("Dolphin"), WS_OVERLAPPEDWINDOW,')
     replace(runtime / 'vendor/dolphin/Source/Core/DolphinNoGUI/PlatformWin32.cpp',
             '    MessageBox(nullptr, _T("CreateWindowEx failed."), _T("Error"), MB_ICONERROR | MB_OK);',
             '    if (!m_hidden)\n      MessageBox(nullptr, _T("CreateWindowEx failed."), _T("Error"), MB_ICONERROR | MB_OK);')
@@ -183,6 +183,8 @@ def main():
     fix_rel(ROOT / "third_party/DolRecomp")
     fix_windows_test(ROOT / "third_party/DolRecomp")
     runtime = ROOT / "third_party/ModernGekko"
+    import tool_fix_window_border  # before fix_silent_headless: converts already-patched trees
+    tool_fix_window_border.apply(replace, runtime)
     fix_silent_headless(runtime)
     fix_diagnostic_coverage(runtime)
     import tool_fix_mod_dispatch
