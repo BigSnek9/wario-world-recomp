@@ -33,10 +33,14 @@ def _digest(path):
 
 
 class PlayTracker:
-    def __init__(self, root, user_dir, control_dir):
+    def __init__(self, root, user_dir, control_dir, data_dir=None, checkpoint_states=True):
+        # data_dir holds play-sessions/ and save-history/ (default <root>/private). An installed copy
+        # passes its own data folder and turns the per-area checkpoint savestates off.
         self.root, self.user, self.control = Path(root), Path(user_dir), Path(control_dir)
+        self.data = Path(data_dir) if data_dir else self.root / "private"
+        self.checkpoint_states = checkpoint_states
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        self.folder = self.root / "private/play-sessions" / stamp
+        self.folder = self.data / "play-sessions" / stamp
         self.stop_event = threading.Event()
         self.thread = None
         self.save_before = {}
@@ -79,7 +83,7 @@ class PlayTracker:
                     stage_file.flush()
                     if area not in SKIP_AREAS:
                         current = area
-                        if area not in areas_done:
+                        if self.checkpoint_states and area not in areas_done:
                             areas_done.add(area)
                             pending.append((now + STATE_DELAY, archive))
                 # Delayed checkpoint savestates.
@@ -107,7 +111,7 @@ class PlayTracker:
         pending.replace(commands / f"{int(time.time() * 1000):016d}-state-{Path(archive).stem}.txt")
 
     def _archive_saves(self):
-        history = self.root / "private/save-history"
+        history = self.data / "save-history"
         for path in self.card_files():
             if _digest(path) != self.save_before.get(path):
                 history.mkdir(parents=True, exist_ok=True)

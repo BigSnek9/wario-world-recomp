@@ -116,6 +116,9 @@ def main():
     parser.add_argument("stage", choices=["check", "fetch", "tools", "extract", "audit", "translate", "module-main"])
     parser.add_argument("--iso", type=Path)
     parser.add_argument("--jobs", type=int, default=8)
+    parser.add_argument("--toolchain", choices=("msvc", "clang"), default="msvc",
+                        help="module-main compiler (clang tolerates build paths over 260 characters; "
+                             "needs clang on PATH and the MSVC x64 environment)")
     args = parser.parse_args()
     if args.jobs < 1:
         parser.error("--jobs must be positive")
@@ -137,7 +140,7 @@ def main():
     else:
         check_game()
         run([executable("moderngekko", "moderngekko-port"), "build", ORIGINAL,
-             "--backend", "c", "--toolchain", "msvc", "--output", ROOT / "build/modules"], "build-module-main")
+             "--backend", "c", "--toolchain", args.toolchain, "--output", ROOT / "build/modules"], "build-module-main")
         # The upstream cache key omits local CPU-runtime source edits. Always let
         # CMake refresh those dependencies, then publish the newly linked DLL.
         for module_build in (ROOT / "build/modules" / CONFIG["disc_id"]).glob("*/module-build"):

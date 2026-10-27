@@ -38,10 +38,28 @@ applied instantly. With everything off, the game behaves like the original.
 
 ## Install
 
-A one-click installer is in progress: it asks for your ISO and an install folder,
-then builds the game for your PC. Until then, see
-[docs/START_HERE.md](docs/START_HERE.md) for the build steps (Windows 10/11,
-Python, Git, CMake, Visual Studio 2022 C++ build tools, LLVM/clang).
+Double-click **`Install-WarioWorld.cmd`**. The installer asks for your `.iso` (it
+checks that it is GWWE01 revision 0) and for an install folder (any folder), then
+builds the game on your PC and installs it there. Building takes 20-60 minutes;
+you can stop it and resume it later.
+
+It needs Windows 10/11 and these free tools; the installer checks for each one and
+links to it (or installs it with `winget`, only if you click that button):
+Python 3.11+, Git, CMake, Ninja, Visual Studio 2022 C++ build tools
+("Desktop development with C++") and LLVM/clang. Allow about 5 GB of free space while
+it builds; the finished install is about 0.5 GB.
+
+What it does: downloads the pinned DolRecomp and ModernGekko sources, applies this
+project's fixes, builds the tools and the runtime, extracts your disc, translates the
+game's code to C and compiles it into a game module, then copies the runtime, module,
+game files and starter into the install folder and adds desktop / Start-menu
+shortcuts. Everything runs from that folder: your saves and settings are in `user\`,
+logs in `data\`. Start the game with the shortcut or `Play Wario World.cmd`.
+Running the installer again on the same folder rebuilds it and keeps your saves.
+
+Without the window: `python installer\wario_installer.pyw --no-gui --iso <your.iso>
+--install-dir <folder> [--desktop-shortcut] [--start-menu-shortcut]` (`--check` only
+checks the prerequisites). Manual build steps: [docs/START_HERE.md](docs/START_HERE.md).
 
 ## Status
 

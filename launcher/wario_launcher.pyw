@@ -16,6 +16,9 @@ What this starter still does around the runner:
 - runs the play tracker (stage checkpoints, savestates, performance samples for Claude) and keeps
   the runner output in private/playtest-last.log.
 Errors are shown in a message box.
+
+In a copy made by the installer (install.json at its root) everything is relative to the install
+folder: runtime/, module/, game/GWWE01, user/ (saves and settings) and data/ (logs, sessions).
 """
 import configparser
 import ctypes
@@ -26,17 +29,33 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNNER = ROOT / "build/moderngekko/Release/moderngekko-run.exe"
-GAME = ROOT / "original/GWWE01"
-USER = ROOT / "private/playtest-user"
-LOG = ROOT / "private/playtest-last.log"
+# A copy made by the installer (installer/) has install.json at its root and a flat layout, all
+# relative to the install folder; the development checkout keeps its build folders and profile.
+INSTALLED = (ROOT / "install.json").is_file()
+if INSTALLED:
+    RUNNER = ROOT / "runtime/moderngekko-run.exe"
+    GAME = ROOT / "game/GWWE01"
+    USER = ROOT / "user"
+    DATA = ROOT / "data"  # logs, play sessions, save backups
+    LOG = DATA / "last-run.log"
+    CONTROL = DATA / "control"
+    MODULES = (ROOT / "module/gGWWE01_recomp.dll",)
+    TEXTURE_OUT = ROOT / "Extracted Textures"
+    WINDOW_TITLE = "Wario World Recomp"
+else:
+    RUNNER = ROOT / "build/moderngekko/Release/moderngekko-run.exe"
+    GAME = ROOT / "original/GWWE01"
+    USER = ROOT / "private/playtest-user"
+    DATA = ROOT / "private"
+    LOG = ROOT / "private/playtest-last.log"
+    CONTROL = ROOT / "private/launcher-control"
+    MODULES = (ROOT / "build/module-full-vectors-clang-pgo/gGWWE01_recomp.dll",
+               ROOT / "build/module-full-vectors-clang/gGWWE01_recomp.dll")
+    TEXTURE_OUT = ROOT.parent / "Extracted Textures"
+    WINDOW_TITLE = "Wario World Recomp - Test Build"
 OLD_SETTINGS = ROOT / "private/launcher.json"
-CONTROL = ROOT / "private/launcher-control"
-MODULES = (ROOT / "build/module-full-vectors-clang-pgo/gGWWE01_recomp.dll",
-           ROOT / "build/module-full-vectors-clang/gGWWE01_recomp.dll")
 MENU_SETTINGS = USER / "Config/WarioWorld.ini"
 RESTART_MARKER = USER / "Config/WarioWorld.restart"
-TEXTURE_OUT = ROOT.parent / "Extracted Textures"
 EXTRACTOR = ROOT / "scripts/extract_textures.py"
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 TITLE = "Wario World Recomp"
@@ -157,7 +176,8 @@ def run_once(module, env):
         (CONTROL / sub).mkdir(parents=True, exist_ok=True)
         for stale in (CONTROL / sub).glob("*"):
             stale.unlink()
-    tracker = PlayTracker(ROOT, USER, CONTROL)
+    # Installs keep the session stats/bug-report folders but skip the automatic per-area savestates.
+    tracker = PlayTracker(ROOT, USER, CONTROL, data_dir=DATA, checkpoint_states=not INSTALLED)
     tracker.start()
     # Frame-timing evidence for Claude in the play-session folder: frame generation stats and a
     # per-event pacing trace (a few MB per hour), so slowdowns on the real screen can be diagnosed.
@@ -168,11 +188,12 @@ def run_once(module, env):
                MODERNGEKKO_WARIO_CONTROL_DIR=str(CONTROL),
                MODERNGEKKO_WARIO_REPORT_DIR=str(tracker.folder / "reports"))
     try:
+        LOG.parent.mkdir(parents=True, exist_ok=True)
         with LOG.open("w", encoding="utf-8") as log:
             process = subprocess.Popen(
                 [str(RUNNER), "--game", str(GAME), "--module", str(module), "--user-dir", str(USER),
                  "--graphics", backend, "--no-mods", "--automation-dir", str(CONTROL),
-                 "--title", "Wario World Recomp - Test Build"],
+                 "--title", WINDOW_TITLE],
                 cwd=RUNNER.parent, stdout=log, stderr=subprocess.STDOUT, env=env, creationflags=NO_WINDOW)
             return process.wait()
     finally:
