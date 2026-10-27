@@ -1823,8 +1823,6 @@ void DrawPanel(float width, float height)
       ImGui::PushTextWrapPos(inner + pad);
       if (!s_audio_exports)
         ImGui::TextDisabled("Music and sound effects need the newer game module.");
-      else
-        ImGui::TextDisabled("Pause music changes apply the next time the pause book opens.");
       ImGui::PopTextWrapPos();
     }
 
@@ -2195,12 +2193,21 @@ void WarioMenuDraw(u32 width, u32 height)
   // Jump height follows the GameCube A button, so it moves with a rebinding.
   MoonJump(dt, (Pad::GetStatus(0).button & PAD_BUTTON_A) != 0);
 #ifdef _WIN32
-  // Game audio mix (module exports, docs/engine/AUDIO.md), written every frame. A module built
-  // before the exports existed has none, and the Music / SFX controls say so.
-  static volatile s32* const audio_music = WarioModuleS32("wario_audio_music");
-  static volatile s32* const audio_sfx = WarioModuleS32("wario_audio_sfx");
-  static volatile s32* const audio_mute_pause = WarioModuleS32("wario_audio_mute_pause_music");
-  s_audio_exports = audio_music && audio_sfx && audio_mute_pause;
+  // Game module exports are looked up again while missing: the menu can tick before
+  // gGWWE01_recomp.dll is loaded.
+  const auto module_s32 = [](volatile s32*& slot, const char* name) {
+    if (!slot)
+      slot = WarioModuleS32(name);
+    return slot;
+  };
+  // Game audio mix (docs/engine/AUDIO.md), written every frame. A module built before the exports
+  // existed has none, and the Music / SFX controls say so.
+  static volatile s32* audio_music = nullptr;
+  static volatile s32* audio_sfx = nullptr;
+  static volatile s32* audio_mute_pause = nullptr;
+  s_audio_exports = module_s32(audio_music, "wario_audio_music") &&
+                    module_s32(audio_sfx, "wario_audio_sfx") &&
+                    module_s32(audio_mute_pause, "wario_audio_mute_pause_music");
   if (s_audio_exports)
   {
     *audio_music = s_settings.music;
@@ -2209,12 +2216,8 @@ void WarioMenuDraw(u32 width, u32 height)
   }
   // The game module tags its matrices only while object interpolation is wanted, so the default
   // GX command stream stays exactly the original.
-  static volatile s32* const tagging = [] {
-    HMODULE module = GetModuleHandleW(L"gGWWE01_recomp.dll");
-    return module ? reinterpret_cast<volatile s32*>(GetProcAddress(module, "wario_fps_tagging"))
-                  : nullptr;
-  }();
-  if (tagging)
+  static volatile s32* tagging = nullptr;
+  if (module_s32(tagging, "wario_fps_tagging"))
     *tagging = (g_wario_fps_multiplier.load() > 1 && g_wario_fps_objects.load()) ? 1 : 0;
 #endif
   static float auto_timer = 0.0f;
