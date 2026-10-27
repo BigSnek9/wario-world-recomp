@@ -48,6 +48,7 @@ parser.add_argument("--dump-audio", action="store_true", help="Write private DSP
 parser.add_argument("--save-state-at", type=float, help="Save a private diagnostic state after this many seconds")
 parser.add_argument("--load-state", type=Path, help="Resume a private diagnostic state after boot")
 parser.add_argument("--seed-user", type=Path, help="Copy a prior private diagnostic user folder into this fresh run")
+parser.add_argument("--resolution", default="640x528", help="config.ini internal resolution label (1920x1080 = 3x)")
 args = parser.parse_args()
 if args.windowed:
     parser.error("Visible testing is disabled by the user; omit --windowed for hidden, muted testing")
@@ -97,11 +98,20 @@ user_directory.mkdir()
 if args.seed_user:
     shutil.copytree(args.seed_user, user_directory, dirs_exist_ok=True)
 (user_directory / "config.ini").write_text(
-    "[Video]\nresolution=640x528\nbackend=" + (args.graphics if args.graphics in ("Vulkan", "OpenGL") else "Vulkan") +
+    "[Video]\nresolution=" + args.resolution + "\nbackend=" + (args.graphics if args.graphics in ("Vulkan", "OpenGL") else "Vulkan") +
     "\nfullscreen=false\nshow_fps_in_title=true\n[Input]\n[Netplay]\n"
     "nickname=Player\naddress=127.0.0.1\nport=2626\nbuffer=auto\n", encoding="utf-8")
 from configure_baseline import install as install_presentation_baseline
 install_presentation_baseline(user_directory)
+# The baseline pins 640x528 / OpenGL; an explicit --resolution or --graphics Vulkan wins.
+if args.resolution != "640x528" or args.graphics == "Vulkan":
+    video = configparser.ConfigParser(interpolation=None, strict=False)
+    video.optionxform = str
+    video.read(user_directory / "config.ini", encoding="utf-8-sig")
+    video.set("Video", "resolution", args.resolution)
+    video.set("Video", "backend", "Vulkan" if args.graphics == "Vulkan" else "OpenGL")
+    with (user_directory / "config.ini").open("w", encoding="utf-8") as stream:
+        video.write(stream)
 if args.gfx_setting:
     gfx = configparser.ConfigParser(interpolation=None, strict=False)
     gfx.optionxform = str

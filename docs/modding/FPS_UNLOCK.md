@@ -103,6 +103,17 @@ between each pair of real frames with the camera halfway between them.
      in-between frames went out back to back. At 4x, 26% of presents were on
      pace and 825 were bunched; after it, 79% were on pace and 49 bunched. The
      human described the effect as motion blur.
+   - VSync (2026-10-27): turned on while interpolating, if multiplier x
+     59.94 <= refresh + 1 Hz (re-read every 2 s), and restored after.
+     - Reason: frames paced by the clock without VSync drift against the
+       refresh, so some refreshes get two new frames and others none. The
+       human reported afterimages on moving geometry at 4x on a 239 Hz screen.
+     - Speed: full in hidden runs (hub 0.99, UGR 0.997, 3x Vulkan).
+     - Present-call gaps get less even, because presents now block on the
+       display; the display itself is the real pacer.
+     - Not yet verified by eye.
+     - Settings: menu `VideoCommon::g_wario_vsync_mode` (1 = off); debug bit
+       8 skips it.
    - Diagnostics: MODERNGEKKO_WARIO_FPS_TRACE=<file> logs every pacing event
      with a timestamp: C copy, Q queued, M/R in-between/real shown, V VI swap,
      H real held, r real shown at the VI.

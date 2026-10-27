@@ -187,6 +187,9 @@ PRESENT_DECL_NEW = PRESENT_DECL_OLD + (
 
 PRESENT_EXTERN_OLD = '#include "VideoCommon/Widescreen.h"\n'
 PRESENT_EXTERN_NEW = PRESENT_EXTERN_OLD + (
+    "\n#ifdef _WIN32\n#ifndef NOMINMAX\n#define NOMINMAX\n#endif\n#include <windows.h>\n#endif\n"
+    "extern void* g_wario_hwnd;                         // DolphinNoGUI (in-game menu fix)\n"
+    "extern std::atomic<int> g_wario_fps_multiplier;    // VideoCommon/BPStructs.cpp (1 = off)\n"
     "\n// Wario World frame interpolation: throttle-sleep present hooks (Core/CoreTiming.cpp).\n"
     "extern bool (*g_wario_throttle_present_due)(TimePoint* due);\n"
     "extern void (*g_wario_throttle_present_flush)();\n")
@@ -339,7 +342,7 @@ PRESENT_STATIC_NEW = """// Wario World frame interpolation pacing. The game issu
 // interpolation). Nothing sleeps: queued frames are shown from the command loop or from the
 // speed limiter's own sleep once due.
 // MODERNGEKKO_WARIO_FPS_DEBUG bits (diagnostics only): 1 = show in-between frames at once,
-// 2 = build but do not show in-between frames, 4 = do not hold real frames.
+// 2 = build but do not show in-between frames, 4 = do not hold real frames, 8 = no forced VSync.
 static int WarioFpsDebug()
 {
   static const int bits = [] {
@@ -380,6 +383,58 @@ u64 g_wario_pending_count = 0, g_wario_pending_forced = 0;
 u64 g_wario_present_gaps[6] = {};
 static TimePoint s_wario_last_any_present{};
 
+// VSync while interpolating: with it off, frames paced by the clock drift against the display's
+// refresh, so some refreshes take two new frames (one is never seen) and others none (one is shown
+// twice); on moving geometry that reads as afterimages (human report on a 240 Hz screen). When
+// the frame rate fits the screen (multiplier x 59.94 <= refresh + 1 Hz) VSync gives every frame
+// its own refresh; otherwise, and with interpolation off, the player's own setting is kept.
+// In-game menu "VSync": 0 = auto (on while interpolating within the refresh rate), 1 = off.
+std::atomic<int> g_wario_vsync_mode{0};
+
+static void WarioSyncVSync()
+{
+  static int refresh_hz = 0;
+  static TimePoint next_check{};
+  static bool forced = false;
+  static bool user_vsync = false;
+  const auto now = Clock::now();
+  if (now >= next_check)
+  {
+    next_check = now + std::chrono::seconds(2);
+#ifdef _WIN32
+    if (g_wario_hwnd)
+    {
+      MONITORINFOEXW info{};
+      info.cbSize = sizeof(info);
+      DEVMODEW mode{};
+      mode.dmSize = sizeof(mode);
+      if (GetMonitorInfoW(MonitorFromWindow(static_cast<HWND>(g_wario_hwnd), MONITOR_DEFAULTTONEAREST),
+                          &info) &&
+          EnumDisplaySettingsW(info.szDevice, ENUM_CURRENT_SETTINGS, &mode) && mode.dmDisplayFrequency > 1)
+      {
+        refresh_hz = static_cast<int>(mode.dmDisplayFrequency);
+      }
+    }
+#endif
+  }
+  const int multiplier = g_wario_fps_multiplier.load(std::memory_order_relaxed);
+  const bool want = multiplier > 1 && refresh_hz > 0 && multiplier * 59.94 <= refresh_hz + 1.0 &&
+                    !(WarioFpsDebug() & 8) && g_wario_vsync_mode.load(std::memory_order_relaxed) == 0;
+  if (want && !forced)
+  {
+    user_vsync = Config::Get(Config::GFX_VSYNC);
+    forced = true;
+    if (!user_vsync)
+      Config::SetCurrent(Config::GFX_VSYNC, true);
+  }
+  else if (!want && forced)
+  {
+    forced = false;
+    if (!user_vsync)
+      Config::SetCurrent(Config::GFX_VSYNC, false);
+  }
+}
+
 static void WarioNotePresent()
 {
   const auto now = Clock::now();
@@ -397,7 +452,8 @@ static void WarioNotePresent()
 PRESENT_VI_OLD = """    Present(&present_info);
     ProcessFrameDumping(ticks);
 """
-PRESENT_VI_NEW = """    if ((s_wario_last_mid_present > s_wario_last_real_present || !m_wario_pending_mids.empty()) &&
+PRESENT_VI_NEW = """    WarioSyncVSync();
+    if ((s_wario_last_mid_present > s_wario_last_real_present || !m_wario_pending_mids.empty()) &&
         !(WarioFpsDebug() & 4))
     {
       // Hold the real frame one interval after the last in-between frame (queued or shown).
