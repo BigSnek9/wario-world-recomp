@@ -2,10 +2,22 @@
 
 The repository is intended to contain build/analysis scripts, authored patches,
 configuration, hashes, and explanatory documentation. A user provides their own
-disc. Nothing has been uploaded and no GitHub remote is configured.
+disc. The repository is on GitHub as a private repo (BigSnek9/wario-world-recomp,
+2026-10-27).
 
-Keep ISO/extracted files, game-derived C/assembly/objects/native modules, resource
-data, saves, screenshots and memory captures out of the public tree and releases.
+Releases (decided by the owner on 2026-10-27, the same model as ShadowRecomp,
+Zelda 64: Recompiled and Unleashed Recompiled): a release zip may contain the
+compiled runtime and the compiled game module, so a player unzips, picks their own
+disc and plays. The disc supplies every asset; it is verified and extracted on the
+player's PC on first run. This distributes game-derived compiled code: a widely
+used but legally untested practice, accepted by the owner.
+
+Keep ISO/extracted files, game-derived C/assembly sources and objects, resource
+data, saves, screenshots and memory captures out of the repository and releases.
+The compiled module and runtime go only into release archives, never into Git.
+GPL note: the runtime is GPL-licensed (Dolphin-derived); a public binary release
+must make the corresponding source available (this repository plus the pinned
+upstream commits) and keep the licence notices in the zip.
 They live under ignored original/, generated/, reports/, build/, captures/ and
 private/. Do not place a ROM in Git LFS. .gitignore does not remove files already
 in history; review the actual index, history and release archive before posting.

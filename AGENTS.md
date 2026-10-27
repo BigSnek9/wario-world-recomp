@@ -13,8 +13,14 @@ and builds were authorized on 2026-10-24; new system installs need separate cons
 Portable Ghidra 12.1 plus the GameCube loader were approved on 2026-10-25,
 including building the supplied connector locally.
 Do not publish, push, upload, or distribute game inputs, assets, disassembly,
-game-derived generated code, native game modules, saves or captures.
+game-derived generated code (C/assembly sources), saves or captures.
 Keep those under ignored directories. Use scripts/check_public_tree.py before staging.
+Release builds (user decision, 2026-10-27, "ShadowRecomp style"): GitHub releases may
+contain the compiled runtime and the compiled game module (gGWWE01_recomp.dll) so
+players can start in seconds; the player's own disc supplies every asset, extracted on
+first run. Never include disc data, extracted files, generated sources, saves or
+captures in a release, and never commit the module or releases to the repository.
+Upload a release only when the user asks for that upload.
 Never force-add ignored files. Public scripts must accept a user-supplied disc.
 Do not silently substitute an interpreter/JIT and call it a complete static recomp.
 Subagents were authorized by the user in chat on 2026-10-26 ("you may use subagents");
