@@ -63,6 +63,14 @@ those look like text/glyph layout and are the riskiest to reuse for arbitrary
 aspect ratios (the replacement is only right for 16:9). Roles are **speculative**
 until each function is traced.
 
+Pause-menu signal (confirmed code and memory): lbl_801FD930 bit 0x8 is set
+from book open (state fn_8006CB04) until the close state finishes
+(fn_8006DC4C), through the counter lbl_801FD940 (fn_8003195C, no other
+callers); bit 0x4 (counter lbl_801FD93C, fn_80031910) is the general
+update freeze, also set by other screens (fn_80059E14, fn_80098C50, ...).
+The recomp's draw-time HUD edge shift uses DX 0 while bit 0x8 is set,
+keeping the HUD inside the 4:3 book.
+
 ## Host side (runtime, not game code)
 
 - Presentation is forced to 4:3 (`AspectRatio=2` ForceStandard, widescreen

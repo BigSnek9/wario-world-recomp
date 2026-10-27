@@ -78,6 +78,16 @@ and the 2D half-width (WS-002) still need their own changes.
   widths replaced by 16:9 constants) compensate an anamorphic stretch and are
   not needed with the widened ortho. Verified hidden at 16:9 and 32:9 with the
   conditional elements forced visible; 4:3 HUD positions unchanged.
+  Pause book (2026-10-27): the book is drawn at 4:3 in the centre, and the
+  hearts, coin panel and stage counter row shown with it were pushed outside
+  it. DX is now 0 while the game's own pause-menu bit is set: bit 0x8 of
+  lbl_801FD930 (main-loop state word; paused 0xF, playing 0x3), driven by the
+  counter lbl_801FD940 in fn_8003195C. Its only callers are the pause-menu
+  states fn_8006CB04 (open, +1) and fn_8006DC4C (close finished, -1), and
+  the HUD reads the same bit through fn_8003199C (fn_80082B4C). Evidence:
+  hidden MEM1 diff paused/playing/paused on a Greenhorn Forest state. The
+  bit is read only when the screen is wide, so 4:3 is unchanged. Other
+  freezes (the other fn_80031910 callers set bit 0x4 only) keep edge anchoring.
 - WS-007 message boards (2026-10-27): fn_8007DF18 builds two more screen
   cameras next to the 2D layer, and they ignored the widened half width:
   - fn_80067AA8: C_MTXOrtho, +-320 x +-224; applied by fn_80067C34.

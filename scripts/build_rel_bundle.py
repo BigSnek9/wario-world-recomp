@@ -162,7 +162,7 @@ def widen_fullscreen_quads(text):
 #     GQR5). Pushed away from the centre by sign: x<0 left, x>0 right.
 #   fn_80080BA4 indicator (x +272 at +0x36, bottom-right): fn_80080E54 and
 #     fn_80080FF0 (draw, including the s16 -> float matrix x at 0x80081148).
-_EDGE_I = "(u32)wario_hud_edge_x((s32)(s16)mem_read16(ctx, ea));"
+_EDGE_I = "(u32)wario_hud_edge_x(ctx, (s32)(s16)mem_read16(ctx, ea));"
 _QUAD_I = "(u32)wario_quad_half((s32)(s16)mem_read16(ctx, ea));"
 HUD_EDGE_SITES = {
     0x800809D0: ("u64 res = (u64)(u32)(s32)(-320) +", "u64 res = (u64)(u32)(s32)(-320 - WARIO_HUD_DX) +"),
@@ -175,12 +175,12 @@ HUD_EDGE_SITES = {
     0x800828C4: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _EDGE_I),
     0x800824A0: ("ppc_psq_load_inline(ctx, 1u, ea, true, 5u, false, 0x800824A0u);",
                  "ppc_psq_load_inline(ctx, 1u, ea, true, 5u, false, 0x800824A0u);\n"
-                 "        ctx->fpr[1] = wario_hud_edge_f(ctx->fpr[1]);"),
+                 "        ctx->fpr[1] = wario_hud_edge_f(ctx, ctx->fpr[1]);"),
     0x80080E78: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _EDGE_I),
     0x8008101C: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _EDGE_I),
     0x80081148: ("ppc_psq_load_inline(ctx, 1u, ea, true, 5u, false, 0x80081148u);",
                  "ppc_psq_load_inline(ctx, 1u, ea, true, 5u, false, 0x80081148u);\n"
-                 "        ctx->fpr[1] = wario_hud_edge_f(ctx->fpr[1]);"),
+                 "        ctx->fpr[1] = wario_hud_edge_f(ctx, ctx->fpr[1]);"),
     # fn_8006F954 (2D camera apply, GXSetProjection(obj+0x14, ortho)): the 2D
     # camera bakes HC-0007 into m[0][0] = 2/(r-l) only when it is constructed
     # (fn_8006F7CC -> C_MTXOrtho fn_8019C6E8), so a camera built before an aspect
@@ -209,13 +209,24 @@ HUD_EDGE_SITES = {
     0x80068014: ("ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(16);",
                  "ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(16);\n    wario_sync_screen_perspective(ctx, ctx->gpr[3]);"),
 }
+# The pause book is drawn at 4:3 in the centre, and the HUD rows drawn with it
+# (hearts, coin panel, stage counter row) belong inside it, so DX is 0 while the
+# game's own pause-menu freeze bit is set: bit 0x8 of lbl_801FD930 (main-loop
+# state word), kept by the push/pop counter lbl_801FD940 in fn_8003195C, whose
+# only callers are the pause-menu states fn_8006CB04 (open, +1) and fn_8006DC4C
+# (close finished, -1); the HUD itself reads it through fn_8003199C
+# (fn_80082B4C). Only read when the screen is wide, so 4:3 never touches it.
 HUD_EDGE_HELPERS = """
-#define WARIO_HUD_DX ((s32)wario_fullscreen_half_width - 320)
-static inline s32 wario_hud_edge_x(s32 x) {
+static inline s32 wario_hud_dx(CPUState* ctx) {
+    const s32 dx = (s32)wario_fullscreen_half_width - 320;
+    return dx == 0 || (mem_read32(ctx, 0x801FD930u) & 0x8u) ? 0 : dx;
+}
+#define WARIO_HUD_DX wario_hud_dx(ctx)
+static inline s32 wario_hud_edge_x(CPUState* ctx, s32 x) {
     const s32 dx = WARIO_HUD_DX;
     return dx == 0 ? x : x < 0 ? x - dx : x > 0 ? x + dx : x;
 }
-static inline f64 wario_hud_edge_f(f64 x) {
+static inline f64 wario_hud_edge_f(CPUState* ctx, f64 x) {
     const s32 dx = WARIO_HUD_DX;
     return dx == 0 ? x : x < 0.0 ? x - (f64)dx : x > 0.0 ? x + (f64)dx : x;
 }
