@@ -132,15 +132,24 @@ void Save()
   }
 }
 
-void Load()
+// Returns the keys found in the settings file.
+std::vector<std::string> Load()
 {
   Settings& s = s_settings;
-  // Defaults follow the values this session was started with.
+  std::vector<std::string> saved;
+  // Defaults follow the values this session was started with (shown only; a fixed ratio that is
+  // not a preset shows the closest one).
   const float aspect = g_wario_aspect_target.load();
   s.aspect = aspect < 0.0f ? 0 : 1;
+  float closest = 1e9f;
   for (int i = 2; i < static_cast<int>(std::size(kAspects)); ++i)
-    if (aspect > 0.0f && std::abs(kAspects[i].ratio - aspect) < 0.01f)
+  {
+    if (aspect > 0.0f && std::abs(kAspects[i].ratio - aspect) < closest)
+    {
+      closest = std::abs(kAspects[i].ratio - aspect);
       s.aspect = i;
+    }
+  }
   s.frame_rate = std::clamp(g_wario_fps_multiplier.load(), 1, 4) - 1;
   s.hd_textures = Config::Get(Config::GFX_HIRES_TEXTURES);
   s.hdr = Config::Get(Config::GFX_ENHANCE_HDR_OUTPUT);
@@ -151,7 +160,7 @@ void Load()
       s.resolution = i;
   FILE* file = std::fopen(SettingsPath().c_str(), "r");
   if (!file)
-    return;
+    return saved;
   char line[256];
   while (std::fgets(line, sizeof(line), file))
   {
@@ -163,6 +172,7 @@ void Load()
     while (!value.empty() && (value.back() == '\n' || value.back() == '\r' || value.back() == ' '))
       value.pop_back();
     const int number = std::atoi(value.c_str());
+    saved.push_back(key);
     if (key == "resolution")
     {
       for (int i = 0; i < static_cast<int>(std::size(kResolutionScales)); ++i)
@@ -197,6 +207,7 @@ void Load()
       s.moon_speed = std::clamp(static_cast<float>(std::atof(value.c_str())), 0.5f, 8.0f);
   }
   std::fclose(file);
+  return saved;
 }
 
 bool IsVulkan()
@@ -558,13 +569,24 @@ void WarioMenuDraw(u32 width, u32 height)
   if (!s_loaded)
   {
     s_loaded = true;
-    Load();
-    QueueResolution();
-    QueueAspect();
-    QueueHd();
-    QueueHdr();
-    QueueVolume();
-    QueueFps();
+    // Only settings saved by the menu are applied at startup; anything else keeps the session's
+    // own configuration (a fixed aspect that is not a menu preset is never reset to 4:3).
+    const std::vector<std::string> saved = Load();
+    const auto has = [&](const char* key) {
+      return std::find(saved.begin(), saved.end(), key) != saved.end();
+    };
+    if (has("resolution"))
+      QueueResolution();
+    if (has("aspect"))
+      QueueAspect();
+    if (has("hd_textures"))
+      QueueHd();
+    if (has("hdr"))
+      QueueHdr();
+    if (has("volume"))
+      QueueVolume();
+    if (has("frame_rate") || has("fps"))
+      QueueFps();
   }
   ImGuiIO& io = ImGui::GetIO();
   const float dt = std::clamp(io.DeltaTime, 0.0f, 0.1f);

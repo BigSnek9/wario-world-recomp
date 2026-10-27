@@ -2,6 +2,18 @@
 
 Newest first. Earlier history (2026-10-24..26 morning): ../PROGRESS.md and ../HANDOFF.md.
 
+## 2026-10-27: "21:9 shows 4:3" was the menu resetting non-preset ratios
+
+- Custom 21x9 / 7:3 / 22:9 / 23:9 presented ~4:3 while 64:27, 16:10, 16:9 and
+  32:9 worked. Cause: the in-game menu (which also runs in headless tests)
+  mapped the session's starting aspect to a preset on its first frame and,
+  when none matched within 0.01, applied "Original 4:3". The menu's own 21:9
+  is 64:27 and was never affected.
+- Fix: at startup the menu applies only settings saved in WarioWorld.ini; the
+  session's own configuration is otherwise left alone. Verified hidden:
+  21x9 config, 7:3 without env, and menu-saved 21:9 all present ~2.3:1 with
+  correct proportions and edge HUD.
+
 ## 2026-10-27: consistent object interpolation, 3x/4x, HUD edge anchoring
 
 - Ghosting of far objects (gold statues) and seams at geometry edges: matched

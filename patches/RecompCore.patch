@@ -383,10 +383,10 @@ index d084fea..a2a5dc7 100644
    std::vector<u64> m_effective_chunk_hashes;
    u64 m_rel_mapping_generation = 0;
 diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
-index 7b3d845..2020eef 100644
+index 7b3d845..ed646ec 100644
 --- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
 +++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
-@@ -13,6 +13,222 @@
+@@ -13,6 +13,230 @@
  #include "Common/Logging/Log.h"
  
  #include <cstdio>
@@ -606,10 +606,18 @@ index 7b3d845..2020eef 100644
 +#include <cstring>
 +#include "Core/CoreTiming.h"
 +#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
++#include <cstdlib>
++#include <cstring>
++#include "Core/CoreTiming.h"
++#include <unordered_set>
  
  namespace
  {
-@@ -367,6 +583,13 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -367,6 +591,13 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
    auto* core = static_cast<StaticRecompCore*>(cpu->external_user_data);
    cia = core->TranslateRelAddress(cia);
    ++core->m_hook_fallback_instructions;
@@ -623,7 +631,7 @@ index 7b3d845..2020eef 100644
  
    // Lockstep: a block that fell back to the interpreter for an unmodeled
    // instruction (DMA mtspr, cache op, ...) performed side effects not captured
-@@ -397,6 +620,7 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -397,6 +628,7 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
          ppc.iCache.Invalidate(system.GetMemory(), system.GetJitInterface(), ea);
        else
          system.GetJitInterface().InvalidateICacheLine(ea);
@@ -631,7 +639,7 @@ index 7b3d845..2020eef 100644
        // These bypass SingleStepInner, so charge Dolphin's PPCTables cost
        // here (icbi 4, dcbf/dcbst/dcbi 5); their emitted block cost is zero.
        ppc.downcount -= (xo == 982u) ? 4 : 5;
-@@ -405,12 +629,102 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+@@ -405,12 +637,102 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
      }
    }
  
@@ -2054,10 +2062,10 @@ index 180bc86..a3a6f39 100644
          //       when an XFB is the last XFB copy of a frame. Not only would we get a clean "end of
          //       the frame", but we would also be able to use ImmediateXFB even for these games.
 diff --git a/Source/Core/VideoCommon/OnScreenUI.cpp b/Source/Core/VideoCommon/OnScreenUI.cpp
-index 451109b..0c97d28 100644
+index 451109b..b47ccd5 100644
 --- a/Source/Core/VideoCommon/OnScreenUI.cpp
 +++ b/Source/Core/VideoCommon/OnScreenUI.cpp
-@@ -37,6 +37,590 @@
+@@ -37,6 +37,612 @@
  #include <imgui.h>
  #include <implot.h>
  
@@ -2173,15 +2181,24 @@ index 451109b..0c97d28 100644
 +  }
 +}
 +
-+void Load()
++// Returns the keys found in the settings file.
++std::vector<std::string> Load()
 +{
 +  Settings& s = s_settings;
-+  // Defaults follow the values this session was started with.
++  std::vector<std::string> saved;
++  // Defaults follow the values this session was started with (shown only; a fixed ratio that is
++  // not a preset shows the closest one).
 +  const float aspect = g_wario_aspect_target.load();
 +  s.aspect = aspect < 0.0f ? 0 : 1;
++  float closest = 1e9f;
 +  for (int i = 2; i < static_cast<int>(std::size(kAspects)); ++i)
-+    if (aspect > 0.0f && std::abs(kAspects[i].ratio - aspect) < 0.01f)
++  {
++    if (aspect > 0.0f && std::abs(kAspects[i].ratio - aspect) < closest)
++    {
++      closest = std::abs(kAspects[i].ratio - aspect);
 +      s.aspect = i;
++    }
++  }
 +  s.frame_rate = std::clamp(g_wario_fps_multiplier.load(), 1, 4) - 1;
 +  s.hd_textures = Config::Get(Config::GFX_HIRES_TEXTURES);
 +  s.hdr = Config::Get(Config::GFX_ENHANCE_HDR_OUTPUT);
@@ -2192,7 +2209,7 @@ index 451109b..0c97d28 100644
 +      s.resolution = i;
 +  FILE* file = std::fopen(SettingsPath().c_str(), "r");
 +  if (!file)
-+    return;
++    return saved;
 +  char line[256];
 +  while (std::fgets(line, sizeof(line), file))
 +  {
@@ -2204,6 +2221,7 @@ index 451109b..0c97d28 100644
 +    while (!value.empty() && (value.back() == '\n' || value.back() == '\r' || value.back() == ' '))
 +      value.pop_back();
 +    const int number = std::atoi(value.c_str());
++    saved.push_back(key);
 +    if (key == "resolution")
 +    {
 +      for (int i = 0; i < static_cast<int>(std::size(kResolutionScales)); ++i)
@@ -2238,6 +2256,7 @@ index 451109b..0c97d28 100644
 +      s.moon_speed = std::clamp(static_cast<float>(std::atof(value.c_str())), 0.5f, 8.0f);
 +  }
 +  std::fclose(file);
++  return saved;
 +}
 +
 +bool IsVulkan()
@@ -2599,13 +2618,24 @@ index 451109b..0c97d28 100644
 +  if (!s_loaded)
 +  {
 +    s_loaded = true;
-+    Load();
-+    QueueResolution();
-+    QueueAspect();
-+    QueueHd();
-+    QueueHdr();
-+    QueueVolume();
-+    QueueFps();
++    // Only settings saved by the menu are applied at startup; anything else keeps the session's
++    // own configuration (a fixed aspect that is not a menu preset is never reset to 4:3).
++    const std::vector<std::string> saved = Load();
++    const auto has = [&](const char* key) {
++      return std::find(saved.begin(), saved.end(), key) != saved.end();
++    };
++    if (has("resolution"))
++      QueueResolution();
++    if (has("aspect"))
++      QueueAspect();
++    if (has("hd_textures"))
++      QueueHd();
++    if (has("hdr"))
++      QueueHdr();
++    if (has("volume"))
++      QueueVolume();
++    if (has("frame_rate") || has("fps"))
++      QueueFps();
 +  }
 +  ImGuiIO& io = ImGui::GetIO();
 +  const float dt = std::clamp(io.DeltaTime, 0.0f, 0.1f);
@@ -2648,7 +2678,7 @@ index 451109b..0c97d28 100644
  namespace VideoCommon
  {
  bool OnScreenUI::Initialize(u32 width, u32 height, float scale)
-@@ -422,6 +1006,7 @@ void OnScreenUI::Finalize()
+@@ -422,6 +1028,7 @@ void OnScreenUI::Finalize()
    DrawDebugText();
    OSD::DrawMessages();
    DrawChallengesAndLeaderboards();
