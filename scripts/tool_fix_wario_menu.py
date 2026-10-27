@@ -12,7 +12,7 @@ is read on the first frame of the next session:
   the host aspect mode; "Original 4:3" restores the game's own values)
 - fullscreen, HD textures
 - HDR output (Vulkan only) and HDR tuning: paper white (Dolphin's own setting) plus highlight
-  boost / peak brightness, saturation, warmth, contrast, gamma and black level (WarioHDR.glsl,
+  boost / peak brightness, white level, saturation, vibrance, contrast, gamma and black level (WarioHDR.glsl,
   written to Data/Sys/Shaders; loaded only while a value differs from its default, so the
   defaults leave the picture exactly as it was)
 - frame rate 60/120/180/240/auto (g_wario_fps_multiplier -> scripts/tool_fix_wario_fps.py)
@@ -177,7 +177,8 @@ struct Settings
   float hdr_peak = 1000.0f;        // nits; the highlight boost stretches up to this
   int hdr_boost = 0;               // %, 0 = off
   int hdr_saturation = 100;        // %
-  int hdr_warmth = 0;              // -100 (cool) .. 100 (warm)
+  int hdr_vibrance = 0;            // -100 .. 100 %: saturation weighted towards muted colours
+  int hdr_white_nits = 0;          // 0 = off; 400 .. 4000: highlights roll off below this ceiling
   int hdr_contrast = 100;          // %
   float hdr_gamma = 1.0f;
   int hdr_black = 0;               // -10 (lifted) .. 10 (crushed)
@@ -291,12 +292,14 @@ void Save()
                  "cheat_noclip=%d\ncheat_super_punch=%d\ncheat_jump_percent=%d\n"
                  "menu_scale=%.2f\nmenu_style=%s\n"
                  "hdr_paper_white=%.0f\nhdr_peak=%.0f\nhdr_boost=%d\nhdr_saturation=%d\n"
-                 "hdr_warmth=%d\nhdr_contrast=%d\nhdr_gamma=%.2f\nhdr_black=%d\nhdr_menu_nits=%.0f\n"
+                 "hdr_vibrance=%d\nhdr_white_nits=%d\nhdr_contrast=%d\nhdr_gamma=%.2f\nhdr_black=%d\n"
+                 "hdr_menu_nits=%.0f\n"
                  "backend=%s\nvsync=%s\nperformance=%d\n",
                  kResolutionScales[s.resolution], kAspects[s.aspect].key, s.fullscreen,
                  s.hd_textures, s.hdr, kFrameRateKeys[s.frame_rate], kMotionKeys[s.motion], s.volume, s.music, s.sfx, s.mute_pause_music, s.rumble,
                  s.rumble_strength, s.noclip, s.super_punch, s.jump_percent, s.menu_scale, kThemes[s.style].key, s.hdr_paper_white, s.hdr_peak,
-                 s.hdr_boost, s.hdr_saturation, s.hdr_warmth, s.hdr_contrast, s.hdr_gamma, s.hdr_black,
+                 s.hdr_boost, s.hdr_saturation, s.hdr_vibrance, s.hdr_white_nits, s.hdr_contrast,
+                 s.hdr_gamma, s.hdr_black,
                  s.hdr_menu_nits, kBackendKeys[s.backend], kVsyncKeys[s.vsync], s.performance);
     for (const std::string& line : s_other_lines)
       std::fprintf(file, "%s\n", line.c_str());
@@ -417,8 +420,14 @@ std::vector<std::string> Load()
       s.hdr_boost = std::clamp(number, 0, 100);
     else if (key == "hdr_saturation")
       s.hdr_saturation = std::clamp(number, 0, 200);
+    else if (key == "hdr_vibrance")
+      s.hdr_vibrance = std::clamp(number, -100, 100);
+    else if (key == "hdr_white_nits")
+      s.hdr_white_nits = number < 400 ? 0 : std::min(number, 4000);
     else if (key == "hdr_warmth")
-      s.hdr_warmth = std::clamp(number, -100, 100);
+    {
+      // Warmth was removed (2026-10-27); dropped on the next save.
+    }
     else if (key == "hdr_contrast")
       s.hdr_contrast = std::clamp(number, 50, 150);
     else if (key == "hdr_gamma")
@@ -520,7 +529,8 @@ void ResetHdr()
   s.hdr_peak = defaults.hdr_peak;
   s.hdr_boost = defaults.hdr_boost;
   s.hdr_saturation = defaults.hdr_saturation;
-  s.hdr_warmth = defaults.hdr_warmth;
+  s.hdr_vibrance = defaults.hdr_vibrance;
+  s.hdr_white_nits = defaults.hdr_white_nits;
   s.hdr_contrast = defaults.hdr_contrast;
   s.hdr_gamma = defaults.hdr_gamma;
   s.hdr_black = defaults.hdr_black;
@@ -532,7 +542,7 @@ void ResetHdr()
 bool HdrGradingActive()
 {
   const Settings& s = s_settings;
-  return s.hdr_boost != 0 || s.hdr_saturation != 100 || s.hdr_warmth != 0 ||
+  return s.hdr_boost != 0 || s.hdr_saturation != 100 || s.hdr_vibrance != 0 || s.hdr_white_nits != 0 ||
          s.hdr_contrast != 100 || std::abs(s.hdr_gamma - 1.0f) > 0.004f || s.hdr_black != 0;
 }
 
@@ -568,7 +578,8 @@ void ApplyHdrGrading()
   set("WW_PEAK_NITS", s.hdr_peak);
   set("WW_HIGHLIGHTS", s.hdr_boost / 100.0f);
   set("WW_SATURATION", s.hdr_saturation / 100.0f);
-  set("WW_WARMTH", s.hdr_warmth / 100.0f);
+  set("WW_VIBRANCE", s.hdr_vibrance / 100.0f);
+  set("WW_WHITE_NITS", static_cast<float>(s.hdr_white_nits));
   set("WW_CONTRAST", s.hdr_contrast / 100.0f);
   set("WW_GAMMA", s.hdr_gamma);
   set("WW_BLACK", s.hdr_black / 100.0f);
@@ -1737,12 +1748,30 @@ void DrawPanel(float width, float height)
         ImGui::SliderFloat("##hdr_peak", &s.hdr_peak, 400.0f, 4000.0f, "%.0f nits");
         edited();
         ImGui::EndDisabled();
+        row("White level");
+        // Hundreds of nits, 3 = off, so one press is 100 nits (the format prints the "00").
+        int white = s.hdr_white_nits == 0 ? 3 : s.hdr_white_nits / 100;
+        if (ImGui::SliderInt("##hdr_white", &white, 3, 40, white == 3 ? "Off" : "%d00 nits",
+                             ImGuiSliderFlags_NoInput))
+        {
+          s.hdr_white_nits = white == 3 ? 0 : white * 100;
+        }
+        edited();
+        ImGui::PushTextWrapPos(inner + pad);
+        ImGui::TextDisabled("The brightest the picture may get: highlights roll off smoothly "
+                            "towards it instead of clipping. Set it to your screen's peak if "
+                            "bright areas lose detail. Off = no limit.");
+        ImGui::PopTextWrapPos();
         row("Saturation");
         ImGui::SliderInt("##hdr_saturation", &s.hdr_saturation, 0, 200, "%d%%");
         edited();
-        row("Warmth");
-        ImGui::SliderInt("##hdr_warmth", &s.hdr_warmth, -100, 100, "%+d");
+        row("Vibrance");
+        ImGui::SliderInt("##hdr_vibrance", &s.hdr_vibrance, -100, 100, "%+d%%");
         edited();
+        ImGui::PushTextWrapPos(inner + pad);
+        ImGui::TextDisabled("Like saturation, but boosts muted colours most and spares vivid "
+                            "colours and skin tones.");
+        ImGui::PopTextWrapPos();
         row("Contrast");
         ImGui::SliderInt("##hdr_contrast", &s.hdr_contrast, 50, 150, "%d%%");
         edited();
@@ -1882,7 +1911,7 @@ void DrawPanel(float width, float height)
       row("Jump height");
       // Tens of percent, so one d-pad press is 10 % (the format prints the trailing 0).
       int tens = s.jump_percent / 10;
-      if (ImGui::SliderInt("##jump_percent", &tens, 10, 50, tens == 10 ? "100% (original)" : "%d0%%",
+      if (ImGui::SliderInt("##jump_percent", &tens, 10, 50, tens == 10 ? "100%% (original)" : "%d0%%",
                            ImGuiSliderFlags_NoInput))
       {
         s.jump_percent = tens * 10;
@@ -1896,18 +1925,39 @@ void DrawPanel(float width, float height)
         changed = true;
       hint("Every punch hits like the 3rd combo punch.");
       // One-shots: applied by the module at the next player update, so only with a save loaded.
-      const auto one_shot = [&](const char* label, volatile s32* request) {
+      // Like Quit, the first press only arms the button for 3 s: these change the save file.
+      const auto one_shot = [&](int index, const char* label, volatile s32* request) {
+        static float armed[2] = {0.0f, 0.0f};
+        armed[index] = std::max(armed[index] - ImGui::GetIO().DeltaTime, 0.0f);
         const s32 state = request ? *request : 0;
-        if (ImGui::Button(label, ImVec2(inner, 0.0f)) && request && state != 1)
-          *request = 1;
+        const bool confirm = armed[index] > 0.0f;
+        if (confirm)
+          ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.65f, 0.12f, 0.1f, 1.0f));
+        const std::string text = confirm ? fmt::format("Press again to apply###one_shot{}", index) :
+                                           fmt::format("{}###one_shot{}", label, index);
+        if (ImGui::Button(text.c_str(), ImVec2(inner, 0.0f)) && request && state != 1)
+        {
+          if (confirm)
+          {
+            *request = 1;
+            armed[index] = 0.0f;
+          }
+          else
+          {
+            armed[index] = 3.0f;
+          }
+        }
+        if (confirm)
+          ImGui::PopStyleColor();
+        hint("Permanent once you save the game.");
         if (state == 1)
           hint("Waiting: applies once a save file is loaded and Wario is in the world.");
         else if (state == 2)
           hint("Applied.");
       };
-      one_shot("Unlock all stages", s_cheat_unlock);
+      one_shot(0, "Unlock all stages", s_cheat_unlock);
       hint("Every stage and world opens; the final boss stays uncleared.");
-      one_shot("Mark all collectables as grabbed", s_cheat_collect);
+      one_shot(1, "Mark all collectables as grabbed", s_cheat_collect);
       hint("Treasures, red diamonds, Spritelings and statue parts in every stage.");
       ImGui::EndDisabled();
       if (!s_cheat_exports)
@@ -2466,7 +2516,7 @@ WIN_MOUSE_NEW = WIN_MOUSE_OLD + """
 
 HDR_SHADER = r"""// Wario World HDR tuning (scripts/tool_fix_wario_menu.py; values come from the in-game menu).
 // The menu loads it only while HDR output is on and a value differs from its default; every
-// default is the identity. Highlight boost follows Dolphin's AutoHDR.glsl (Filoppi's PumboAutoHDR).
+// default is the identity (white level 0 = off). Highlight boost follows Dolphin's AutoHDR.glsl (Filoppi's PumboAutoHDR).
 
 /*
 [configuration]
@@ -2496,11 +2546,19 @@ StepAmount = 0.01
 DefaultValue = 1
 
 [OptionRangeFloat]
-GUIName = Warmth
-OptionName = WW_WARMTH
+GUIName = Vibrance
+OptionName = WW_VIBRANCE
 MinValue = -1
 MaxValue = 1
 StepAmount = 0.01
+DefaultValue = 0
+
+[OptionRangeFloat]
+GUIName = White level (nits, 0 = off)
+OptionName = WW_WHITE_NITS
+MinValue = 0
+MaxValue = 4000
+StepAmount = 100
 DefaultValue = 0
 
 [OptionRangeFloat]
@@ -2556,15 +2614,25 @@ void main()
 	// Contrast around middle grey
 	c = 0.18 * pow(c / 0.18, float3(WW_CONTRAST, WW_CONTRAST, WW_CONTRAST));
 
-	// Warmth: tint towards orange / blue, keeping brightness
-	const float before = luminance(c);
-	c *= float3(1.0 + 0.12 * WW_WARMTH, 1.0, 1.0 - 0.12 * WW_WARMTH);
-	const float after = luminance(c);
-	if (after > 0.0)
-		c *= before / after;
-
 	const float y = luminance(c);
 	c = max(y + (c - y) * WW_SATURATION, 0.0);
+
+	// Vibrance: saturation weighted towards muted colours, so vivid colours change little; skin
+	// tones (red > green > blue with green about 40 % of the way) are partly protected
+	if (WW_VIBRANCE != 0.0)
+	{
+		const float top = max(c.r, max(c.g, c.b));
+		const float bottom = min(c.r, min(c.g, c.b));
+		const float chroma = top > 0.0 ? (top - bottom) / top : 0.0;
+		float amount = WW_VIBRANCE * (1.0 - chroma);
+		if (c.r > c.g && c.g > c.b)
+		{
+			const float hue = (c.g - c.b) / max(c.r - c.b, 0.00001);
+			amount *= 1.0 - 0.6 * clamp(1.0 - abs(hue - 0.4) / 0.3, 0.0, 1.0);
+		}
+		const float v = luminance(c);
+		c = max(v + (c - v) * (1.0 + amount), 0.0);
+	}
 
 	// Highlight boost (AutoHDR, shoulder from black, power 2.5): bright SDR colours stretch
 	// towards the peak brightness
@@ -2575,6 +2643,20 @@ void main()
 		const float shoulder = clamp(sdr, 0.0, 1.0);
 		const float extra = pow(shoulder, 2.5) * (max_white - 1.0) * WW_HIGHLIGHTS;
 		c *= (sdr + extra) / sdr;
+	}
+
+	// White level: nothing gets brighter than this; above 75 % of it, highlights roll off smoothly
+	// (slope 1 at the knee, so nothing below it changes)
+	if (WW_WHITE_NITS > 0.0)
+	{
+		const float white = WW_WHITE_NITS / hdr_paper_white_nits;
+		const float knee = 0.75 * white;
+		const float lum = luminance(c);
+		if (lum > knee)
+		{
+			const float range = white - knee;
+			c *= (knee + range * (1.0 - exp(-(lum - knee) / range))) / lum;
+		}
 	}
 
 	SetOutput(float4(c * paper_white, color.a));

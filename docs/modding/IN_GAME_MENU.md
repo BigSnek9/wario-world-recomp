@@ -59,7 +59,7 @@ and saves the game picture with the menu on top once.
 | HDR output | Config `GFX_ENHANCE_HDR_OUTPUT` (Vulkan only) |
 | HDR paper white (80-500 nits, default 203) | Config `GFX_CC_HDR_PAPER_WHITE_NITS` |
 | HDR menu brightness (80-400 nits, default 80; shown only while HDR is on) | `g_wario_menu_nits`: the ImGui pixel shader's linear output is scaled by nits / 80 (Dolphin draws ImGui in scRGB, 1.0 = 80 nits); `DrawImGui` rebuilds the ImGui pipeline when it changes; saved as `hdr_menu_nits` |
-| HDR highlight boost (Off-100 %), peak brightness (400-4000 nits, default 1000), saturation, warmth, contrast, gamma, black level | `WarioHDR` post-process shader (below) |
+| HDR highlight boost (Off-100 %), peak brightness (400-4000 nits, default 1000), white level (Off or 400-4000 nits), saturation, vibrance (-100..+100 %), contrast, gamma, black level | `WarioHDR` post-process shader (below) |
 | VSync Auto (on with frame gen) / Off | `VideoCommon::g_wario_vsync_mode` (VideoCommon/Present.cpp, from tool_fix_wario_fps.py), live; saved as `vsync=auto` / `off` |
 | Frame rate 60 / 120 / 180 / 240 / Auto | `g_wario_fps_multiplier` (Auto = monitor refresh / 59.94, max 4), switched at the next XFB copy |
 | Master volume | Config `MAIN_AUDIO_VOLUME` + `AudioCommon::UpdateSoundStream` (saved as `volume`) |
@@ -85,10 +85,21 @@ and saves the game picture with the menu on top once.
 - `WarioHDR.glsl` is written by the tool fix to
   `vendor/dolphin/Data/Sys/Shaders/`, which the build copies to `Sys/` next to
   the runner. It works in linear light with 1 = paper white. In order:
-  black level, gamma, contrast around middle grey, warmth (keeping
-  luminance), saturation, then highlight boost (Dolphin's AutoHDR curve:
-  shoulder from black, power 2.5, stretching towards the peak brightness).
-  On SDR output it passes the picture through unchanged.
+  black level, gamma, contrast around middle grey, saturation, vibrance
+  (saturation scaled by 1 - chroma, skin hues with red > green > blue
+  partly protected), highlight boost (Dolphin's AutoHDR curve: shoulder from
+  black, power 2.5, stretching towards the peak brightness), then white level
+  (a luminance ceiling: above 75 % of it highlights roll off exponentially,
+  slope 1 at the knee, never exceeding it). On SDR output it passes the
+  picture through unchanged.
+- 2026-10-27 user feedback: Warmth removed (an old `hdr_warmth` key is dropped
+  on the next save); White level and Vibrance added, both off by default.
+  Verified hidden on Vulkan: with boost, vibrance and white level set, the real
+  shader ran on the HDR swap chain with no compile or load errors and the ini
+  saved without `hdr_warmth`. A test copy without the HDR-only guard raised the
+  game area's mean saturation from 67 to 101 at vibrance +100.
+- Cheats one-shots: the first press arms the button for 3 s ("Press again to
+  apply", red); each carries "Permanent once you save the game."
 - The menu pushes the option values each frame from `Presenter::Present`
   (`ApplyHdrGrading`), so sliders apply live and survive shader reloads.
 - Verified 2026-10-27 in hidden runs: the menu loads the shader on Vulkan and
