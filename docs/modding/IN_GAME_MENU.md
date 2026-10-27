@@ -28,11 +28,17 @@ and saves the game picture with the menu on top once.
 
 - **Tabs:** All · Display · HDR · Motion · Audio · Cheats · System. LB / RB
   (or a click) switch tabs, wrapping round; the highlight slides to the new
-  tab and the selection lands on its first setting. The menu always opens on
+  tab and the selection lands on its first setting (focus only: the item is
+  not activated, so a slider does not open its text entry). The menu always opens on
   All (every section on one page) with the selection on Resume. Resume and
   Quit show on every tab.
 - **Navigation:** D-pad or left stick moves, A selects. The tab strip is not
-  in the D-pad order. The mouse works too: move, left/right click and wheel
+  in the D-pad order. Tab labels keep a fixed padding and shrink before the
+  LB / RB chips are dropped. Menu size (0.1), rise speed (0.1) and HDR gamma
+  (0.01) are whole-step sliders, so one press is one step (ImGui moves float
+  sliders 1 % of the range per press, rounded to the shown precision, so
+  single presses looked dead); menu size applies live with the pad and on
+  release with the mouse. The mouse works too: move, left/right click and wheel
   are forwarded from the Win32 game window (DolphinNoGUI/PlatformWin32.cpp)
   to ImGui.
 - **Input blocking:** while the menu is open (including its close
@@ -53,6 +59,7 @@ and saves the game picture with the menu on top once.
 | HDR output | Config `GFX_ENHANCE_HDR_OUTPUT` (Vulkan only) |
 | HDR paper white (80-500 nits, default 203) | Config `GFX_CC_HDR_PAPER_WHITE_NITS` |
 | HDR highlight boost (Off-100 %), peak brightness (400-4000 nits, default 1000), saturation, warmth, contrast, gamma, black level | `WarioHDR` post-process shader (below) |
+| VSync Auto (on with frame gen) / Off | `VideoCommon::g_wario_vsync_mode` (VideoCommon/Present.cpp, from tool_fix_wario_fps.py), live; saved as `vsync=auto` / `off` |
 | Frame rate 60 / 120 / 180 / 240 / Auto | `g_wario_fps_multiplier` (Auto = monitor refresh / 59.94, max 4), switched at the next XFB copy |
 | Volume | Config `MAIN_AUDIO_VOLUME` + `AudioCommon::UpdateSoundStream` |
 | Moon jump + rise speed | while A / X is held: player actor `[0x801C5820]` y (+0x18) rises |

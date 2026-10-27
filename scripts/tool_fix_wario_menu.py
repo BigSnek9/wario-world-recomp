@@ -41,6 +41,8 @@ OSUI_INCLUDE_NEW = OSUI_INCLUDE_OLD + r"""
 #include <string>
 #include <vector>
 
+#include <imgui_internal.h>
+
 #include "AudioCommon/AudioCommon.h"
 #include "Common/StringUtil.h"
 #include "Core/HW/Memmap.h"
@@ -83,6 +85,10 @@ std::atomic<bool> g_wario_menu_snapshot{false};
 void* g_wario_hwnd = nullptr;
 extern std::atomic<int> g_wario_fps_multiplier;  // VideoCommon/BPStructs.cpp (1 = off)
 extern std::atomic<bool> g_wario_fps_objects;     // false = camera only
+namespace VideoCommon
+{
+extern std::atomic<int> g_wario_vsync_mode;  // VideoCommon/Present.cpp: 0 = auto (on with frame gen), 1 = off
+}
 
 namespace WarioMenu
 {
@@ -95,6 +101,7 @@ struct Settings
   bool hdr = false;
   int frame_rate = 0;  // index into kFrameRates
   int motion = 1;      // 0 = camera only, 1 = camera + objects
+  int vsync = 0;       // index into kVsyncKeys = VideoCommon::g_wario_vsync_mode
   int volume = 100;
   bool moon_jump = false;
   float moon_speed = 2.0f;
@@ -169,6 +176,8 @@ constexpr const char* kFrameRateNames[] = {"Original 60 (accurate)", "120 (2x)",
 constexpr const char* kFrameRateKeys[] = {"60", "120", "180", "240", "auto"};
 constexpr const char* kMotionNames[] = {"Camera only", "Camera + objects"};
 constexpr const char* kMotionKeys[] = {"camera", "objects"};
+constexpr const char* kVsyncNames[] = {"Auto (on with frame gen)", "Off"};
+constexpr const char* kVsyncKeys[] = {"auto", "off"};
 struct Aspect
 {
   const char* name;
@@ -214,12 +223,12 @@ void Save()
                  "resolution=%d\naspect=%s\nfullscreen=%d\nhd_textures=%d\nhdr=%d\nframe_rate=%s\nmotion=%s\n"
                  "volume=%d\nmoon_jump=%d\nmoon_speed=%.2f\nmenu_scale=%.2f\nmenu_style=%s\n"
                  "hdr_paper_white=%.0f\nhdr_peak=%.0f\nhdr_boost=%d\nhdr_saturation=%d\n"
-                 "hdr_warmth=%d\nhdr_contrast=%d\nhdr_gamma=%.2f\nhdr_black=%d\nbackend=%s\n",
+                 "hdr_warmth=%d\nhdr_contrast=%d\nhdr_gamma=%.2f\nhdr_black=%d\nbackend=%s\nvsync=%s\n",
                  kResolutionScales[s.resolution], kAspects[s.aspect].key, s.fullscreen,
                  s.hd_textures, s.hdr, kFrameRateKeys[s.frame_rate], kMotionKeys[s.motion], s.volume, s.moon_jump,
                  s.moon_speed, s.menu_scale, kThemes[s.style].key, s.hdr_paper_white, s.hdr_peak,
                  s.hdr_boost, s.hdr_saturation, s.hdr_warmth, s.hdr_contrast, s.hdr_gamma, s.hdr_black,
-                 kBackendKeys[s.backend]);
+                 kBackendKeys[s.backend], kVsyncKeys[s.vsync]);
     for (const std::string& line : s_other_lines)
       std::fprintf(file, "%s\n", line.c_str());
     std::fclose(file);
@@ -329,6 +338,8 @@ std::vector<std::string> Load()
       s.hdr_gamma = std::clamp(static_cast<float>(std::atof(value.c_str())), 0.7f, 1.3f);
     else if (key == "hdr_black")
       s.hdr_black = std::clamp(number, -10, 10);
+    else if (key == "vsync")
+      s.vsync = value == "off" ? 1 : 0;
     else if (key == "backend")
       s.backend = value == "vulkan" ? 1 : 0;
     else if (key == "menu_style")
@@ -688,6 +699,26 @@ void MoonJump(float dt, bool a_held)
   memory.Write_U32(bits, player + 0x18u);
 }
 
+// Like ImGui::SetKeyboardFocusHere(), but only moves the nav cursor to the next item:
+// SetKeyboardFocusHere also activates it, which opens a slider's text entry.
+void FocusNextItem()
+{
+  ImGuiContext& g = *GImGui;
+  ImGuiWindow* window = g.CurrentWindow;
+  if (g.DragDropActive || g.MovingWindow != nullptr)
+    return;
+  ImGui::SetNavWindow(window);
+  const ImGuiScrollFlags scroll =
+      window->Appearing ? ImGuiScrollFlags_KeepVisibleEdgeX | ImGuiScrollFlags_AlwaysCenterY :
+                          ImGuiScrollFlags_KeepVisibleEdgeX | ImGuiScrollFlags_KeepVisibleEdgeY;
+  ImGui::NavMoveRequestSubmit(ImGuiDir_None, ImGuiDir_Down,
+                              ImGuiNavMoveFlags_IsTabbing | ImGuiNavMoveFlags_FocusApi |
+                                  ImGuiNavMoveFlags_NoSetNavCursorVisible,
+                              scroll);
+  g.NavTabbingDir = 1;
+  g.NavTabbingCounter = 1;
+}
+
 void SetOpen(bool open)
 {
   if (open == s_open)
@@ -883,6 +914,21 @@ void DrawPanel(float width, float height)
       ImGui::SameLine(label + pad);
       ImGui::SetNextItemWidth(field);
     };
+    // A float setting as whole steps, so one d-pad press is one step. (A float slider moves 1 % of
+    // its range per press and is then rounded to the shown precision, so single presses did
+    // nothing until key repeat kicked in.)
+    const auto stepped = [&](const char* id, float& value, float step, float low, float high,
+                             const char* format) {
+      int steps = static_cast<int>(std::lround(value / step));
+      char text[32];
+      std::snprintf(text, sizeof(text), format, steps * step);
+      const bool moved = ImGui::SliderInt(id, &steps, static_cast<int>(std::lround(low / step)),
+                                          static_cast<int>(std::lround(high / step)), text,
+                                          ImGuiSliderFlags_NoInput);
+      if (moved)
+        value = steps * step;
+      return moved;
+    };
     // Section header: accent tab, small caps label and a fading rule. A tab change lands on the
     // section's first item.
     const auto header = [&](const char* text, int index) {
@@ -901,7 +947,7 @@ void DrawPanel(float width, float height)
       ImGui::Dummy(ImVec2(0.0f, font * 0.05f));
       if (s_jump == index)
       {
-        ImGui::SetKeyboardFocusHere();
+        FocusNextItem();
         s_jump = -1;
       }
     };
@@ -913,13 +959,27 @@ void DrawPanel(float width, float height)
     {
       // Tab strip: a pill track with the selected tab filled; LB / RB chips at the ends.
       const ImVec2 pos = ImGui::GetCursorScreenPos();
-      ImGui::PushFont(nullptr, font * 0.85f);
-      const float strip = ImGui::GetTextLineHeight() + font * 0.6f;
-      const float chip = font * 1.45f, gap = font * 0.2f;
+      const float strip = font * 1.45f;
+      const float chip = font * 1.45f, gap = font * 0.2f, padding = font * 0.9f;
+      // Labels are 0.85 em, smaller when needed so every tab keeps its padding; the LB / RB chips
+      // go only if the labels would get too small.
+      float em_total = 0.0f;
+      for (int i = 0; i < kTabCount; ++i)
+        em_total += ImGui::GetFont()->CalcTextSizeA(font, FLT_MAX, 0.0f, kTabNames[i]).x / font;
+      const auto label_size = [&](float room) {
+        return std::min(font * 0.85f, (room - kTabCount * padding) / em_total);
+      };
+      bool chips = true;
+      float tab_text = label_size(inner - 2.0f * (chip + gap));
+      if (tab_text < font * 0.7f)
+      {
+        chips = false;
+        tab_text = label_size(inner);
+      }
+      ImGui::PushFont(nullptr, std::max(tab_text, font * 0.55f));
       float widths[kTabCount], text_total = 0.0f;
       for (int i = 0; i < kTabCount; ++i)
         text_total += widths[i] = ImGui::CalcTextSize(kTabNames[i]).x;
-      const bool chips = text_total + kTabCount * font * 0.45f < inner - 2.0f * (chip + gap);
       const float x0 = chips ? pos.x + chip + gap : pos.x;
       const float x1 = chips ? pos.x + inner - chip - gap : pos.x + inner;
       const float extra = std::max(0.0f, (x1 - x0 - text_total) / kTabCount);
@@ -1001,7 +1061,7 @@ void DrawPanel(float width, float height)
       s_jump = 0;  // nothing in the HDR tab can be used: stay on Resume, never fall onto Quit
     if (s_focus_resume || s_jump == 0)
     {
-      ImGui::SetKeyboardFocusHere();
+      FocusNextItem();
       s_focus_resume = false;
       if (s_jump == 0)
         s_jump = -1;
@@ -1104,7 +1164,7 @@ void DrawPanel(float width, float height)
         ImGui::SliderInt("##hdr_contrast", &s.hdr_contrast, 50, 150, "%d%%");
         edited();
         row("Gamma");
-        ImGui::SliderFloat("##hdr_gamma", &s.hdr_gamma, 0.7f, 1.3f, "%.2f");
+        stepped("##hdr_gamma", s.hdr_gamma, 0.01f, 0.7f, 1.3f, "%.2f");
         edited();
         row("Black level");
         ImGui::SliderInt("##hdr_black", &s.hdr_black, -10, 10, "%+d");
@@ -1128,6 +1188,12 @@ void DrawPanel(float width, float height)
         QueueFps();
         changed = true;
       }
+      row("VSync");
+      if (ImGui::Combo("##vsync", &s.vsync, kVsyncNames, static_cast<int>(std::size(kVsyncNames))))
+      {
+        VideoCommon::g_wario_vsync_mode.store(s.vsync);  // read live by the presenter
+        changed = true;
+      }
       ImGui::BeginDisabled(s.frame_rate == 0);
       row("Motion");
       if (ImGui::Combo("##motion", &s.motion, kMotionNames, static_cast<int>(std::size(kMotionNames))))
@@ -1139,6 +1205,8 @@ void DrawPanel(float width, float height)
       ImGui::PushTextWrapPos(inner + pad);
       ImGui::TextDisabled("Extra frames are interpolated; game speed is unchanged. Adds ~8-12 ms "
                           "delay. Pick no more than your screen's refresh rate.");
+      ImGui::TextDisabled("VSync Auto gives every generated frame its own screen refresh (cleanest "
+                          "motion). Off can reduce latency but may show afterimages.");
       ImGui::PopTextWrapPos();
     }
 
@@ -1159,7 +1227,7 @@ void DrawPanel(float width, float height)
         changed = true;
       ImGui::BeginDisabled(!s.moon_jump);
       row("Rise speed");
-      ImGui::SliderFloat("##moon", &s.moon_speed, 0.5f, 8.0f, "%.1f");
+      stepped("##moon", s.moon_speed, 0.1f, 0.5f, 8.0f, "%.1f");
       if (ImGui::IsItemDeactivatedAfterEdit())
         changed = true;
       ImGui::EndDisabled();
@@ -1182,7 +1250,20 @@ void DrawPanel(float width, float height)
         ImGui::EndCombo();
       }
       row("Menu size");
-      ImGui::SliderFloat("##menu_scale", &s.menu_scale, 0.6f, 1.6f, "%.1fx");
+      // Live with the pad; with the mouse only on release, so the slider does not move under the
+      // cursor while the menu resizes.
+      static float dragged_scale = 0.0f;
+      float scale = dragged_scale > 0.0f ? dragged_scale : s.menu_scale;
+      stepped("##menu_scale", scale, 0.1f, 0.6f, 1.6f, "%.1fx");
+      if (ImGui::IsItemActive() && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+      {
+        dragged_scale = scale;
+      }
+      else
+      {
+        s.menu_scale = scale;
+        dragged_scale = 0.0f;
+      }
       if (ImGui::IsItemDeactivatedAfterEdit())
         changed = true;
 
@@ -1342,6 +1423,7 @@ void WarioMenuDraw(u32 width, u32 height)
       QueueHdr();
     if (has("hdr_paper_white"))
       QueuePaperWhite();
+    VideoCommon::g_wario_vsync_mode.store(s_settings.vsync);
     if (has("volume"))
       QueueVolume();
     if (has("frame_rate") || has("fps") || has("motion"))
