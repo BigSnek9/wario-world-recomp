@@ -119,8 +119,12 @@ def crt_redist():
 # ------------------------------------------------------------------------------------ licences
 
 def externals_built(runtime_build):
-    folder = runtime_build / "vendor/dolphin/Externals"
-    return sorted(p.name for p in folder.iterdir() if p.is_dir()) if folder.is_dir() else []
+    """Dolphin externals compiled into the runner (their CMake build folders next to Release/)."""
+    folder = runtime_build.parent / "vendor/dolphin/Externals"
+    names = sorted(p.name for p in folder.iterdir() if p.is_dir()) if folder.is_dir() else []
+    if not names:
+        raise SystemExit(f"Cannot list the runtime's linked components (no {folder})")
+    return names
 
 
 LICENSE_NAMES = ("license", "licence", "copying", "notice")
