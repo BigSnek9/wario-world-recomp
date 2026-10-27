@@ -6,7 +6,7 @@ The game is complete: main.dol and all eight RELs run as native code (no
 interpreter or JIT on the tested routes), the owner has played it start to
 finish, and the optional enhancements live in the in-game menu. A release zip
 (ShadowRecomp style) is released as v1.0; the repository is public (2026-10-27). The build-from-ISO
-installer was removed on 2026-10-27 (owner: nobody needs it).
+installer was removed on 2026-10-27; the release zip is the only way to install.
 Current state, builds and commands: progress/CURRENT_STATUS.md. Open items:
 progress/KNOWN_ISSUES.md. Index of all docs: README.md.
 
