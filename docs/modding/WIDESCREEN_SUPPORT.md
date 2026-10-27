@@ -79,8 +79,9 @@ and the 2D half-width (WS-002) still need their own changes.
   not needed with the widened ortho. Verified hidden at 16:9 and 32:9 with the
   conditional elements forced visible; 4:3 HUD positions unchanged.
   Pause book (2026-10-27): the book is drawn at 4:3 in the centre, and the
-  hearts, coin panel and stage counter row shown with it were pushed outside
-  it. DX is now 0 while the game's own pause-menu bit is set: bit 0x8 of
+  hearts and coin panel shown with it were pushed outside it. (The Sprite /
+  jail row in the book did not move with or without this; its last jail
+  overlaps the book's right edge at 4:3 too.) DX is now 0 while the game's own pause-menu bit is set: bit 0x8 of
   lbl_801FD930 (main-loop state word; paused 0xF, playing 0x3), driven by the
   counter lbl_801FD940 in fn_8003195C. Its only callers are the pause-menu
   states fn_8006CB04 (open, +1) and fn_8006DC4C (close finished, -1), and
