@@ -56,6 +56,25 @@ and the 2D half-width (WS-002) still need their own changes.
   that left side strips unfaded) and fn_8007EBF0 (textured EFB-copy feedback
   quad, drawn by fn_8007EE8C; drawn at +-320 inside the widened ortho it shrank
   each frame's copy by 0.75 toward the centre, giving the loading-coin trails)
-  store the half width at object +0x30. The `li 320` at 0x8007F7D8/0x8007EC24
-  now reads `wario_fullscreen_half_width` (scripts/build_rel_bundle.py
-  FULLSCREEN_QUAD_X); 320 in 4:3, so the default path is unchanged.
+  store the half width (always the constant 320) at object +0x30. Since
+  2026-10-27 the constructors are original again and the draw-time reads
+  (0x8007EEBC, 0x8007FA6C/7C/8C/A4) map 320 to `wario_fullscreen_half_width`
+  (scripts/build_rel_bundle.py HUD_EDGE_SITES), so overlays built before an
+  aspect change or restored from a savestate still cover the screen.
+- WS-003 HUD anchoring (2026-10-27, scripts/build_rel_bundle.py
+  HUD_EDGE_SITES): edge HUD x positions get DX = wario_fullscreen_half_width
+  - 320 (0 in 4:3) at draw time, no new runtime variable. Left: hearts and the
+  bottom-right stage counter row (fn_80082344 sprite rows, x read at
+  0x800825B0/BC, 0x80082600, 0x800828C4, float getter 0x800824A0; pushed out
+  by the sign of x), the coin panel (fn_80080954 edge -320 at 0x800809D0) and
+  the top-left counters (fn_800814E0, 0x80081528/38/5C). Right: the
+  fn_80080BA4 indicator (+0x36 read at 0x80080E78, 0x8008101C, float at
+  0x80081148). The Gecko constants at 0x80031AC4/0x80080BE8/0x80082EE0 are
+  constructor-time and were not used. The 2D camera bakes HC-0007 into its
+  ortho only when built (fn_8006F7CC), so the apply routine fn_8006F954
+  (0x8006F978) now recomputes m[0][0] = 2*(1/(2*HC-0007)) from the live value
+  once the adapter has widened anything (never in a 4:3-only session).
+  The fn_80062F3C / fn_8006EF1C Gecko groups (texture half-widths and glyph
+  widths replaced by 16:9 constants) compensate an anamorphic stretch and are
+  not needed with the widened ortho. Verified hidden at 16:9 and 32:9 with the
+  conditional elements forced visible; 4:3 HUD positions unchanged.

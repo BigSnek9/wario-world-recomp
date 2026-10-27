@@ -90,12 +90,14 @@ sites = 0
 # read the exported module variable wario_fullscreen_half_width instead of a
 # constant. It is 320 unless the runtime's aspect adapter widens it, so the
 # default build computes exactly the original values.
-# 0x8007EC24 / 0x8007F7D8: the screen-overlay constructors fn_8007EBF0 (textured
-# EFB-copy feedback quad, drawn by fn_8007EE8C; the loading-coin afterimage) and
-# fn_8007F7A4 (solid colour quad, drawn by fn_8007FA2C) store the half width in
-# object +0x30 (s16), which the draw routines use as +-x.
-FULLSCREEN_QUAD_X = (0x80062C3C, 0x80062C50, 0x800708C8, 0x800708DC, 0x800728B0, 0x800728C4,
-                     0x8007EC24, 0x8007F7D8)
+# The screen-overlay constructors fn_8007EBF0 (textured EFB-copy feedback quad,
+# drawn by fn_8007EE8C; the loading-coin afterimage) and fn_8007F7A4 (solid
+# colour quad, drawn by fn_8007FA2C) store the constant 320 in object +0x30
+# (s16; nothing else writes it), which the draw routines use as +-x. Those
+# stores stay original; the draw-time reads (HUD_EDGE_SITES below, 0x8007EEBC
+# and 0x8007FA6C/7C/8C/A4) map 320 to the live half width, so overlays built
+# before an aspect change (or restored from a savestate) still cover the screen.
+FULLSCREEN_QUAD_X = (0x80062C3C, 0x80062C50, 0x800708C8, 0x800708DC, 0x800728B0, 0x800728C4)
 quad_sites = 0
 
 
@@ -106,7 +108,7 @@ def widen_fullscreen_quads(text):
         text, count = pattern.subn(r"\1(u32)(s32)(\3wario_fullscreen_half_width);", text)
         quad_sites += count
     text = anchor_hud_edges(text)
-    if "wario_fullscreen_half_width" in text or "WARIO_HUD_DX" in text or "wario_hud_edge" in text:
+    if any(name in text for name in ("wario_fullscreen_half_width", "WARIO_HUD_DX", "wario_hud_edge", "wario_quad_half", "wario_sync_2d_ortho")):
         text = text.replace('#include "../generated.h"',
                             '#include "../generated.h"\nextern volatile s32 wario_fullscreen_half_width;' +
                             HUD_EDGE_HELPERS, 1)
@@ -131,6 +133,7 @@ def widen_fullscreen_quads(text):
 #   fn_80080BA4 indicator (x +272 at +0x36, bottom-right): fn_80080E54 and
 #     fn_80080FF0 (draw, including the s16 -> float matrix x at 0x80081148).
 _EDGE_I = "(u32)wario_hud_edge_x((s32)(s16)mem_read16(ctx, ea));"
+_QUAD_I = "(u32)wario_quad_half((s32)(s16)mem_read16(ctx, ea));"
 HUD_EDGE_SITES = {
     0x800809D0: ("u64 res = (u64)(u32)(s32)(-320) +", "u64 res = (u64)(u32)(s32)(-320 - WARIO_HUD_DX) +"),
     0x80081528: ("ctx->gpr[4] = ctx->gpr[31] | ctx->gpr[31];", "ctx->gpr[4] = ctx->gpr[31] - (u32)WARIO_HUD_DX;"),
@@ -156,6 +159,11 @@ HUD_EDGE_SITES = {
     # HC-0007 with C_MTXOrtho's arithmetic (l = -r, so m[0][3] stays -0). Inert
     # until the adapter first widens the half width, so a 4:3-only session never
     # writes; switching back to 4:3 restores exactly 2*(1/640).
+    0x8007EEBC: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _QUAD_I),
+    0x8007FA6C: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _QUAD_I),
+    0x8007FA7C: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _QUAD_I),
+    0x8007FA8C: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _QUAD_I),
+    0x8007FAA4: ("(u32)(s32)(s16)mem_read16(ctx, ea);", _QUAD_I),
     0x8006F978: ("ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(20);",
                  "ctx->gpr[3] = ctx->gpr[31] + (u32)(s32)(20);\n    wario_sync_2d_ortho(ctx, ctx->gpr[3]);"),
 }
@@ -168,6 +176,9 @@ static inline s32 wario_hud_edge_x(s32 x) {
 static inline f64 wario_hud_edge_f(f64 x) {
     const s32 dx = WARIO_HUD_DX;
     return dx == 0 ? x : x < 0.0 ? x - (f64)dx : x > 0.0 ? x + (f64)dx : x;
+}
+static inline s32 wario_quad_half(s32 x) {
+    return x == 320 ? (s32)wario_fullscreen_half_width : x;
 }
 static inline void wario_sync_2d_ortho(CPUState* ctx, u32 m00_address) {
     static int wide_seen;

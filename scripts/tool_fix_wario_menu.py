@@ -11,7 +11,7 @@ is read on the first frame of the next session:
 - aspect ratio (g_wario_aspect_target -> UpdateWarioAspect in the runtime, plus
   the host aspect mode; "Original 4:3" restores the game's own values)
 - fullscreen, HD textures, HDR output (Vulkan only)
-- Smooth 120 FPS (g_wario_fps_enabled -> scripts/tool_fix_wario_fps.py)
+- frame rate 60/120/180/240/auto (g_wario_fps_multiplier -> scripts/tool_fix_wario_fps.py)
 - volume, moon jump cheat (hold A), quit
 
 Config changes are queued while ImGui is locked and applied right after
@@ -65,7 +65,7 @@ std::atomic<bool> g_wario_menu_open{false};
 std::atomic<float> g_wario_aspect_target{WarioAspectFromEnv()};  // 0 = 4:3, < 0 = window
 std::atomic<int> g_wario_mouse_wheel{0};                         // 1/120 notches
 void* g_wario_hwnd = nullptr;
-extern std::atomic<bool> g_wario_fps_enabled;  // VideoCommon/BPStructs.cpp
+extern std::atomic<int> g_wario_fps_multiplier;  // VideoCommon/BPStructs.cpp (1 = off)
 
 namespace WarioMenu
 {
@@ -76,7 +76,7 @@ struct Settings
   bool fullscreen = false;
   bool hd_textures = false;
   bool hdr = false;
-  bool fps = false;
+  int frame_rate = 0;  // index into kFrameRates
   int volume = 100;
   bool moon_jump = false;
   float moon_speed = 2.0f;
@@ -85,6 +85,9 @@ struct Settings
 constexpr const char* kResolutionNames[] = {"Auto (fits window)", "Native 1x (accurate)", "2x",
                                             "3x", "4x", "5x", "6x", "8x"};
 constexpr int kResolutionScales[] = {0, 1, 2, 3, 4, 5, 6, 8};
+constexpr const char* kFrameRateNames[] = {"Original 60 (accurate)", "120 (2x)", "180 (3x)",
+                                           "240 (4x)", "Auto (match screen)"};
+constexpr const char* kFrameRateKeys[] = {"60", "120", "180", "240", "auto"};
 struct Aspect
 {
   const char* name;
@@ -120,10 +123,11 @@ void Save()
     const Settings& s = s_settings;
     std::fprintf(file,
                  "# Wario World in-game menu settings (Back / Tab in game)\n"
-                 "resolution=%d\naspect=%s\nfullscreen=%d\nhd_textures=%d\nhdr=%d\nfps=%d\n"
+                 "resolution=%d\naspect=%s\nfullscreen=%d\nhd_textures=%d\nhdr=%d\nframe_rate=%s\n"
                  "volume=%d\nmoon_jump=%d\nmoon_speed=%.2f\n",
                  kResolutionScales[s.resolution], kAspects[s.aspect].key, s.fullscreen,
-                 s.hd_textures, s.hdr, s.fps, s.volume, s.moon_jump, s.moon_speed);
+                 s.hd_textures, s.hdr, kFrameRateKeys[s.frame_rate], s.volume, s.moon_jump,
+                 s.moon_speed);
     std::fclose(file);
   }
 }
@@ -137,7 +141,7 @@ void Load()
   for (int i = 2; i < static_cast<int>(std::size(kAspects)); ++i)
     if (aspect > 0.0f && std::abs(kAspects[i].ratio - aspect) < 0.01f)
       s.aspect = i;
-  s.fps = g_wario_fps_enabled.load();
+  s.frame_rate = std::clamp(g_wario_fps_multiplier.load(), 1, 4) - 1;
   s.hd_textures = Config::Get(Config::GFX_HIRES_TEXTURES);
   s.hdr = Config::Get(Config::GFX_ENHANCE_HDR_OUTPUT);
   s.volume = Config::Get(Config::MAIN_AUDIO_VOLUME);
@@ -177,8 +181,14 @@ void Load()
       s.hd_textures = number != 0;
     else if (key == "hdr")
       s.hdr = number != 0;
-    else if (key == "fps")
-      s.fps = number != 0;
+    else if (key == "fps")  // before frame_rate existed: on = 120
+      s.frame_rate = number != 0 ? 1 : 0;
+    else if (key == "frame_rate")
+    {
+      for (int i = 0; i < static_cast<int>(std::size(kFrameRateKeys)); ++i)
+        if (value == kFrameRateKeys[i])
+          s.frame_rate = i;
+    }
     else if (key == "volume")
       s.volume = std::clamp(number, 0, 100);
     else if (key == "moon_jump")
@@ -243,9 +253,35 @@ void QueueVolume()
   });
 }
 
+// Auto: as many frames per game frame as the screen shows (60 Hz -> 1, 120/144 -> 2,
+// 180 -> 3, 240+ -> 4), for the monitor the game window is on.
+int AutoMultiplier()
+{
+#ifdef _WIN32
+  if (g_wario_hwnd)
+  {
+    MONITORINFOEXW info{};
+    info.cbSize = sizeof(info);
+    if (GetMonitorInfoW(MonitorFromWindow(static_cast<HWND>(g_wario_hwnd), MONITOR_DEFAULTTONEAREST),
+                        &info))
+    {
+      DEVMODEW mode{};
+      mode.dmSize = sizeof(mode);
+      if (EnumDisplaySettingsW(info.szDevice, ENUM_CURRENT_SETTINGS, &mode) &&
+          mode.dmDisplayFrequency > 1)
+      {
+        return std::clamp(static_cast<int>(mode.dmDisplayFrequency / 59.94 + 0.05), 1, 4);
+      }
+    }
+  }
+#endif
+  return 2;
+}
+
 void QueueFps()
 {
-  g_wario_fps_enabled.store(s_settings.fps);
+  const int choice = s_settings.frame_rate;
+  g_wario_fps_multiplier.store(choice == 4 ? AutoMultiplier() : choice + 1);
 }
 
 void ToggleFullscreen()
@@ -472,12 +508,15 @@ void DrawPanel(float width, float height)
     ImGui::EndDisabled();
 
     ImGui::SeparatorText("Motion");
-    if (ImGui::Checkbox("Smooth 120 FPS (adds ~8 ms delay)", &s.fps))
+    row("Frame rate");
+    if (ImGui::Combo("##frame_rate", &s.frame_rate, kFrameRateNames,
+                     static_cast<int>(std::size(kFrameRateNames))))
     {
       QueueFps();
       changed = true;
     }
-    ImGui::TextDisabled("Game speed is unchanged; best on 120 Hz+ screens.");
+    ImGui::TextDisabled("Extra frames are interpolated; game speed is unchanged.");
+    ImGui::TextDisabled("Adds ~8-12 ms delay. Pick no more than your screen's refresh rate.");
 
     ImGui::SeparatorText("Audio");
     row("Volume");
@@ -545,6 +584,12 @@ void WarioMenuDraw(u32 width, u32 height)
   g_wario_menu_open.store(s_open || s_anim > 0.0f);
   FeedNavigation(pad, s_open);
   MoonJump(dt, (pad.buttons & PAD_A) != 0 || KeyDown('X'));
+  static float auto_timer = 0.0f;
+  if (s_settings.frame_rate == 4 && (auto_timer += dt) > 2.0f)
+  {
+    auto_timer = 0.0f;
+    QueueFps();
+  }
   if (s_anim > 0.0f)
     DrawPanel(static_cast<float>(width), static_cast<float>(height));
 }

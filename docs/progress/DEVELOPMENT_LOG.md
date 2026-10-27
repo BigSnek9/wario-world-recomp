@@ -2,6 +2,29 @@
 
 Newest first. Earlier history (2026-10-24..26 morning): ../PROGRESS.md and ../HANDOFF.md.
 
+## 2026-10-27: consistent object interpolation, 3x/4x, HUD edge anchoring
+
+- Ghosting of far objects (gold statues) and seams at geometry edges: matched
+  matrices were blended directly while unmatched ones got the rebuilt camera;
+  the two disagree with distance. Matched main-camera position matrices now
+  load lerp_t(D * MV_N-1, MV_N) (camera removed, object motion blended, camera
+  supplied by the projection correction), so static objects get exactly MV_N
+  either way.
+- Light/glow effects jumping sideways: texture matrices (XF 0x78-0xFF) are no
+  longer interpolated (effects jitter UVs per frame). Pairing prefers the same
+  occurrence and only falls back to +-1/2.
+- Frame rate 60/120/180/240/Auto (menu; Auto = monitor refresh / 59.94,
+  capped at 4x). In-between frames are queued at equal intervals from when they
+  are ready; the real frame follows one interval after the last. Matrix
+  (scripts/fps_matrix.py, hidden): speed 0.98-1.00 at 2x/3x/4x in hub and
+  boss; 2x hub 97% of gaps within +-20% of target.
+- HUD anchoring (subagent): HUD_EDGE_SITES in build_rel_bundle.py shift
+  edge HUD x by DX = wario_fullscreen_half_width - 320 at draw time (hearts,
+  coin panel, top-left counters, right indicator); 2D camera ortho re-synced
+  from HC-0007 at apply time; overlay draw reads replace the constructor
+  patches. DX = 0 in 4:3 (original values). Open: 21:9 custom aspect presents
+  ~4:3 (runtime custom-aspect handling), boss HP/minigame HUD unchecked.
+
 ## 2026-10-27: FPS replay no longer feeds screen-copy effects
 
 - Symptom (human): standing still in some areas, the in-between frames grew

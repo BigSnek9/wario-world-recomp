@@ -167,17 +167,23 @@ TC_GUARD_NEW = """  RcTcacheEntry entry;
 
 PRESENT_DECL_OLD = "  void ImmediateSwap(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height);\n"
 PRESENT_DECL_NEW = PRESENT_DECL_OLD + (
-    "  // Wario World frame interpolation: queue an in-between frame (no frame count change).\n"
-    "  // Returns its planned delay after the last real present in ms, or -1 when skipped.\n"
+    "  // Wario World frame interpolation: queue an in-between frame `delay_seconds` after the\n"
+    "  // previous real frame (no frame count change). Returns the planned delay in ms, or -1.\n"
     "  double PresentInterpolated(RcTcacheEntry entry, u32 fb_width, u32 fb_height,\n"
-    "                             double delay_seconds);\n"
-    "  // Shows queued in-between / held-back real frames once due (or now, when forced).\n"
+    "                             double delay_seconds, double interval_seconds);\n"
+    "  // Shows queued in-between / held-back real frames once due (or all now, when forced).\n"
     "  void WarioFlushPendingPresent(bool force);\n"
     "  // Earliest due time of a queued frame, if any.\n"
     "  bool WarioNextPresentDue(TimePoint* due) const;\n"
-    "  RcTcacheEntry m_wario_pending_mid;\n"
-    "  u32 m_wario_pending_mid_width = 0, m_wario_pending_mid_height = 0;\n"
-    "  TimePoint m_wario_pending_mid_due{};\n")
+    "  struct WarioQueuedFrame\n"
+    "  {\n"
+    "    RcTcacheEntry entry;\n"
+    "    u32 width, height;\n"
+    "    TimePoint due;\n"
+    "  };\n"
+    "  std::vector<WarioQueuedFrame> m_wario_pending_mids;\n"
+    "  RcTcacheEntry m_wario_real_entry;\n"
+    "  MathUtil::Rectangle<int> m_wario_real_rect;\n")
 
 PRESENT_EXTERN_OLD = '#include "VideoCommon/Widescreen.h"\n'
 PRESENT_EXTERN_NEW = PRESENT_EXTERN_OLD + (
@@ -218,9 +224,8 @@ static void WarioThrottlePresentFlush()
 }
 
 double Presenter::PresentInterpolated(RcTcacheEntry entry, u32 fb_width, u32 fb_height,
-                                      double delay_seconds)
+                                      double delay_seconds, double interval_seconds)
 {
-  WarioFlushPendingPresent(true);
   if (!entry || fb_width == 0 || fb_height == 0 || (WarioFpsDebug() & 2))
     return -1.0;
   auto& system = Core::System::GetInstance();
@@ -229,76 +234,91 @@ double Presenter::PresentInterpolated(RcTcacheEntry entry, u32 fb_width, u32 fb_
     g_wario_throttle_present_due = WarioThrottlePresentDue;
     g_wario_throttle_present_flush = WarioThrottlePresentFlush;
   }
-  const auto half = std::chrono::duration_cast<DT>(std::chrono::duration<double>(delay_seconds));
-  const auto target = s_wario_last_real_present + half;
+  s_wario_interval = std::chrono::duration_cast<DT>(std::chrono::duration<double>(interval_seconds));
+  // Counted from when this frame's in-between frames are ready (delay 0 = the first one), so
+  // spacing stays even however late in the 16.7 ms the game delivered the frame. A real frame
+  // still held from before goes first.
   const auto now = Clock::now();
-  // Skip when the next real frame is already due.
-  if (now > target + half)
-    return -1.0;
-  m_wario_pending_mid = std::move(entry);
-  m_wario_pending_mid_width = fb_width;
-  m_wario_pending_mid_height = fb_height;
-  m_wario_pending_mid_due = (WarioFpsDebug() & 1) ? now : target;
-  const double offset_ms = std::chrono::duration<double, std::milli>(
-                               std::max(now, m_wario_pending_mid_due) - s_wario_last_real_present)
-                               .count();
+  if (delay_seconds <= 0.0)
+    s_wario_batch_base = std::max(now, s_wario_pending_present ? s_wario_pending_due + s_wario_interval : now);
+  const TimePoint base = s_wario_batch_base;
+  const TimePoint due =
+      base + std::chrono::duration_cast<DT>(std::chrono::duration<double>(delay_seconds));
+  m_wario_pending_mids.push_back(
+      {std::move(entry), fb_width, fb_height, (WarioFpsDebug() & 1) ? now : due});
+  const double offset_ms =
+      std::chrono::duration<double, std::milli>(std::max(now, due) - base).count();
   WarioFlushPendingPresent(false);
   return offset_ms;
 }
 
 bool Presenter::WarioNextPresentDue(TimePoint* due) const
 {
-  if (m_wario_pending_mid)
+  bool any = false;
+  if (!m_wario_pending_mids.empty())
   {
-    *due = m_wario_pending_mid_due;
-    return true;
+    *due = m_wario_pending_mids.front().due;
+    any = true;
   }
-  if (s_wario_pending_present)
+  if (s_wario_pending_present && (!any || s_wario_pending_due < *due))
   {
     *due = s_wario_pending_due;
-    return true;
+    any = true;
   }
-  return false;
+  return any;
 }
 
 void Presenter::WarioFlushPendingPresent(bool force)
 {
-  const auto now = Clock::now();
-  if (m_wario_pending_mid)
+  for (;;)
   {
-    if (!force && now < m_wario_pending_mid_due)
+    const auto now = Clock::now();
+    const bool mid_first =
+        !m_wario_pending_mids.empty() &&
+        (!s_wario_pending_present || m_wario_pending_mids.front().due < s_wario_pending_due);
+    if (mid_first)
+    {
+      if (!force && now < m_wario_pending_mids.front().due)
+        return;
+      WarioQueuedFrame frame = std::move(m_wario_pending_mids.front());
+      m_wario_pending_mids.erase(m_wario_pending_mids.begin());
+      ReleaseXFBContentLock();
+      m_xfb_entry = std::move(frame.entry);
+      m_xfb_rect = MathUtil::Rectangle<int>(
+          0, 0, static_cast<int>(frame.width * m_xfb_entry->GetWidth() / m_xfb_entry->native_width),
+          static_cast<int>(frame.height * m_xfb_entry->GetHeight() / m_xfb_entry->native_height));
+      m_xfb_entry->AcquireContentLock();
+      Present(nullptr);
+      s_wario_last_mid_present = Clock::now();
+      WarioNotePresent();
+      continue;
+    }
+    if (!s_wario_pending_present)
       return;
-    ReleaseXFBContentLock();
-    m_xfb_entry = std::move(m_wario_pending_mid);
-    m_wario_pending_mid.reset();
-    m_xfb_rect = MathUtil::Rectangle<int>(
-        0, 0,
-        static_cast<int>(m_wario_pending_mid_width * m_xfb_entry->GetWidth() /
-                         m_xfb_entry->native_width),
-        static_cast<int>(m_wario_pending_mid_height * m_xfb_entry->GetHeight() /
-                         m_xfb_entry->native_height));
-    m_xfb_entry->AcquireContentLock();
-    Present(nullptr);
-    s_wario_last_mid_present = Clock::now();
+    if (!force && now < s_wario_pending_due)
+      return;
+    s_wario_pending_present = false;
+    if (force)
+      g_wario_pending_forced++;
+    const double late_ms =
+        std::chrono::duration<double, std::milli>(now - s_wario_pending_due).count();
+    g_wario_pending_late_sum += late_ms;
+    g_wario_pending_late_max = std::max(g_wario_pending_late_max, late_ms);
+    g_wario_pending_count++;
+    if (m_wario_real_entry)
+    {
+      ReleaseXFBContentLock();
+      m_xfb_entry = std::move(m_wario_real_entry);
+      m_wario_real_entry.reset();
+      m_xfb_rect = m_wario_real_rect;
+      m_xfb_entry->AcquireContentLock();
+    }
+    Present(&s_wario_pending_info);
+    s_wario_last_real_present = Clock::now();
     WarioNotePresent();
+    ProcessFrameDumping(s_wario_pending_ticks);
+    GetVideoEvents().after_present_event.Trigger(s_wario_pending_info);
   }
-  if (!s_wario_pending_present)
-    return;
-  if (!force && now < s_wario_pending_due)
-    return;
-  s_wario_pending_present = false;
-  if (force)
-    g_wario_pending_forced++;
-  const double late_ms =
-      std::chrono::duration<double, std::milli>(now - s_wario_pending_due).count();
-  g_wario_pending_late_sum += late_ms;
-  g_wario_pending_late_max = std::max(g_wario_pending_late_max, late_ms);
-  g_wario_pending_count++;
-  Present(&s_wario_pending_info);
-  s_wario_last_real_present = Clock::now();
-  WarioNotePresent();
-  ProcessFrameDumping(s_wario_pending_ticks);
-  GetVideoEvents().after_present_event.Trigger(s_wario_pending_info);
 }
 
 void Presenter::SetNextSwapEstimatedTime(u64 ticks, TimePoint host_time)
@@ -306,11 +326,12 @@ void Presenter::SetNextSwapEstimatedTime(u64 ticks, TimePoint host_time)
 
 PRESENT_STATIC_OLD = "bool Presenter::FetchXFB(u32 xfb_addr,"
 PRESENT_STATIC_NEW = """// Wario World frame interpolation pacing. The game issues its XFB copy late in each 16.7 ms
-// frame, so the in-between frame can only be built just before the next VI. The real frame is
-// then held back to half a frame after it (about 8 ms of extra latency, as in Ship of
-// Harkinian's interpolation). It is not slept for: the video thread keeps decoding and shows
-// the held frame from the command loop once it is due.
-// MODERNGEKKO_WARIO_FPS_DEBUG bits (diagnostics only): 1 = no in-between sleep,
+// frame, so in-between frames can only be built just before the next VI. They are queued at
+// equal intervals from the moment they are ready, and the real frame is held back one interval
+// after the last of them (2x: ~8 ms extra latency, 4x: ~12.5 ms, as in Ship of Harkinian's
+// interpolation). Nothing sleeps: queued frames are shown from the command loop or from the
+// speed limiter's own sleep once due.
+// MODERNGEKKO_WARIO_FPS_DEBUG bits (diagnostics only): 1 = show in-between frames at once,
 // 2 = build but do not show in-between frames, 4 = do not hold real frames.
 static int WarioFpsDebug()
 {
@@ -323,25 +344,28 @@ static int WarioFpsDebug()
 
 static TimePoint s_wario_last_real_present{};
 static TimePoint s_wario_last_mid_present{};
+static DT s_wario_interval = std::chrono::duration_cast<DT>(std::chrono::duration<double>(0.5 / 59.94));
+static TimePoint s_wario_batch_base{};
 static bool s_wario_pending_present = false;
 static TimePoint s_wario_pending_due{};
 static u64 s_wario_pending_ticks = 0;
 static PresentInfo s_wario_pending_info{};
 double g_wario_pending_late_sum = 0.0, g_wario_pending_late_max = 0.0;
 u64 g_wario_pending_count = 0, g_wario_pending_forced = 0;
-// Gaps between consecutive presents while interpolating, in ms buckets:
-// <4, 4-6.5, 6.5-10 (on pace), 10-12.5, 12.5-15, >=15.
+// Gaps between consecutive presents while interpolating, relative to the target interval:
+// <0.5, 0.5-0.8, 0.8-1.2 (on pace), 1.2-1.5, 1.5-1.8, >=1.8.
 u64 g_wario_present_gaps[6] = {};
 static TimePoint s_wario_last_any_present{};
 
 static void WarioNotePresent()
 {
   const auto now = Clock::now();
-  const double gap = std::chrono::duration<double, std::milli>(now - s_wario_last_any_present).count();
+  const double gap = std::chrono::duration<double>(now - s_wario_last_any_present).count() /
+                     std::chrono::duration<double>(s_wario_interval).count();
   s_wario_last_any_present = now;
-  if (s_wario_last_mid_present == TimePoint{} || gap > 40.0)
+  if (s_wario_last_mid_present == TimePoint{} || gap > 4.0)
     return;
-  const int bucket = gap < 4.0 ? 0 : gap < 6.5 ? 1 : gap < 10.0 ? 2 : gap < 12.5 ? 3 : gap < 15.0 ? 4 : 5;
+  const int bucket = gap < 0.5 ? 0 : gap < 0.8 ? 1 : gap < 1.2 ? 2 : gap < 1.5 ? 3 : gap < 1.8 ? 4 : 5;
   g_wario_present_gaps[bucket]++;
 }
 
@@ -350,17 +374,22 @@ static void WarioNotePresent()
 PRESENT_VI_OLD = """    Present(&present_info);
     ProcessFrameDumping(ticks);
 """
-PRESENT_VI_NEW = """    if (s_wario_last_mid_present > s_wario_last_real_present && !(WarioFpsDebug() & 4))
+PRESENT_VI_NEW = """    if ((s_wario_last_mid_present > s_wario_last_real_present || !m_wario_pending_mids.empty()) &&
+        !(WarioFpsDebug() & 4))
     {
-      const auto half = std::chrono::duration_cast<DT>(std::chrono::duration<double>(0.5 / 59.94));
-      const auto due = s_wario_last_mid_present + half;
+      // Hold the real frame one interval after the last in-between frame (queued or shown).
+      const TimePoint after = m_wario_pending_mids.empty() ? s_wario_last_mid_present :
+                                                             m_wario_pending_mids.back().due;
+      const auto due = after + s_wario_interval;
       const auto now = Clock::now();
-      if (due > now && due - now <= half)
+      if (due > now && due - now <= std::chrono::milliseconds(17))
       {
         s_wario_pending_present = true;
         s_wario_pending_due = due;
         s_wario_pending_ticks = ticks;
         s_wario_pending_info = present_info;
+        m_wario_real_entry = m_xfb_entry;
+        m_wario_real_rect = m_xfb_rect;
         return;
       }
     }
@@ -371,7 +400,8 @@ PRESENT_VI_NEW = """    if (s_wario_last_mid_present > s_wario_last_real_present
 """
 
 PRESENT_VI_FLUSH_OLD = "  bool is_duplicate = FetchXFB(xfb_addr, fb_width, fb_stride, fb_height, ticks);\n"
-PRESENT_VI_FLUSH_NEW = "  WarioFlushPendingPresent(true);\n" + PRESENT_VI_FLUSH_OLD
+PRESENT_VI_FLUSH_NEW = ("  // A real frame still held from the previous VI goes out first.\n"
+                        "  WarioFlushPendingPresent(s_wario_pending_present);\n" + PRESENT_VI_FLUSH_OLD)
 
 PRESENT_INCLUDE_OLD = '#include "VideoCommon/Present.h"\n\n#include "Common/ChunkFile.h"\n'
 PRESENT_INCLUDE_NEW = ('#include "VideoCommon/Present.h"\n\n#include <algorithm>\n#include <chrono>\n\n'
@@ -418,8 +448,14 @@ static bool WarioFpsEnabled()
 }
 
 bool g_wario_fps_record = WarioFpsEnabled();
-// Wanted state, switched live by the in-game menu (VideoCommon/OnScreenUI.cpp).
-std::atomic<bool> g_wario_fps_enabled{WarioFpsEnabled()};
+// Frames per game frame (1 = off, 2-4), switched live by the in-game menu
+// (VideoCommon/OnScreenUI.cpp). MODERNGEKKO_WARIO_FPS=1/on means 2, or give 2-4.
+std::atomic<int> g_wario_fps_multiplier{[] {
+  if (!WarioFpsEnabled())
+    return 1;
+  const int value = std::atoi(std::getenv("MODERNGEKKO_WARIO_FPS"));
+  return value >= 2 && value <= 4 ? value : 2;
+}()};
 bool g_wario_fps_replaying = false;
 
 namespace
@@ -761,28 +797,35 @@ bool WarioLerpMatrix(const u32* before, const u32* now, u32 count, float* out)
          std::sqrt(dt2) <= 0.25f * std::sqrt(std::max(t_now2, t_before2)) + 0.5f;
 }
 
-// Frame N's commands with every matched matrix load replaced by an immediate XF write of the
-// halfway matrix. Position matrices (GX PNMTX slots, XF 0x00-0x77) drawn with the main camera are
-// pre-multiplied by C^-1 so that the projection's camera correction C cancels out for them.
-void WarioBuildReplay()
+// Frame N's commands with matched position-matrix loads replaced by an immediate XF write of the
+// interpolated matrix at fraction t between N-1 and N.
+// - Main-camera position matrices (GX PNMTX slots, XF 0x00-0x77): the camera is taken out first.
+//   With D = V_N * V_N-1^-1, the value loaded is lerp_t(D * MV_N-1, MV_N) = V_N * lerp_t(world);
+//   the projection's camera correction then supplies the in-between camera. A static object gets
+//   exactly MV_N, the same as an unmatched one, so multi-pass objects and neighbouring geometry
+//   always agree (no ghosting or seams).
+// - Other position matrices (2D/HUD): plain lerp with the same guard.
+// - Texture matrices (0x78-0xFF) are never interpolated: effects often jitter their texture
+//   coordinates every frame, and blending those makes them jump.
+void WarioBuildReplay(float t)
 {
   auto& out = s_wfps.replay;
   out.clear();
   const auto& now = s_wfps.matrices;
   const auto& before = s_wfps.previous_matrices;
-  const Common::Matrix44 inverse = WarioRigidInverse(g_wario_view_correction);
   const u8* commands = s_wfps.commands.data();
   u32 cursor = 0;
-  float lerped[16];
+  float result[16];
+  float predicted[16];
   for (const WarioMatrixLoad& load : now.loads)
   {
+    if (load.address >= 0x78 || load.count % 4 != 0)
+      continue;  // texture matrices stay as recorded
     out.insert(out.end(), commands + cursor, commands + load.offset);
     cursor = load.offset + load.size;
-    // Draw order can shift by a load or two (culling, spawns): try nearby occurrences and keep
-    // the candidate with the smallest own motion. Wrong pairings (another object) are rejected,
-    // which is what caused objects to jump away and back for one in-between frame.
-    const bool position = load.main_projection && load.address < 0x78 && load.address % 4 == 0 &&
-                          load.count % 12 == 0;
+    const bool camera_space = load.main_projection && load.address % 4 == 0 && load.count % 12 == 0;
+    const u32* now_values = &now.values[load.values_at];
+    // Same slot first; nearby occurrences only when draw order shifted (culling, spawns).
     const u64 occurrence = load.key >> 20;
     const u64 base = load.key & 0xFFFFF;
     const u32* best = nullptr;
@@ -797,44 +840,55 @@ void WarioBuildReplay()
         continue;
       const u32* values = &before.values[before.loads[found->second].values_at];
       float score;
-      if (WarioMatchScore(values, &now.values[load.values_at], load.count, position, &score) &&
+      if (WarioMatchScore(values, now_values, load.count, camera_space, &score) &&
           (!best || score < best_score))
       {
         best = values;
         best_score = score;
       }
+      if (best && delta == 0)
+        break;
     }
-    if (!best || !WarioLerpMatrix(best, &now.values[load.values_at], load.count, lerped))
+    if (!best)
     {
       s_wfps.matrices_unmatched++;
       out.insert(out.end(), commands + load.offset, commands + load.offset + load.size);
       continue;
     }
-    s_wfps.matrices_matched++;
-    if (position)
+    if (camera_space)
     {
+      const Common::Matrix44& d = s_wfps.camera_delta;
       for (u32 block = 0; block < load.count; block += 12)
       {
-        float m[12];
-        std::copy(lerped + block, lerped + block + 12, m);
         for (int r = 0; r < 3; ++r)
         {
           for (int c = 0; c < 4; ++c)
           {
-            float value = inverse.data[r * 4 + 0] * m[0 * 4 + c] +
-                          inverse.data[r * 4 + 1] * m[1 * 4 + c] +
-                          inverse.data[r * 4 + 2] * m[2 * 4 + c];
+            float value = d.data[r * 4 + 0] * WarioBitsToFloat(best[block + 0 * 4 + c]) +
+                          d.data[r * 4 + 1] * WarioBitsToFloat(best[block + 1 * 4 + c]) +
+                          d.data[r * 4 + 2] * WarioBitsToFloat(best[block + 2 * 4 + c]);
             if (c == 3)
-              value += inverse.data[r * 4 + 3];
-            lerped[block + r * 4 + c] = value;
+              value += d.data[r * 4 + 3];
+            predicted[block + r * 4 + c] = value;
           }
         }
       }
     }
+    else
+    {
+      for (u32 i = 0; i < load.count; ++i)
+        predicted[i] = WarioBitsToFloat(best[i]);
+    }
+    for (u32 i = 0; i < load.count; ++i)
+    {
+      const float b = WarioBitsToFloat(now_values[i]);
+      result[i] = predicted[i] + t * (b - predicted[i]);
+    }
+    s_wfps.matrices_matched++;
     PutU8(out, 0x10);
     PutU32(out, ((load.count - 1) << 16) | load.address);
     for (u32 i = 0; i < load.count; ++i)
-      PutU32(out, WarioFloatToBits(lerped[i]));
+      PutU32(out, WarioFloatToBits(result[i]));
   }
   out.insert(out.end(), commands + cursor, commands + s_wfps.commands.size());
 }
@@ -926,7 +980,7 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
   if (g_wario_fps_replaying)
     return;
   // Live on/off from the in-game menu, switched at a frame boundary.
-  if (const bool wanted = g_wario_fps_enabled.load(std::memory_order_relaxed);
+  if (const bool wanted = g_wario_fps_multiplier.load(std::memory_order_relaxed) > 1;
       wanted != g_wario_fps_record)
   {
     g_wario_fps_record = wanted;
@@ -967,22 +1021,21 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
     return;
   }
 
-  const Common::Vec3 eye = (current.eye + previous.eye) * 0.5f;
-  const Common::Vec3 target = (current.target + previous.target) * 0.5f;
-  const Common::Vec3 up = (current.up + previous.up) * 0.5f;
-  if (!((eye - target).LengthSquared() > 1e-6f) || !(up.LengthSquared() > 1e-6f))
-    return;
   const Common::Matrix44 view_now = WarioLookAt(current.eye, current.up, current.target);
-  g_wario_view_correction = WarioLookAt(eye, up, target) * WarioRigidInverse(view_now);
   s_wfps.camera_delta =
       view_now * WarioRigidInverse(WarioLookAt(previous.eye, previous.up, previous.target));
+  const int multiplier = std::clamp(g_wario_fps_multiplier.load(std::memory_order_relaxed), 2, 4);
+  const double interval = 1.0 / 59.94 / multiplier;
 
-  // Diagnostics: MODERNGEKKO_WARIO_FPS_DUMP=<dir> saves two consecutive real/in-between pairs every 120 frames;
-  // MODERNGEKKO_WARIO_FPS_IDENTITY=1 replays without the camera change (must match the real frame).
+  // Diagnostics: MODERNGEKKO_WARIO_FPS_DUMP=<dir> saves two consecutive real/in-between pairs every
+  // 120 frames; MODERNGEKKO_WARIO_FPS_IDENTITY=1 replays without any change (must match the real
+  // frame); MODERNGEKKO_WARIO_FPS_OBJECTS=0 interpolates the camera only.
   static const char* dump_dir = std::getenv("MODERNGEKKO_WARIO_FPS_DUMP");
   static const bool identity = std::getenv("MODERNGEKKO_WARIO_FPS_IDENTITY") != nullptr;
-  if (identity)
-    g_wario_view_correction = Common::Matrix44::Identity();
+  static const bool objects = [] {
+    const char* value = std::getenv("MODERNGEKKO_WARIO_FPS_OBJECTS");
+    return !(value && std::strcmp(value, "0") == 0);
+  }();
   const bool dump = dump_dir && *dump_dir && s_wfps.interpolated % 120 <= 1;
   const auto private_copy = [&] {
     g_wario_private_xfb_copy = true;
@@ -994,6 +1047,16 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
     RcTcacheEntry copied = std::move(g_wario_private_xfb_entry);
     g_wario_private_xfb_entry.reset();
     return copied;
+  };
+  const auto clear_efb = [&] {
+    // The real path clears after copying; each replayed frame expects that cleared EFB.
+    if (clear)
+    {
+      ClearScreen(g_framebuffer_manager.get(), src_rect, bpmem.blendmode.color_update != 0,
+                  bpmem.blendmode.alpha_update != 0, bpmem.zmode.update_enable != 0,
+                  bpmem.zcontrol.pixel_format, bpmem.clearcolorAR, bpmem.clearcolorGB,
+                  bpmem.clearZValue);
+    }
   };
 
   auto& system = Core::System::GetInstance();
@@ -1008,63 +1071,64 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
           0);
     }
   }
-  // The real path clears after copying; the replayed frame expects that cleared EFB.
-  if (clear)
-  {
-    ClearScreen(g_framebuffer_manager.get(), src_rect, bpmem.blendmode.color_update != 0,
-                bpmem.blendmode.alpha_update != 0, bpmem.zmode.update_enable != 0,
-                bpmem.zcontrol.pixel_format, bpmem.clearcolorAR, bpmem.clearcolorGB,
-                bpmem.clearZValue);
-  }
 
   g_wario_fps_replaying = true;
   std::vector<u8> tmem_end(s_tex_mem.begin(), s_tex_mem.end());
-  std::copy(s_wfps.tmem.begin(), s_wfps.tmem.end(), s_tex_mem.begin());
-  g_texture_cache->WarioSwapFrameCopies(true);
-  WarioRun(s_wfps.prologue);
-  g_wario_view_correction_active = true;
-  xf_state_manager.SetProjectionChanged();
-  // MODERNGEKKO_WARIO_FPS_OBJECTS=0 interpolates the camera only.
-  static const bool objects = [] {
-    const char* value = std::getenv("MODERNGEKKO_WARIO_FPS_OBJECTS");
-    return !(value && std::strcmp(value, "0") == 0);
-  }();
-  if (objects && !identity)
+  std::vector<RcTcacheEntry> frames;
+  for (int step = 1; step < multiplier; ++step)
   {
-    WarioBuildReplay();
-    WarioRun(s_wfps.replay);
+    const float t = static_cast<float>(step) / static_cast<float>(multiplier);
+    const Common::Vec3 eye = previous.eye + (current.eye - previous.eye) * t;
+    const Common::Vec3 target = previous.target + (current.target - previous.target) * t;
+    const Common::Vec3 up = previous.up + (current.up - previous.up) * t;
+    if (!((eye - target).LengthSquared() > 1e-6f) || !(up.LengthSquared() > 1e-6f))
+      break;
+    g_wario_view_correction = identity ? Common::Matrix44::Identity() :
+                                         WarioLookAt(eye, up, target) * WarioRigidInverse(view_now);
+    clear_efb();
+    std::copy(s_wfps.tmem.begin(), s_wfps.tmem.end(), s_tex_mem.begin());
+    g_texture_cache->WarioSwapFrameCopies(true);
+    WarioRun(s_wfps.prologue);
+    g_wario_view_correction_active = true;
+    xf_state_manager.SetProjectionChanged();
+    if (objects && !identity)
+    {
+      WarioBuildReplay(t);
+      WarioRun(s_wfps.replay);
+    }
+    else
+    {
+      WarioRun(s_wfps.commands);
+    }
+    g_vertex_manager->Flush();
+    g_wario_view_correction_active = false;
+    xf_state_manager.SetProjectionChanged();
+    frames.push_back(private_copy());
   }
-  else
-  {
-    WarioRun(s_wfps.commands);
-  }
-  g_vertex_manager->Flush();
   g_texture_cache->WarioSwapFrameCopies(false);
-  g_wario_view_correction_active = false;
-  xf_state_manager.SetProjectionChanged();
   std::copy(tmem_end.begin(), tmem_end.end(), s_tex_mem.begin());
-
-  RcTcacheEntry entry = private_copy();
   g_wario_fps_replaying = false;
 
   BPFunctions::SetScissorAndViewport(g_framebuffer_manager.get(), bpmem.scissorTL, bpmem.scissorBR,
                                      bpmem.scissorOffset, xfmem.viewport);
-  if (entry)
+  for (size_t i = 0; i < frames.size(); ++i)
   {
+    if (!frames[i])
+      continue;
     s_wfps.interpolated++;
-    if (dump)
+    if (dump && i == 0)
     {
-      entry->texture->Save(
+      frames[i]->texture->Save(
           fmt::format("{}/mid_{:08}.png", dump_dir, static_cast<unsigned long long>(s_wfps.frames)),
           0);
     }
-    const double offset =
-        g_presenter->PresentInterpolated(std::move(entry), dest_stride / 2, height, 0.5 / 59.94);
+    const double offset = g_presenter->PresentInterpolated(
+        std::move(frames[i]), dest_stride / 2, height, interval * static_cast<double>(i), interval);
     if (offset < 0.0)
     {
       s_wfps.skipped_late++;
     }
-    else
+    else if (i == 0)
     {
       s_wfps.offset_sum += offset;
       s_wfps.offset_count++;

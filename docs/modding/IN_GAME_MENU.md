@@ -26,7 +26,7 @@ headless).
 | Fullscreen | posts F11 to the game window |
 | HD textures | Config `GFX_HIRES_TEXTURES` |
 | HDR output | Config `GFX_ENHANCE_HDR_OUTPUT` (Vulkan only) |
-| Smooth 120 FPS | `g_wario_fps_enabled`, switched at the next XFB copy |
+| Frame rate 60 / 120 / 180 / 240 / Auto | `g_wario_fps_multiplier` (Auto = monitor refresh / 59.94, max 4), switched at the next XFB copy |
 | Volume | Config `MAIN_AUDIO_VOLUME` + `AudioCommon::UpdateSoundStream` |
 | Moon jump + rise speed | while A / X is held: player actor `[0x801C5820]` y (+0x18) rises |
 | Quit game | posts WM_CLOSE |
