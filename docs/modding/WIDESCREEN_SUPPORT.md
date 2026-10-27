@@ -80,8 +80,8 @@ and the 2D half-width (WS-002) still need their own changes.
   conditional elements forced visible; 4:3 HUD positions unchanged.
   Pause book (2026-10-27): the book is drawn at 4:3 in the centre, and the
   hearts and coin panel shown with it were pushed outside it. (The Sprite /
-  jail row in the book did not move with or without this; its last jail
-  overlaps the book's right edge at 4:3 too.) DX is now 0 while the game's own pause-menu bit is set: bit 0x8 of
+  jail row in the book did not move with or without this; it is drawn in
+  EFB-pixel viewports, see WS-008.) DX is now 0 while the game's own pause-menu bit is set: bit 0x8 of
   lbl_801FD930 (main-loop state word; paused 0xF, playing 0x3), driven by the
   counter lbl_801FD940 in fn_8003195C. Its only callers are the pause-menu
   states fn_8006CB04 (open, +1) and fn_8006DC4C (close finished, -1), and
@@ -103,3 +103,28 @@ and the 2D half-width (WS-002) still need their own changes.
   widens anything, and 4:3 restores the exact original values. Not yet seen
   in a hidden run (no state with a board open); full-screen draws through
   these cameras, if any, would now cover only the centre 4:3.
+- WS-008 pause book Sprite/jail row (2026-10-27): the bottom-right row of 5
+  slots on the pause book's right page (rescued Sprite model or jail) is drawn
+  by fn_8006051C, one 215x215 EFB-pixel GXSetViewport per slot at
+  x = 181 + 43*i (0x8006062C) inside GXSetScissor(264, 310, 215, 124)
+  (0x800605C0); see ../engine/WIDESCREEN.md WS-008. Pixel positions ignore the
+  widened 2D layer, so at 16:9 the row spread to 4/3 of its width while the
+  book and the shadow markers printed on its page stayed 4:3, and the last
+  jail hung past the page edge. scripts/build_rel_bundle.py HUD_EDGE_SITES
+  now maps the slot centres (0x80060618, f1 = viewport x) and the scissor
+  left/width (0x800605B0, 0x800605B8) about the EFB centre by 320/half, which
+  restores the 4:3 layout in the centred book: every item sits on its marker
+  again, as in the original at 4:3. Viewport size is kept; the figures'
+  projection is the synced WS-007 perspective, so their size and shape match
+  4:3. Half width 320 computes exactly the original values. Verified hidden
+  (savestate 112331_CF11, book open, 3x captures): at 16:9 the row lands on
+  the same 2D positions as at 4:3 (40.6 + 53.75*i), the last jail inside the
+  page; gameplay HUD capture (112627_AR11) matches the previous module.
+  Not changed: the
+  other book pages that use EFB-pixel viewports (statue/gem scene
+  fn_8005EB6C and fn_8005AA20, fn_8005C4A0, fn_8005DDEC, fn_80061044,
+  fn_8006259C, fn_80062970); the statue and gems on the same page are still
+  shifted right at 16:9.
+  An earlier report that the original also overhangs at 4:3 came from running
+  a 16:9 savestate at 4:3: the savestate's 2D camera stays 16:9 there, which
+  squeezes the book (WS-008 caution in the engine doc).

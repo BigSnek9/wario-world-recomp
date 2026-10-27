@@ -110,6 +110,38 @@ C_MTXPerspective (fn_8019C618) stores m11 = cot(fovy/2) and m00 = m11 / aspect.
 A third C_MTXPerspective call (fn_8015C8C8, caller fn_800302CC) uses fixed
 fovy 50 and aspect 4/3 (lbl_80201928..34); its role is unknown.
 
+## WS-008 Pause book items drawn in EFB-pixel viewports (confirmed code)
+
+The pause book page lbl_801BC2C0 (built by fn_8006073C from the pause object
+constructor fn_8006DE28) has page components that each set their own
+GXSetViewport (fn_8019B500) / GXSetScissor (fn_8019B524) in EFB pixels
+(WS-004, 512x448) instead of drawing in the 2D layer:
+- fn_8006051C (vtable lbl_801BC2E4, draw slot): the bottom-right row of 5
+  slots. Scissor (264, 310, 215, 124) at 0x800605C0; per slot i a 215x215
+  viewport at x = 181 + 43*i (lbl_801FE460 = 181, step lbl_801FE468 = 43,
+  0x8006062C), y = 512 - 215*obj[+0x20]. Bit i of the rescue mask
+  (lbl_801CE3A4 table) picks the Sprite model (obj+0x28) or the jail
+  (obj+0x24); both are drawn through the same viewport.
+- fn_8005EB6C (lbl_801BC314): the statue/gem scene, viewport 320x320 at
+  x 203 or 210 (lbl_801FE3C4/3E4), scissor (274, 25, 194, 276).
+- fn_8005AA20, fn_8005C4A0, fn_8005DDEC, fn_80061044, fn_8006259C,
+  fn_80062970: the same pattern on other book pages (not examined in detail).
+The book art, including the shadow markers printed under the row, is in the
+2D layer, so it stays 4:3 in a widened ortho while the viewports keep their
+full-screen pixel positions: the row spreads by half/320. Measured on hidden
+3x captures of one savestate, in 2D units: row centres = (32.5 + 43*i) EFB px
+from the centre * half/256, i.e. 40.6 + 53.75*i at 4:3 and 54.2 + 71.7*i at
+16:9 (5th slot past the page edge). The printed markers (slanted shadow
+rectangles) are identical in both runs and sit under the 4:3 positions, about
+42 + 52.5*i at their middle height, so the original 4:3 row is on its markers.
+The figures keep their shape and size in a wide aspect because the projection
+they use is the WS-007 perspective, which is synced.
+Caution: a savestate made at 16:9 carries the 16:9 2D camera; running it with
+the adapter at exactly 4:3 never resyncs it (sync is inert until something is
+widened), so the book is squeezed to 3/4 and the row looks too wide even with
+original code (also with --reference). Use a 4:3 savestate, or an aspect
+just above 4:3 (e.g. MODERNGEKKO_WARIO_ASPECT=1.34) to see the 4:3 layout.
+
 ## Open questions
 
 - Which code writes camera `+0x44` besides fn_80068250 (cutscenes, bosses)?
