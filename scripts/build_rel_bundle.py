@@ -428,6 +428,291 @@ def anchor_hud_edges(text):
     return text
 
 
+
+# ---- CHEAT_SITES: cheats (docs/modding/CHEATS.md, docs/engine/PHYSICS.md G-0010..G-0015) ----
+# Every hook calls a small module function that returns at once while its exported
+# wario_cheat_* variable is 0 (the default), so with all cheats off the module computes
+# exactly what the stock module does. Each entry inserts one call at the start of the
+# listed instruction (after its label), i.e. before that instruction executes.
+#   0x8010DCB4 fn_8010DCB4 entry (player actor update, vtable 0x801C523C slot 3): applies
+#              the one-shot progress cheats while a player actor exists.
+#   fn_80125488 (actor mover vs map collision, r29 = mover; Wario's is player+0x160, whose
+#              +0x18 points at the position player+0x14): eight collision queries through the
+#              collision mesh vtable (+0x1C swept test, output struct in r6; +0x24 sphere test,
+#              output in r5; the struct starts with the hit normal). A hook before each bctrl
+#              records the output pointer; a hook after it (the clrlwi. of the hit flag) clears
+#              r3 for the player's mover when noclip is on and the normal is horizontal
+#              (|ny| < 0.5), so walls neither push Wario back nor stop him. The 0x80126188 query
+#              is the wall pushout seen in the trace (0x80126240..0x80126270). The floor comes
+#              from the ground probe fn_801272A4 and floor/ceiling-like normals are kept.
+#   fn_8012672C (second mover pass, r31 = mover): the two sweeps against the dynamic collision
+#              objects (fn_8003687C, result struct in r5) get the same rule; the trace showed
+#              this pass stopping Wario 0.8 units further in once the mesh walls were off.
+#   0x8012A2E4 / 0x8012A448 fn_8012A2A0 (generic sphere collider pushout, after the sphere
+#              and swept tests): same rule for a collider whose position pointer [r30+0x18]
+#              is player+0x14 (normal at r1+0x2C).
+#   0x80113D28 fn_80113BCC (jump controller, r30 = player mover at player+0x160) after the
+#              launch speed -0.39 (lbl_80200BC8) is loaded into f3: scaled for jump height.
+#   0x80112288 fn_80112288 (set attack: r3 attack object, r4 type, r5 position, f1 radius,
+#              r6 power) entry: super punch gives the first and second combo punches (called
+#              from the punch state at 0x8011CC10/CC54/CFDC/D020) the third combo punch's
+#              power 3 and radius 2.0 (fn_8011C8F0 phase 3,
+#              0x8011D2D0..0x8011D318).
+# (call instruction, register holding the result struct, register holding the mover)
+WALL_QUERIES = ((0x801258E4, 6, 29), (0x80125AD8, 6, 29), (0x80125C84, 6, 29), (0x80125D68, 6, 29),
+                (0x80125F40, 6, 29), (0x80126188, 5, 29), (0x801263EC, 5, 29), (0x8012663C, 6, 29),
+                (0x80126B1C, 5, 31), (0x80126D18, 5, 31))
+CHEAT_SITES = {
+    0x8010DCB4: "wario_cheat_tick(ctx);",
+    0x8012A2E4: "wario_cheat_wall(ctx);",
+    0x8012A448: "wario_cheat_wall(ctx);",
+    **{call: "wario_cheat_wall_query(ctx, %d, %d);" % (out, mover) for call, out, mover in WALL_QUERIES},
+    **{call + 4: "wario_cheat_wall_hit(ctx);" for call, out, mover in WALL_QUERIES},
+    0x80113D28: "wario_cheat_jump(ctx);",
+    0x80112288: "wario_cheat_punch(ctx);",
+}
+cheat_sites = 0
+
+
+def hook_cheats(text):
+    global cheat_sites
+    for address, call in CHEAT_SITES.items():
+        old = "label_%08X:\n    ctx->pc = 0x%08Xu;\n" % (address, address)
+        if old in text:
+            if text.count(old) != 1:
+                raise SystemExit(f"cheat site {address:08X}: unexpected generated code")
+            text = text.replace(old, old + "    " + call + "\n")
+            cheat_sites += 1
+    if "wario_cheat_" in text:
+        text = text.replace('#include "../generated.h"',
+                            '#include "../generated.h"\nvoid wario_cheat_tick(CPUState* ctx);\n'
+                            'void wario_cheat_wall(CPUState* ctx);\nvoid wario_cheat_jump(CPUState* ctx);\n'
+                            'void wario_cheat_punch(CPUState* ctx);\nvoid wario_cheat_wall_query(CPUState* ctx, int reg, int mover);\n'
+                            'void wario_cheat_wall_hit(CPUState* ctx);', 1)
+    return text
+
+
+_widen_fullscreen_quads_without_cheats = widen_fullscreen_quads
+
+
+def widen_fullscreen_quads(text):  # chunk transform used by the loop below, plus the cheat sites
+    return hook_cheats(_widen_fullscreen_quads_without_cheats(text))
+
+
+CHEAT_GLUE = r'''
+/* ---- Cheats (scripts/build_rel_bundle.py CHEAT_SITES; docs/modding/CHEATS.md) ----
+   All variables are inert at 0. The in-game menu writes them; the module reads them at
+   logic time from the game's own CPU thread. */
+WARIO_REL_EXPORT volatile s32 wario_cheat_noclip = 0;        /* 1: Wario walks through walls */
+WARIO_REL_EXPORT volatile s32 wario_cheat_super_punch = 0;   /* 1: every punch has 3rd-punch power */
+WARIO_REL_EXPORT volatile s32 wario_cheat_jump_percent = 0;  /* jump height %; 0 or 100 = original */
+WARIO_REL_EXPORT volatile s32 wario_cheat_unlock_stages = 0; /* write 1: applied once -> module sets 2 */
+WARIO_REL_EXPORT volatile s32 wario_cheat_collect_all = 0;   /* write 1: applied once -> module sets 2 */
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#define WARIO_PLAYER_PTR 0x801C5820u   /* G-0007: live player actor */
+#define WARIO_PROGRESS 0x801CE3A4u     /* G-0010: progress block (0xCC bytes, saved) */
+static float wario_cheat_f32(u32 bits) { union { u32 u; float f; } v; v.u = bits; return v.f; }
+static u32 wario_cheat_player(CPUState* ctx) {
+    const u32 p = mem_read32(ctx, WARIO_PLAYER_PTR);
+    return p >= 0x80000000u && p < 0x81800000u ? p : 0u;
+}
+/* Diagnostics: WARIO_CHEAT_TEST="noclip,super_punch,jump_percent,unlock,collect[,delay_ms]"
+   sets the variables after delay_ms (hidden tests); WARIO_CHEAT_LOG=<file> logs cheat events. */
+static FILE* wario_cheat_log_file;
+static void wario_cheat_env(void) {
+    static int state = -1;
+    static int values[5];
+    static long delay;
+    static clock_t start;
+    if (state < 0) {
+        const char* text = getenv("WARIO_CHEAT_TEST");
+        const char* log = getenv("WARIO_CHEAT_LOG");
+        state = 0;
+        if (log && *log)
+            wario_cheat_log_file = fopen(log, "a");
+        if (text && sscanf(text, "%d,%d,%d,%d,%d,%ld", &values[0], &values[1], &values[2], &values[3],
+                           &values[4], &delay) >= 5) {
+            state = 1;
+            start = clock();
+        }
+    }
+    if (state == 1 && (clock() - start) * 1000 / CLOCKS_PER_SEC >= delay) {
+        wario_cheat_noclip = values[0];
+        wario_cheat_super_punch = values[1];
+        wario_cheat_jump_percent = values[2];
+        wario_cheat_unlock_stages = values[3];
+        wario_cheat_collect_all = values[4];
+        state = 0;
+    }
+}
+#define WARIO_CHEAT_LOG(...) do { if (wario_cheat_log_file) { fprintf(wario_cheat_log_file, __VA_ARGS__); \
+    fflush(wario_cheat_log_file); } } while (0)
+static void wario_cheat_or16(CPUState* ctx, u32 address, u16 bits) {
+    const u16 value = mem_read16(ctx, address);
+    if ((value & bits) != bits)
+        mem_write16(ctx, address, (u16)(value | bits));
+}
+/* 0x8010DCB4: player actor update entry (r3 = player). One-shot progress cheats are applied
+   here so they only touch a loaded save (title/file select have no player actor). Values match
+   what the game itself writes (fn_800308F0, fn_80030A20.. setters), so saving stays valid. */
+void wario_cheat_tick(CPUState* ctx) {
+    static int trace_y = -1;
+    wario_cheat_env();
+    if (trace_y < 0)
+        trace_y = getenv("WARIO_CHEAT_LOG_POS") != NULL;
+    if (trace_y) /* diagnostics: player position and velocity per update */
+        WARIO_CHEAT_LOG("frame %u pos %.4f %.4f %.4f vel %.4f %.4f %.4f\n", mem_read32(ctx, 0x801FD934u),
+                        wario_cheat_f32(mem_read32(ctx, ctx->gpr[3] + 0x14u)),
+                        wario_cheat_f32(mem_read32(ctx, ctx->gpr[3] + 0x18u)),
+                        wario_cheat_f32(mem_read32(ctx, ctx->gpr[3] + 0x1Cu)),
+                        wario_cheat_f32(mem_read32(ctx, ctx->gpr[3] + 0x204u)),
+                        wario_cheat_f32(mem_read32(ctx, ctx->gpr[3] + 0x208u)),
+                        wario_cheat_f32(mem_read32(ctx, ctx->gpr[3] + 0x20Cu)));
+    if (wario_cheat_unlock_stages == 1) {
+        /* G-0011: progress+8 u16, bit world*3+stage set when that stage is cleared; a stage is
+           open when its prerequisites' bits are set. 0x07FF = every stage of the four worlds
+           and their bosses; bit 11 (the last boss) is left for the player. */
+        wario_cheat_or16(ctx, WARIO_PROGRESS + 0x8u, 0x07FFu);
+        wario_cheat_unlock_stages = 2;
+        WARIO_CHEAT_LOG("frame %u unlock_stages mask %04X\n", mem_read32(ctx, 0x801FD934u),
+                        mem_read16(ctx, WARIO_PROGRESS + 0x8u));
+    }
+    if (wario_cheat_collect_all == 1) {
+        /* G-0012: per-stage record at progress + 0xC + world*0x30 + stage*0x10 (two stages per
+           world; the third record of each world is never written by the game): +4 Spritelings
+           (5 bits), +6/+8/+A/+C 8-bit collectable sets (+6 complete = GBA game unlocked).
+           +0/+1 are the stage's own event flags and stay untouched. */
+        for (u32 w = 0; w < 4u; ++w)
+            for (u32 s = 0; s < 2u; ++s) {
+                const u32 r = WARIO_PROGRESS + 0xCu + w * 0x30u + s * 0x10u;
+                wario_cheat_or16(ctx, r + 0x4u, 0x001Fu);
+                wario_cheat_or16(ctx, r + 0x6u, 0x00FFu);
+                wario_cheat_or16(ctx, r + 0x8u, 0x00FFu);
+                wario_cheat_or16(ctx, r + 0xAu, 0x00FFu);
+                wario_cheat_or16(ctx, r + 0xCu, 0x00FFu);
+            }
+        wario_cheat_collect_all = 2;
+        WARIO_CHEAT_LOG("frame %u collect_all\n", mem_read32(ctx, 0x801FD934u));
+    }
+}
+/* 0x8012A2E4 / 0x8012A448 (fn_8012A2A0, r30 = sphere collider, r1 frame: +0x2C hit normal). */
+void wario_cheat_wall(CPUState* ctx) {
+    if (!wario_cheat_noclip || !(ctx->gpr[3] & 0xFFu))
+        return;
+    const u32 player = wario_cheat_player(ctx);
+    if (!player || mem_read32(ctx, ctx->gpr[30] + 0x18u) != player + 0x14u)
+        return;
+    const float ny = wario_cheat_f32(mem_read32(ctx, ctx->gpr[1] + 0x30u));
+    if (ny > -0.5f && ny < 0.5f) {
+        ctx->gpr[3] = 0;
+        WARIO_CHEAT_LOG("frame %u wall pc %08X n %.3f %.3f %.3f\n", mem_read32(ctx, 0x801FD934u), ctx->pc,
+                        wario_cheat_f32(mem_read32(ctx, ctx->gpr[1] + 0x2Cu)), ny,
+                        wario_cheat_f32(mem_read32(ctx, ctx->gpr[1] + 0x34u)));
+    }
+}
+/* fn_80125488 collision queries (r29 = mover): the output pointer is recorded before the call. */
+static u32 wario_cheat_query_out, wario_cheat_query_mover;
+void wario_cheat_wall_query(CPUState* ctx, int reg, int mover) {
+    wario_cheat_query_out = wario_cheat_noclip ? ctx->gpr[reg] : 0u;
+    wario_cheat_query_mover = ctx->gpr[mover];
+}
+void wario_cheat_wall_hit(CPUState* ctx) {
+    const u32 out = wario_cheat_query_out;
+    wario_cheat_query_out = 0;
+    if (!out || !wario_cheat_noclip || !(ctx->gpr[3] & 0xFFu))
+        return;
+    const u32 player = wario_cheat_player(ctx);
+    if (!player || mem_read32(ctx, wario_cheat_query_mover + 0x18u) != player + 0x14u)
+        return;
+    const float ny = wario_cheat_f32(mem_read32(ctx, out + 4u));
+    if (ny > -0.5f && ny < 0.5f) {
+        ctx->gpr[3] = 0;
+        WARIO_CHEAT_LOG("frame %u wall pc %08X n %.3f %.3f %.3f\n", mem_read32(ctx, 0x801FD934u), ctx->pc,
+                        wario_cheat_f32(mem_read32(ctx, out)), ny, wario_cheat_f32(mem_read32(ctx, out + 8u)));
+    }
+}
+/* Jump height. fn_80113BCC launches with 0.39 along the up normal, then adds 0.021 per frame
+   (x0.9995) while A is held and Wario rises; gravity is -0.035 per frame and air drag x0.985
+   (G-0013). The launch factor for a target height is found by simulating a full-hold jump. */
+static float wario_cheat_jump_peak(float factor) {
+    float y = 0.0f, vy = 0.39f * factor, sustain = 0.021f, peak;
+    y += vy;
+    vy *= 0.985f;
+    peak = y;
+    for (int i = 0; i < 2000 && (vy > 0.0f || y > peak - 0.5f); ++i) {
+        vy -= 0.035f;
+        if (vy > 0.0f) {
+            vy += sustain;
+            sustain *= 0.9995f;
+        }
+        y += vy;
+        vy *= 0.985f;
+        if (y > peak)
+            peak = y;
+    }
+    return peak;
+}
+static float wario_cheat_jump_factor(s32 percent) {
+    static s32 cached = -1;
+    static float factor = 1.0f;
+    if (percent != cached) {
+        const float target = wario_cheat_jump_peak(1.0f) * (float)percent / 100.0f;
+        float lo = 0.05f, hi = 20.0f;
+        for (int i = 0; i < 40; ++i) {
+            const float mid = 0.5f * (lo + hi);
+            if (wario_cheat_jump_peak(mid) < target)
+                lo = mid;
+            else
+                hi = mid;
+        }
+        factor = 0.5f * (lo + hi);
+        cached = percent;
+    }
+    return factor;
+}
+/* 0x80113D28 (fn_80113BCC, r30 = mover at player+0x160, f3 = launch speed). */
+void wario_cheat_jump(CPUState* ctx) {
+    s32 percent = wario_cheat_jump_percent;
+    if (percent <= 0 || percent == 100)
+        return;
+    if (percent < 10)
+        percent = 10;
+    if (percent > 1000)
+        percent = 1000;
+    const u32 player = wario_cheat_player(ctx);
+    if (!player || ctx->gpr[30] != player + 0x160u)
+        return;
+    const float factor = wario_cheat_jump_factor(percent);
+    ctx->fpr[3] = (f64)(float)(ctx->fpr[3] * (f64)factor);
+    ctx->ps1[3] = ctx->fpr[3];
+    WARIO_CHEAT_LOG("frame %u jump %d%% factor %.4f launch %.4f\n", mem_read32(ctx, 0x801FD934u), (int)percent,
+                    factor, ctx->fpr[3]);
+}
+/* 0x80112288 entry (fn_80112288: r3 attack, r4 type, f1 radius, r6 power). */
+void wario_cheat_punch(CPUState* ctx) {
+    /* Only the punch state's first and second combo punches (fn_8011C8F0 phases 1 and 2);
+       the falling state's body hitbox (0x80117D28, also type 1) and other attacks stay. */
+    const u32 lr = ctx->lr;
+    if (!wario_cheat_super_punch || ctx->gpr[6] >= 3u ||
+        (lr != 0x8011CC14u && lr != 0x8011CC58u && lr != 0x8011CFE0u && lr != 0x8011D024u))
+        return;
+    const u32 player = wario_cheat_player(ctx);
+    if (!player || ctx->gpr[3] != mem_read32(ctx, player + 0x2E4u))
+        return;
+    WARIO_CHEAT_LOG("frame %u punch lr %08X power %u -> 3 radius %.3f\n", mem_read32(ctx, 0x801FD934u), ctx->lr,
+                    ctx->gpr[6], ctx->fpr[1]);
+    ctx->gpr[6] = 3u;
+    if (ctx->fpr[1] < 2.0) {
+        ctx->fpr[1] = 2.0;
+        ctx->ps1[1] = 2.0;
+    }
+}
+'''
+# ---- end CHEAT_SITES ----
+
+
 for source, chunk in chunk_sources:
     text = widen_fullscreen_quads(source.read_text())
     if args.clean:
@@ -447,6 +732,8 @@ if mtx_sites != len(MATRIX_STACK_HOOKS):
     raise SystemExit(f"expected {len(MATRIX_STACK_HOOKS)} matrix stack hooks, patched {mtx_sites}")
 if audio_sites != len(AUDIO_SITES) + len(AUDIO_ENTRY_HOOKS):
     raise SystemExit(f"expected {len(AUDIO_SITES) + len(AUDIO_ENTRY_HOOKS)} audio sites, patched {audio_sites}")
+if cheat_sites != len(CHEAT_SITES):  # CHEAT_SITES section
+    raise SystemExit(f"expected {len(CHEAT_SITES)} cheat sites, patched {cheat_sites}")
 for model in models:
     mid, name = model["module_id"], model["name"]
     write_changed(destination / f"rel_bridge_{mid}.c",
@@ -817,6 +1104,7 @@ glue = glue.replace("BRIDGE_DECLARATIONS", "\n".join(f"int wario_rel_dispatch_{m
 glue = glue.replace("BRIDGE_DISPATCH", "\n".join(f"    if(wario_rel_to_linked(ctx,{m['module_id']}u,actual)) return wario_rel_dispatch_{m['module_id']}(ctx,actual);" for m in models))
 glue = glue.replace("VECTOR_DECLARATIONS", "\n".join(f"int wario_{v['name']}_dispatch(CPUState*,u32);" for v in vectors))
 glue = glue.replace("VECTOR_DISPATCH", "\n".join(f"    if(actual>=0x{v['address']:08X}u && actual<0x{v['address']+v['size']:08X}u) return wario_{v['name']}_dispatch(ctx,actual);" for v in vectors))
+glue += CHEAT_GLUE  # CHEAT_SITES section
 (template / "module_export.c").write_text(glue)
 cmake = (template / "CMakeLists.txt").read_text()
 cmake = cmake.replace('file(GLOB CHUNK_INPUTS CONFIGURE_DEPENDS "${GENERATED_DIR}/chunks/*.c")',

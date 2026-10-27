@@ -18,7 +18,8 @@ Look up any main.dol address in the private disassembly with
 | Audio (MusyX, BGM streams, runtime mixer) | AUDIO.md | AU-001..AU-007 |
 | Memory / module loading | MEMORY.md | |
 | Disc assets / texture banks | ASSETS.md | |
-| Physics, animation, scripting | PHYSICS.md, ANIMATION.md, SCRIPTING.md | (mostly unmapped) |
+| Physics, player, progress/save data, cheats | PHYSICS.md, ../modding/CHEATS.md | G-0007, G-0010..G-0015 |
+| Animation, scripting | ANIMATION.md, SCRIPTING.md | (mostly unmapped) |
 
 ID prefixes: F- function (FUNCTION_DATABASE.json), HC- hardcoded constant
 (HARDCODED_CONSTANTS.json), T- timing (TIMING.md), WS- widescreen, CAM- camera, AU- audio,
