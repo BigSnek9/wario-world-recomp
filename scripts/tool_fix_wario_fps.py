@@ -441,6 +441,10 @@ static void WarioSyncVSync()
     }
 #endif
   }
+  // The CurrentRun layer is removed during core shutdown; Config::SetCurrent would then write
+  // through a null layer (the quit crash, WER 0xC000041D in Config::Layer::Set).
+  if (!Config::GetLayer(Config::LayerType::CurrentRun))
+    return;
   const int multiplier = g_wario_fps_multiplier.load(std::memory_order_relaxed);
   const bool want = multiplier > 1 && refresh_hz > 0 && multiplier * 59.94 <= refresh_hz + 1.0 &&
                     !(WarioFpsDebug() & 8) && g_wario_vsync_mode.load(std::memory_order_relaxed) == 0;
@@ -555,7 +559,7 @@ PRESENT_INCLUDE_NEW = ('#include "VideoCommon/Present.h"\n\n#include <algorithm>
                        '#include "Common/ChunkFile.h"\n')
 
 BP_INCLUDE_OLD = '#include "VideoCommon/BPStructs.h"\n\n#include <algorithm>\n#include <cstring>\n#include <string>\n'
-BP_INCLUDE_NEW = ('#include "VideoCommon/BPStructs.h"\n\n#include <algorithm>\n#include <array>\n#include <atomic>\n#include <cmath>\n'
+BP_INCLUDE_NEW = ('#include "VideoCommon/BPStructs.h"\n\n#include <algorithm>\n#include <array>\n#include <atomic>\n#include <chrono>\n#include <cmath>\n'
                   '#include <cstdio>\n#include <cstdlib>\n#include <cstring>\n#include <string>\n#include <unordered_map>\n'
                   '#include <utility>\n#include <vector>\n')
 
@@ -666,6 +670,8 @@ struct WarioFpsState
   std::vector<u8> tmem;
   WarioCamera current, previous;
   u64 frames = 0, interpolated = 0, skipped_cut = 0, skipped_nocam = 0, skipped_late = 0;
+  int budget = 4;  // adaptive cap on the multiplier (see WarioFpsOnXfbCopy)
+  u64 reduced = 0, skipped_budget = 0;
   double offset_sum = 0.0, offset_min = 1e9, offset_max = 0.0;
   u64 offset_count = 0;
 };
@@ -1222,6 +1228,9 @@ void WarioWriteStats()
                  s_wfps.offset_count ? s_wfps.offset_sum / s_wfps.offset_count : 0.0,
                  s_wfps.offset_count ? s_wfps.offset_min : 0.0, s_wfps.offset_max,
                  s_wfps.commands.size());
+    std::fprintf(file, "budget=%d\nbudget_reduced=%llu\nskipped_budget=%llu\n", s_wfps.budget,
+                 static_cast<unsigned long long>(s_wfps.reduced),
+                 static_cast<unsigned long long>(s_wfps.skipped_budget));
     std::fprintf(file, "matrices_matched=%llu\nmatrices_unmatched=%llu\ntags_seen=%llu\ntagged_loads=%llu\ntag_repeats=%llu\ntag_repeat_diff=%llu\nscreen_locked=%llu\ncamera_locked=%llu\n",
                  static_cast<unsigned long long>(s_wfps.matrices_matched),
                  static_cast<unsigned long long>(s_wfps.matrices_unmatched),
@@ -1256,6 +1265,36 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
   if (g_wario_fps_replaying)
     return;
   VideoCommon::WarioTrace('C');
+  // Adaptive frame generation: every in-between frame re-renders the whole frame on the emulation
+  // thread, and with VSync the presents also wait for the display. When game frames start to
+  // arrive late (heavy moments such as the hub charge dash at 4x / 4K), fewer in-between frames
+  // are made for a while instead of letting the game itself slow down; one more is allowed back
+  // after a second of frames on time.
+  {
+    using SteadyClock = std::chrono::steady_clock;
+    static SteadyClock::time_point last_copy{};
+    static double average_ms = 1000.0 / 59.94;
+    static int on_time = 0;
+    const auto now = SteadyClock::now();
+    const double dt_ms = std::chrono::duration<double, std::milli>(now - last_copy).count();
+    last_copy = now;
+    if (dt_ms < 100.0)
+    {
+      average_ms = average_ms * 0.75 + dt_ms * 0.25;
+      if (average_ms > 17.4 && s_wfps.budget > 1)
+      {
+        s_wfps.budget--;
+        s_wfps.reduced++;
+        average_ms = 1000.0 / 59.94;
+        on_time = 0;
+      }
+      else if (average_ms < 16.9 && ++on_time >= 60)
+      {
+        s_wfps.budget = std::min(s_wfps.budget + 1, 4);
+        on_time = 0;
+      }
+    }
+  }
   // Live on/off from the in-game menu, switched at a frame boundary.
   if (const bool wanted = g_wario_fps_multiplier.load(std::memory_order_relaxed) > 1;
       wanted != g_wario_fps_record)
@@ -1313,7 +1352,13 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
   const Common::Matrix44 view_now = WarioLookAt(current.eye, current.up, current.target);
   s_wfps.camera_delta =
       view_now * WarioRigidInverse(WarioLookAt(previous.eye, previous.up, previous.target));
-  const int multiplier = std::clamp(g_wario_fps_multiplier.load(std::memory_order_relaxed), 2, 4);
+  const int multiplier =
+      std::min(std::clamp(g_wario_fps_multiplier.load(std::memory_order_relaxed), 2, 4), s_wfps.budget);
+  if (multiplier < 2)
+  {
+    s_wfps.skipped_budget++;
+    return;
+  }
   const double interval = 1.0 / 59.94 / multiplier;
 
   // Diagnostics: MODERNGEKKO_WARIO_FPS_DUMP=<dir> saves two consecutive real/in-between pairs every

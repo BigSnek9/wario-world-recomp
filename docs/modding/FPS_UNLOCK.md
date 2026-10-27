@@ -132,6 +132,20 @@ between each pair of real frames with the camera halfway between them.
      - Not yet verified by eye.
      - Settings: menu `VideoCommon::g_wario_vsync_mode` (1 = off); debug bit
        8 skips it.
+   - Adaptive budget (2026-10-27):
+     - Behaviour: when the game frame period (smoothed) goes above 17.4 ms,
+       the multiplier cap drops by one, down to 1 (= no in-between frames).
+       It rises again after 60 game frames on time. Heavy moments then trade
+       smoothness for speed instead of slowing the game (human report: hub
+       charge dash).
+     - Why: every in-between frame is a full re-render on the emulation
+       thread, and VSync presents wait for the display.
+     - Stats: budget, budget_reduced, skipped_budget.
+     - Hidden 4K runs: 4x with VSync stays at full speed. A hidden window
+       blocks on VSync more than a real screen does, so the cuts there
+       overstate what a player sees.
+     - The player's display is 239.991 Hz (QueryDisplayConfig), above
+       4 x 59.94.
    - Diagnostics: MODERNGEKKO_WARIO_FPS_TRACE=<file> logs every pacing event
      with a timestamp: C copy, Q queued, M/R in-between/real shown, V VI swap,
      H real held, r real shown at the VI.
