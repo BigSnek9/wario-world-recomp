@@ -183,6 +183,10 @@ PRESENT_DECL_NEW = PRESENT_DECL_OLD + (
     "  };\n"
     "  std::vector<WarioQueuedFrame> m_wario_pending_mids;\n"
     "  RcTcacheEntry m_wario_real_entry;\n"
+    "  // Frame N copied at its own XFB copy (the VI that follows still shows frame N-1).\n"
+    "  void WarioSetRealCopy(RcTcacheEntry entry, u32 fb_width, u32 fb_height);\n"
+    "  RcTcacheEntry m_wario_next_real;\n"
+    "  MathUtil::Rectangle<int> m_wario_next_real_rect;\n"
     "  MathUtil::Rectangle<int> m_wario_real_rect;\n")
 
 PRESENT_EXTERN_OLD = '#include "VideoCommon/Widescreen.h"\n'
@@ -258,6 +262,18 @@ double Presenter::PresentInterpolated(RcTcacheEntry entry, u32 fb_width, u32 fb_
   return offset_ms;
 }
 
+void Presenter::WarioSetRealCopy(RcTcacheEntry entry, u32 fb_width, u32 fb_height)
+{
+  m_wario_next_real = std::move(entry);
+  if (m_wario_next_real)
+  {
+    m_wario_next_real_rect = MathUtil::Rectangle<int>(
+        0, 0,
+        static_cast<int>(fb_width * m_wario_next_real->GetWidth() / m_wario_next_real->native_width),
+        static_cast<int>(fb_height * m_wario_next_real->GetHeight() / m_wario_next_real->native_height));
+  }
+}
+
 bool Presenter::WarioNextPresentDue(TimePoint* due) const
 {
   bool any = false;
@@ -296,6 +312,7 @@ void Presenter::WarioFlushPendingPresent(bool force)
           0, 0, static_cast<int>(frame.width * m_xfb_entry->GetWidth() / m_xfb_entry->native_width),
           static_cast<int>(frame.height * m_xfb_entry->GetHeight() / m_xfb_entry->native_height));
       m_xfb_entry->AcquireContentLock();
+      WarioDumpPresented(m_xfb_entry, 'M');
       Present(nullptr);
       WarioTrace('M');
       s_wario_last_mid_present = Clock::now();
@@ -322,6 +339,7 @@ void Presenter::WarioFlushPendingPresent(bool force)
       m_xfb_rect = m_wario_real_rect;
       m_xfb_entry->AcquireContentLock();
     }
+    WarioDumpPresented(m_xfb_entry, 'R');
     Present(&s_wario_pending_info);
     WarioTrace('R');
     s_wario_last_real_present = Clock::now();
@@ -435,6 +453,35 @@ static void WarioSyncVSync()
   }
 }
 
+// MODERNGEKKO_WARIO_FPS_PRESENT_DUMP=<dir> (diagnostics): saves the frames actually presented,
+// in order, for 48 presents from present number MODERNGEKKO_WARIO_FPS_PRESENT_DUMP_AT (default
+// 2400): <dir>/p_<n>_<kind>.png plus times.csv (n, kind, ms). Kinds as in WarioTrace.
+static void WarioDumpPresented(const RcTcacheEntry& entry, char kind)
+{
+  static const char* const dir = std::getenv("MODERNGEKKO_WARIO_FPS_PRESENT_DUMP");
+  if (!dir || !*dir || !entry)
+    return;
+  static const long long first = [] {
+    const char* value = std::getenv("MODERNGEKKO_WARIO_FPS_PRESENT_DUMP_AT");
+    return value ? std::strtoll(value, nullptr, 10) : 2400LL;
+  }();
+  static long long count = 0;
+  static FILE* times = nullptr;
+  static const TimePoint start = Clock::now();
+  const long long n = count++;
+  if (n < first || n >= first + 48)
+    return;
+  if (!times)
+    times = std::fopen(fmt::format("{}/times.csv", dir).c_str(), "w");
+  entry->texture->Save(fmt::format("{}/p_{:06}_{}.png", dir, n, kind), 0);
+  if (times)
+  {
+    std::fprintf(times, "%lld,%c,%.3f\\n", n, kind,
+                 std::chrono::duration<double, std::milli>(Clock::now() - start).count());
+    std::fflush(times);
+  }
+}
+
 static void WarioNotePresent()
 {
   const auto now = Clock::now();
@@ -453,6 +500,17 @@ PRESENT_VI_OLD = """    Present(&present_info);
     ProcessFrameDumping(ticks);
 """
 PRESENT_VI_NEW = """    WarioSyncVSync();
+    // The game double-buffers its XFB: this VI shows the frame copied one game frame earlier, while
+    // the in-between frames just queued lead up to the frame copied last. Show that copy as the real
+    // frame, otherwise every game frame steps back once (afterimages on all moving geometry).
+    if (m_wario_next_real)
+    {
+      ReleaseXFBContentLock();
+      m_xfb_entry = std::move(m_wario_next_real);
+      m_wario_next_real.reset();
+      m_xfb_rect = m_wario_next_real_rect;
+      m_xfb_entry->AcquireContentLock();
+    }
     if ((s_wario_last_mid_present > s_wario_last_real_present || !m_wario_pending_mids.empty()) &&
         !(WarioFpsDebug() & 4))
     {
@@ -473,6 +531,7 @@ PRESENT_VI_NEW = """    WarioSyncVSync();
         return;
       }
     }
+    WarioDumpPresented(m_xfb_entry, 'r');
     Present(&present_info);
     WarioTrace('r');
     s_wario_last_real_present = Clock::now();
@@ -1283,14 +1342,13 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
   auto& system = Core::System::GetInstance();
   auto& xf_state_manager = system.GetXFStateManager();
   g_vertex_manager->Flush();
-  if (dump)
+  // Frame N as rendered, before the replays reuse the EFB (shown as the real frame after them).
+  RcTcacheEntry real = private_copy();
+  if (dump && real)
   {
-    if (RcTcacheEntry real = private_copy())
-    {
-      real->texture->Save(
-          fmt::format("{}/real_{:08}.png", dump_dir, static_cast<unsigned long long>(s_wfps.frames)),
-          0);
-    }
+    real->texture->Save(
+        fmt::format("{}/real_{:08}.png", dump_dir, static_cast<unsigned long long>(s_wfps.frames)),
+        0);
   }
 
   // Each in-between frame is queued as soon as it is built, and frames already due (the held real
@@ -1361,6 +1419,8 @@ void WarioFpsOnXfbCopy(u32 dest_addr, u32 copy_width, u32 height, u32 dest_strid
   g_texture_cache->WarioSwapFrameCopies(false);
   std::copy(tmem_end.begin(), tmem_end.end(), s_tex_mem.begin());
   g_wario_fps_replaying = false;
+  if (queued > 0)
+    g_presenter->WarioSetRealCopy(std::move(real), dest_stride / 2, height);
 
   BPFunctions::SetScissorAndViewport(g_framebuffer_manager.get(), bpmem.scissorTL, bpmem.scissorBR,
                                      bpmem.scissorOffset, xfmem.viewport);

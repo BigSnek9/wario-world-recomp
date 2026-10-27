@@ -103,6 +103,24 @@ between each pair of real frames with the camera halfway between them.
      in-between frames went out back to back. At 4x, 26% of presents were on
      pace and 825 were bunched; after it, 79% were on pace and 49 bunched. The
      human described the effect as motion blur.
+   - Real frame source (2026-10-27, the main afterimage bug):
+     - The game double-buffers its XFB, so the VI that follows frame N's XFB
+       copy still shows frame N-1.
+     - The held "real" frame used to be that VI image, so after the
+       in-between frames leading up to N the screen stepped back to N-1 once
+       per game frame. The human saw doubled edges on everything moving
+       (photo); static dumps of the in-between frames could not show it.
+     - Frame N is now copied privately at its own XFB copy (before the
+       replays) and shown in the VI's place (Presenter::WarioSetRealCopy).
+       Frames that are not interpolated keep the VI image.
+     - Found with MODERNGEKKO_WARIO_FPS_PRESENT_DUMP=<dir>, which saves the
+       frames actually presented, in order. The real frame matched the
+       in-between t=3/4 of the previous group: difference 0.13, against 0.55
+       for the group just before it.
+     - After the fix, the in-between -> real steps are even (about 0.15).
+     - The step from a real frame into the next group stays larger: content
+       the game updates only at 60 Hz (untagged draws, particles, texture
+       animation) moves forward there, never backward.
    - VSync (2026-10-27): turned on while interpolating, if multiplier x
      59.94 <= refresh + 1 Hz (re-read every 2 s), and restored after.
      - Reason: frames paced by the clock without VSync drift against the
