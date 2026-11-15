@@ -202,6 +202,8 @@ def main():
     import tool_fix_wario_menu
     tool_fix_wario_menu.apply(replace, runtime)
     tool_fix_window_border.apply_late(replace, runtime)  # after the menu's WndProc additions
+    import tool_fix_wayland_resize
+    tool_fix_wayland_resize.apply(replace, runtime)
     # Its bundled compiler is a separate pin; only fix code with a matching preimage.
     nested = runtime / "vendor/dolphin/DolRecomp"
     if "section->size == 0 || offset > section->size" in (nested / "src/frontend/container/rel.c").read_text():
