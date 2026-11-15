@@ -88,6 +88,9 @@ Players don't need this: the release zip is all you need. For developers, manual
 build steps are in [docs/START_HERE.md](docs/START_HERE.md) and making a release zip
 is in [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
+Linux: there is no release zip yet, but the game builds and plays from source; see
+[docs/LINUX.md](docs/LINUX.md).
+
 ## Status
 
 - The full game has been played through on this build.

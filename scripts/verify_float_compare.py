@@ -1,7 +1,7 @@
 """Compile actual reference compare helpers and check all prior FPCC transitions."""
 from pathlib import Path
 import re
-import subprocess
+from build import run_check_program
 
 root = Path(__file__).resolve().parents[1]
 base = root / "third_party/ModernGekko/vendor/dolphin/Source/Core/Core/PowerPC"
@@ -60,6 +60,4 @@ folder = root / "build/float-compare-test"
 folder.mkdir(parents=True, exist_ok=True)
 (folder / "test.cpp").write_text(test)
 (folder / "CMakeLists.txt").write_text("cmake_minimum_required(VERSION 3.16)\nproject(float_compare CXX)\nadd_executable(float_compare test.cpp)\nset_property(TARGET float_compare PROPERTY CXX_STANDARD 17)\n")
-subprocess.run(["cmake", "-S", str(folder), "-B", str(folder / "build"), "-G", "Visual Studio 17 2022", "-A", "x64"], check=True, stdout=subprocess.DEVNULL)
-subprocess.run(["cmake", "--build", str(folder / "build"), "--config", "Release"], check=True)
-subprocess.run([str(folder / "build/Release/float_compare.exe")], check=True)
+run_check_program(folder, "float_compare")

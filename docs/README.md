@@ -12,6 +12,7 @@ One line per document. Start with [progress/CURRENT_STATUS.md](progress/CURRENT_
 ## Building and releasing
 
 - [START_HERE.md](START_HERE.md) - quick resume for agents: rules, how to run, hidden test example.
+- [LINUX.md](LINUX.md) - building and playing from source on Linux, and what is not ported yet.
 - [HANDOFF.md](HANDOFF.md) - agent handoff: constraints, verified disc baseline, tool traps, Ghidra notes.
 - [PUBLISHING.md](PUBLISHING.md) - what may go into Git and releases, GPL notes, release checklist.
 - [TOOLING.md](TOOLING.md) - tool choices, pinned sources, local tool fixes, automation protocol.

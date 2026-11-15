@@ -77,6 +77,9 @@ OSUI_INCLUDE_NEW = OSUI_INCLUDE_OLD + r"""
 #include <windows.h>
 #include <shellapi.h>
 #pragma comment(lib, "shell32.lib")
+#else
+#include <dlfcn.h>
+#include "Core/Host.h"
 #endif
 
 static float WarioAspectFromEnv()
@@ -138,6 +141,14 @@ static std::string WarioImGuiPixelShader(bool linear_output)
 // game picture with the menu on top once (Presenter::Present renders it offscreen).
 std::atomic<bool> g_wario_menu_snapshot{false};
 void* g_wario_hwnd = nullptr;
+#ifndef _WIN32
+// Shared with DolphinNoGUI/PlatformWayland.cpp: the menu keys it reports and the fullscreen state
+// the menu asks for (-1 = no request). Key codes are the Windows virtual-key values used below.
+constexpr int VK_TAB = 0x09, VK_F12 = 0x7B;
+std::atomic<bool> g_wario_key_tab{false};
+std::atomic<bool> g_wario_key_f12{false};
+std::atomic<int> g_wario_fullscreen_request{-1};
+#endif
 extern std::atomic<int> g_wario_fps_multiplier;  // VideoCommon/BPStructs.cpp (1 = off)
 extern std::atomic<bool> g_wario_fps_objects;     // false = camera only
 namespace VideoCommon
@@ -627,14 +638,15 @@ void QueueFps()
 }
 
 // The game window's real state. PlatformWin32::ToggleFullscreen (F11, Alt+Enter, its own menu)
-// strips WS_OVERLAPPEDWINDOW, so a window without a caption is fullscreen.
+// strips WS_OVERLAPPEDWINDOW, so a window without a caption is fullscreen. On Wayland the
+// compositor reports it (PlatformWayland::ToplevelConfigure).
 bool WindowFullscreen()
 {
 #ifdef _WIN32
   return g_wario_hwnd &&
          (GetWindowLongW(static_cast<HWND>(g_wario_hwnd), GWL_STYLE) & WS_CAPTION) == 0;
 #else
-  return false;
+  return Host_RendererIsFullscreen();
 #endif
 }
 
@@ -651,6 +663,12 @@ void SetFullscreen(bool fullscreen)
     PostMessageW(static_cast<HWND>(g_wario_hwnd), WM_KEYDOWN, VK_F11, 0);
     s_fullscreen_wait = 0.5f;
   }
+#else
+  if (fullscreen != WindowFullscreen())
+  {
+    g_wario_fullscreen_request.store(fullscreen ? 1 : 0);
+    s_fullscreen_wait = 0.5f;
+  }
 #endif
 }
 
@@ -659,6 +677,8 @@ void Quit()
 #ifdef _WIN32
   if (g_wario_hwnd)
     PostMessageW(static_cast<HWND>(g_wario_hwnd), WM_CLOSE, 0, 0);
+#else
+  Host_Message(HostMessageID::WMUserStop);
 #endif
 }
 
@@ -751,12 +771,17 @@ void PollExtract()
 #endif
 }
 
-// XInput without linking it: any of the four pads.
+// Any connected pad: XInput without linking it on Windows, SDL gamepads through Dolphin's
+// controller interface elsewhere. Buttons use XInput's bit values.
 struct PadState
 {
   unsigned buttons = 0;
   float lx = 0.0f, ly = 0.0f;
 };
+
+constexpr unsigned PAD_UP = 0x0001, PAD_DOWN = 0x0002, PAD_LEFT = 0x0004, PAD_RIGHT = 0x0008,
+                   PAD_BACK = 0x0020, PAD_LB = 0x0100, PAD_RB = 0x0200, PAD_A = 0x1000,
+                   PAD_B = 0x2000;
 
 PadState ReadPads()
 {
@@ -794,13 +819,37 @@ PadState ReadPads()
     if (std::abs(ly) > std::abs(state.ly))
       state.ly = ly;
   }
+#else
+  // Input names from InputCommon/ControllerInterface/SDL/SDLGamepad.h (s_sdl_button_names; face
+  // buttons by position, "Left Y+" is up as on XInput).
+  static constexpr std::pair<const char*, unsigned> kButtons[] = {
+      {"Pad N", PAD_UP},         {"Pad S", PAD_DOWN},       {"Pad W", PAD_LEFT},
+      {"Pad E", PAD_RIGHT},      {"Back", PAD_BACK},        {"Shoulder L", PAD_LB},
+      {"Shoulder R", PAD_RB},    {"Button S", PAD_A},       {"Button E", PAD_B},
+  };
+  const auto value = [](const ciface::Core::Device& device, const char* name) {
+    const ciface::Core::Device::Input* input = device.FindInput(name);
+    return input ? static_cast<float>(input->GetState()) : 0.0f;
+  };
+  for (const auto& device : g_controller_interface.GetAllDevices())
+  {
+    if (device->GetSource() != "SDL")
+      continue;
+    for (const auto& [name, bit] : kButtons)
+    {
+      if (value(*device, name) > 0.5f)
+        state.buttons |= bit;
+    }
+    const float lx = value(*device, "Left X+") - value(*device, "Left X-");
+    const float ly = value(*device, "Left Y+") - value(*device, "Left Y-");
+    if (std::abs(lx) > std::abs(state.lx))
+      state.lx = lx;
+    if (std::abs(ly) > std::abs(state.ly))
+      state.ly = ly;
+  }
 #endif
   return state;
 }
-
-constexpr unsigned PAD_UP = 0x0001, PAD_DOWN = 0x0002, PAD_LEFT = 0x0004, PAD_RIGHT = 0x0008,
-                   PAD_BACK = 0x0020, PAD_LB = 0x0100, PAD_RB = 0x0200, PAD_A = 0x1000,
-                   PAD_B = 0x2000;
 
 bool WindowFocused()
 {
@@ -816,7 +865,7 @@ bool KeyDown(int key)
 #ifdef _WIN32
   return WindowFocused() && (GetAsyncKeyState(key) & 0x8000) != 0;
 #else
-  return false;
+  return (key == VK_TAB ? g_wario_key_tab : g_wario_key_f12).load();
 #endif
 }
 
@@ -840,14 +889,24 @@ void FocusNextItem()
   g.NavTabbingCounter = 1;
 }
 
-#ifdef _WIN32
-// An s32 exported by the recompiled game module, or null.
+// An s32 exported by the recompiled game module, or null. Also used by the runtime
+// (UpdateWarioAspect, scripts/tool_fix_wario_aspect.py).
 volatile s32* WarioModuleS32(const char* name)
 {
+#ifdef _WIN32
   HMODULE module = GetModuleHandleW(L"gGWWE01_recomp.dll");
   return module ? reinterpret_cast<volatile s32*>(GetProcAddress(module, name)) : nullptr;
-}
+#else
+  // RTLD_NOLOAD returns the module the runtime already loaded (matched by its soname) and never
+  // loads it; the extra reference is dropped again right away.
+  void* module = dlopen("gGWWE01_recomp.so", RTLD_NOW | RTLD_NOLOAD);
+  if (!module)
+    return nullptr;
+  auto* value = static_cast<volatile s32*>(dlsym(module, name));
+  dlclose(module);
+  return value;
 #endif
+}
 bool s_audio_exports = false;  // the game module has the wario_audio_* controls
 bool s_cheat_exports = false;  // the game module has the wario_cheat_* controls
 // One-shot cheats: the menu writes 1, the module sets 2 once applied (with a save loaded).
@@ -1115,12 +1174,14 @@ std::vector<std::string> ConnectedSdlPads()
   std::vector<std::string> pads;
   for (const std::string& device : g_controller_interface.GetAllDeviceStrings())
   {
+    if (device.rfind("SDL/", 0) != 0)
+      continue;
+#ifdef _WIN32
     // Xbox pads also show up through SDL; XInput already binds them (and drives their motors).
-    if (device.rfind("SDL/", 0) == 0 && device.find("Xbox") == std::string::npos &&
-        device.find("XInput") == std::string::npos)
-    {
-      pads.push_back(device);
-    }
+    if (device.find("Xbox") != std::string::npos || device.find("XInput") != std::string::npos)
+      continue;
+#endif
+    pads.push_back(device);
   }
   return pads;
 }
@@ -2001,11 +2062,15 @@ void DrawPanel(float width, float height)
         changed = true;
 
       row("Graphics");
+#ifdef _WIN32
+      // Linux has Vulkan only: ModernGekko builds Dolphin without EGL, so OpenGL gets no Wayland
+      // context and the starter always asks for Vulkan.
       if (ImGui::Combo("##backend", &s.backend, kBackendNames,
                        static_cast<int>(std::size(kBackendNames))))
       {
         changed = true;
       }
+#endif
       if (ImGui::Checkbox("Performance mode (multithreaded)", &s.performance))
         changed = true;
       ImGui::PushTextWrapPos(inner + pad);
@@ -2022,10 +2087,13 @@ void DrawPanel(float width, float height)
       }
       ImGui::PopTextWrapPos();
 
+      ImGui::Dummy(ImVec2(0.0f, font * 0.1f));
+#ifdef _WIN32
+      // Texture extraction and the folder / log buttons start Windows processes (CreateProcessW,
+      // ShellExecuteW); they are not available on Linux yet.
       static const std::string extract_command = EnvUtf8("MODERNGEKKO_WARIO_EXTRACT_CMD");
       static const std::string extracted_dir = EnvUtf8("MODERNGEKKO_WARIO_EXTRACTED_DIR");
       static const std::string log_path = EnvUtf8("MODERNGEKKO_WARIO_LOG");
-      ImGui::Dummy(ImVec2(0.0f, font * 0.1f));
       if (!extract_command.empty())
       {
         const bool running = s_extract_state == ExtractState::Running;
@@ -2059,6 +2127,7 @@ void DrawPanel(float width, float height)
         if (ImGui::Button("Open last log", ImVec2(inner, 0.0f)))
           OpenPath(log_path, false);
       }
+#endif
       if (ReportSnapshotAvailable())
       {
         if (ImGui::Button("Save bug report snapshot (F12)", ImVec2(inner, 0.0f)))
@@ -2282,9 +2351,8 @@ void WarioMenuDraw(u32 width, u32 height)
   s_anim = std::clamp(s_anim + (s_open ? dt : -dt) / 0.18f, 0.0f, 1.0f);
   g_wario_menu_open.store(s_open || s_anim > 0.0f);
   FeedNavigation(pad, s_open && !binding);
-#ifdef _WIN32
   // Game module exports are looked up again while missing: the menu can tick before
-  // gGWWE01_recomp.dll is loaded.
+  // the game module is loaded.
   const auto module_s32 = [](volatile s32*& slot, const char* name) {
     if (!slot)
       slot = WarioModuleS32(name);
@@ -2325,7 +2393,6 @@ void WarioMenuDraw(u32 width, u32 height)
   static volatile s32* tagging = nullptr;
   if (module_s32(tagging, "wario_fps_tagging"))
     *tagging = (g_wario_fps_multiplier.load() > 1 && g_wario_fps_objects.load()) ? 1 : 0;
-#endif
   static float auto_timer = 0.0f;
   if (s_settings.frame_rate == 4 && (auto_timer += dt) > 2.0f)
   {
@@ -2515,6 +2582,147 @@ WIN_MOUSE_NEW = WIN_MOUSE_OLD + """
     break;
 """
 
+# Wayland window (Linux): the same menu keys, mouse and fullscreen control as the Win32 window.
+# F11 toggles fullscreen and F12 is the menu's bug report key, as on Windows, instead of
+# DolphinNoGUI's "load last state" / "undo save state".
+WAYLAND_DECL_OLD = '#include <xkbcommon/xkbcommon.h>\n'
+WAYLAND_DECL_NEW = (WAYLAND_DECL_OLD + "#include <linux/input-event-codes.h>\n"
+                    "#include <atomic>\n\n"
+                    "// Wario World in-game menu (VideoCommon/OnScreenUI.cpp).\n"
+                    "extern std::atomic<bool> g_wario_key_tab;\n"
+                    "extern std::atomic<bool> g_wario_key_f12;\n"
+                    "extern std::atomic<int> g_wario_fullscreen_request;\n"
+                    "extern std::atomic<int> g_wario_mouse_wheel;\n"
+                    "// Held while VideoBackendBase::ShutdownShared destroys g_presenter.\n"
+                    "extern std::mutex g_wario_presenter_mutex;\n")
+
+WAYLAND_CLASS_OLD = """  static void PointerMotion(void*, wl_pointer*, uint32_t, wl_fixed_t, wl_fixed_t) {}
+  static void PointerButton(void*, wl_pointer*, uint32_t, uint32_t, uint32_t, uint32_t) {}"""
+WAYLAND_CLASS_NEW = """  static void PointerMotion(void*, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y);
+  static void PointerButton(void*, wl_pointer*, uint32_t, uint32_t, uint32_t button, uint32_t state);"""
+
+WAYLAND_WHEEL_OLD = """  static void PointerAxisDiscrete(void*, wl_pointer*, uint32_t, int32_t) {}
+  static void PointerAxisValue120(void*, wl_pointer*, uint32_t, int32_t) {}"""
+WAYLAND_WHEEL_NEW = """  static void PointerAxisDiscrete(void*, wl_pointer*, uint32_t axis, int32_t discrete);
+  static void PointerAxisValue120(void*, wl_pointer*, uint32_t axis, int32_t value120);"""
+
+WAYLAND_HOTKEY_DECL_OLD = "  void HandleHotkey(xkb_keysym_t symbol);\n"
+WAYLAND_HOTKEY_DECL_NEW = WAYLAND_HOTKEY_DECL_OLD + "  void SetWindowFullscreen(bool fullscreen);\n"
+
+WAYLAND_LOOP_OLD = """    UpdateRunningFlag();
+    Core::HostDispatchJobs(Core::System::GetInstance());"""
+WAYLAND_LOOP_NEW = """    UpdateRunningFlag();
+    if (const int wanted = g_wario_fullscreen_request.exchange(-1); wanted >= 0)
+      SetWindowFullscreen(wanted == 1);
+    Core::HostDispatchJobs(Core::System::GetInstance());"""
+
+WAYLAND_LEAVE_OLD = """  if (surface == platform->m_surface)
+  {
+    platform->m_window_focus = false;"""
+WAYLAND_LEAVE_NEW = """  if (surface == platform->m_surface)
+  {
+    g_wario_key_tab.store(false);
+    g_wario_key_f12.store(false);
+    platform->m_window_focus = false;"""
+
+WAYLAND_KEY_OLD = """  auto* platform = static_cast<PlatformWayland*>(data);
+  if (state != WL_KEYBOARD_KEY_STATE_PRESSED || !platform->m_xkb_state)
+    return;
+  platform->HandleHotkey(xkb_state_key_get_one_sym(platform->m_xkb_state, key + 8));
+}"""
+WAYLAND_KEY_NEW = """  auto* platform = static_cast<PlatformWayland*>(data);
+  if (!platform->m_xkb_state)
+    return;
+  const xkb_keysym_t symbol = xkb_state_key_get_one_sym(platform->m_xkb_state, key + 8);
+  const bool pressed = state == WL_KEYBOARD_KEY_STATE_PRESSED;
+  // The in-game menu polls these as held keys: Tab opens and closes it, F12 saves a bug report.
+  if (symbol == XKB_KEY_Tab)
+    g_wario_key_tab.store(pressed);
+  else if (symbol == XKB_KEY_F12)
+    g_wario_key_f12.store(pressed);
+  if (pressed)
+    platform->HandleHotkey(symbol);
+}"""
+
+WAYLAND_ALT_ENTER_OLD = """  else if (symbol == XKB_KEY_Return && ModifierActive(XKB_MOD_NAME_ALT))
+  {
+    if (m_window_fullscreen)
+      xdg_toplevel_unset_fullscreen(m_toplevel);
+    else
+      xdg_toplevel_set_fullscreen(m_toplevel, nullptr);
+    m_window_fullscreen = !m_window_fullscreen;
+    wl_surface_commit(m_surface);
+  }"""
+WAYLAND_ALT_ENTER_NEW = """  else if ((symbol == XKB_KEY_Return && ModifierActive(XKB_MOD_NAME_ALT)) ||
+           symbol == XKB_KEY_F11)
+  {
+    SetWindowFullscreen(!m_window_fullscreen);
+  }"""
+
+WAYLAND_F11_OLD = """  else if (symbol == XKB_KEY_F11)
+  {
+    State::LoadLastSaved(system);
+  }
+  else if (symbol == XKB_KEY_F12)
+  {
+    if (ModifierActive(XKB_MOD_NAME_SHIFT))
+      State::UndoLoadState(system);
+    else
+      State::UndoSaveState(system);
+  }
+}
+"""
+WAYLAND_F11_NEW = """}
+
+void PlatformWayland::SetWindowFullscreen(bool fullscreen)
+{
+  if (fullscreen)
+    xdg_toplevel_set_fullscreen(m_toplevel, nullptr);
+  else
+    xdg_toplevel_unset_fullscreen(m_toplevel);
+  m_window_fullscreen = fullscreen;
+  wl_surface_commit(m_surface);
+}
+
+// Mouse for the in-game menu (ImGui overlay). The surface has buffer scale 1, so surface
+// coordinates are backbuffer pixels. g_presenter is skipped while shutdown destroys it.
+void PlatformWayland::PointerMotion(void*, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y)
+{
+  std::unique_lock<std::mutex> lock(g_wario_presenter_mutex, std::try_to_lock);
+  if (lock.owns_lock() && g_presenter)
+    g_presenter->SetMousePos(static_cast<float>(wl_fixed_to_double(x)),
+                             static_cast<float>(wl_fixed_to_double(y)));
+}
+
+void PlatformWayland::PointerButton(void*, wl_pointer*, uint32_t, uint32_t, uint32_t button,
+                                    uint32_t state)
+{
+  static uint32_t s_buttons = 0;  // ImGui order: 1 = left, 2 = right
+  const uint32_t bit = button == BTN_LEFT ? 1u : button == BTN_RIGHT ? 2u : 0u;
+  if (state == WL_POINTER_BUTTON_STATE_PRESSED)
+    s_buttons |= bit;
+  else
+    s_buttons &= ~bit;
+  std::unique_lock<std::mutex> lock(g_wario_presenter_mutex, std::try_to_lock);
+  if (lock.owns_lock() && g_presenter)
+    g_presenter->SetMousePress(s_buttons);
+}
+
+// Wheel in Windows units (120 per notch, positive away from the user); Wayland counts the other
+// way. Seat version 8 and later sends value120, earlier versions discrete steps.
+void PlatformWayland::PointerAxisDiscrete(void*, wl_pointer*, uint32_t axis, int32_t discrete)
+{
+  if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+    g_wario_mouse_wheel -= discrete * 120;
+}
+
+void PlatformWayland::PointerAxisValue120(void*, wl_pointer*, uint32_t axis, int32_t value120)
+{
+  if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+    g_wario_mouse_wheel -= value120;
+}
+"""
+
 
 HDR_SHADER = r"""// Wario World HDR tuning (scripts/tool_fix_wario_menu.py; values come from the in-game menu).
 // The menu loads it only while HDR output is on and a value differs from its default; every
@@ -2684,3 +2892,10 @@ def apply(replace, runtime):
     replace(dolphin / "DolphinNoGUI/PlatformWin32.cpp", WIN_DECL_OLD, WIN_DECL_NEW)
     replace(dolphin / "DolphinNoGUI/PlatformWin32.cpp", WIN_CREATE_OLD, WIN_CREATE_NEW)
     replace(dolphin / "DolphinNoGUI/PlatformWin32.cpp", WIN_MOUSE_OLD, WIN_MOUSE_NEW)
+    wayland = dolphin / "DolphinNoGUI/PlatformWayland.cpp"
+    for old, new in ((WAYLAND_DECL_OLD, WAYLAND_DECL_NEW), (WAYLAND_CLASS_OLD, WAYLAND_CLASS_NEW),
+                     (WAYLAND_WHEEL_OLD, WAYLAND_WHEEL_NEW), (WAYLAND_HOTKEY_DECL_OLD, WAYLAND_HOTKEY_DECL_NEW),
+                     (WAYLAND_LOOP_OLD, WAYLAND_LOOP_NEW), (WAYLAND_LEAVE_OLD, WAYLAND_LEAVE_NEW),
+                     (WAYLAND_KEY_OLD, WAYLAND_KEY_NEW), (WAYLAND_ALT_ENTER_OLD, WAYLAND_ALT_ENTER_NEW),
+                     (WAYLAND_F11_OLD, WAYLAND_F11_NEW)):
+        replace(wayland, old, new)

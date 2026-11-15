@@ -66,25 +66,29 @@ if args.reference and args.lockstep:
 if args.full and args.lockstep:
     parser.error("Lockstep verification needs the instrumented bundle (--rel-bundle); the clean port has no instruction journal")
 runtime_root = args.runtime_root.resolve() if args.runtime_root else ROOT
-runner = args.runner.resolve() if args.runner else runtime_root / "build/moderngekko/Release/moderngekko-run.exe"
-modules = sorted((runtime_root / "build/modules/GWWE01").glob("*/gGWWE01_recomp.dll"), key=lambda p: p.stat().st_mtime)
+# Visual Studio builds put their output under Release/; Ninja builds (Linux) directly in the folder.
+module_name = "gGWWE01_recomp.dll" if os.name == "nt" else "gGWWE01_recomp.so"
+def build_output(folder, name):
+    return runtime_root / "build" / folder / ("Release" if os.name == "nt" else "") / name
+runner = args.runner.resolve() if args.runner else build_output("moderngekko", "moderngekko-run" + (".exe" if os.name == "nt" else ""))
+modules = sorted((runtime_root / "build/modules/GWWE01").glob("*/" + module_name), key=lambda p: p.stat().st_mtime)
 if not runner.is_file() or not modules:
     raise SystemExit("Build the runtime and main module first")
 module = modules[-1]
 if args.instrumented:
-    module = runtime_root / "build/module-instrumented/Release/gGWWE01_recomp.dll"
+    module = build_output("module-instrumented", module_name)
     if not module.is_file():
         raise SystemExit("Run scripts/build_instrumented.py first")
 if args.rel_bundle:
-    module = runtime_root / "build/module-rel-bundle/Release/gGWWE01_recomp.dll"
+    module = build_output("module-rel-bundle", module_name)
     if not module.is_file():
         raise SystemExit("Run scripts/build_rel_bundle.py first")
 if args.full:
-    module = runtime_root / "build/module-full/Release/gGWWE01_recomp.dll"
+    module = build_output("module-full", module_name)
     if not module.is_file():
         raise SystemExit("Run scripts/build_rel_bundle.py --clean first")
 if args.vectors:
-    module = runtime_root / ("build/module-full-vectors/Release/gGWWE01_recomp.dll" if args.full else "build/module-rel-bundle-vectors/Release/gGWWE01_recomp.dll")
+    module = build_output("module-full-vectors" if args.full else "module-rel-bundle-vectors", module_name)
     if not module.is_file():
         raise SystemExit("Run scripts/build_rel_bundle.py --vectors first")
 if args.module:

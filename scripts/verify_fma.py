@@ -1,6 +1,6 @@
 """Compare generated-code FMA helper with the runtime's opcode helper."""
 from pathlib import Path
-import subprocess
+from build import run_check_program
 
 root = Path(__file__).resolve().parents[1]
 gx = root / "third_party/ModernGekko/vendor/dolphin/GXRuntime"
@@ -43,8 +43,10 @@ sources = ["cpu.c", "cpu_exception.c", "cpu_interpreter.c", "cpu_interpreter_tab
 cmake = "cmake_minimum_required(VERSION 3.16)\nproject(fma_check C)\nset(CMAKE_C_STANDARD 11)\nadd_executable(fma_check test.c\n"
 cmake += "\n".join('"' + (gx / "src/core" / s).as_posix() + '"' for s in sources) + ")\n"
 cmake += 'target_include_directories(fma_check PRIVATE "' + (gx / "include").as_posix() + '")\n'
-cmake += "target_compile_options(fma_check PRIVATE /fp:strict)\n"
+# Strict floating point as in module-template/CMakeLists.txt (MSVC /fp:strict, otherwise no
+# contraction); outside MSVC fma() and fmod() come from libm.
+cmake += "if(MSVC)\n  target_compile_options(fma_check PRIVATE /fp:strict)\nelse()\n"
+cmake += "  target_compile_options(fma_check PRIVATE -ffp-contract=off -fno-fast-math)\n"
+cmake += "  target_link_libraries(fma_check PRIVATE m)\nendif()\n"
 (folder / "CMakeLists.txt").write_text(cmake)
-subprocess.run(["cmake", "-S", str(folder), "-B", str(folder / "build"), "-G", "Visual Studio 17 2022", "-A", "x64"], check=True, stdout=subprocess.DEVNULL)
-subprocess.run(["cmake", "--build", str(folder / "build"), "--config", "Release"], check=True)
-subprocess.run([str(folder / "build/Release/fma_check.exe")], check=True)
+run_check_program(folder, "fma_check")
