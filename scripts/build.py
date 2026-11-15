@@ -28,11 +28,27 @@ def run(args, name, cwd=ROOT, env=None, allow_failure=False):
 
 
 def executable(build, name):
-    for path in (ROOT / "build" / build / "Release" / (name + ".exe"),
-                 ROOT / "build" / build / (name + ".exe")):
+    name += ".exe" if os.name == "nt" else ""
+    for path in (ROOT / "build" / build / "Release" / name, ROOT / "build" / build / name):
         if path.is_file():
             return path
     raise SystemExit(f"Missing {name}; build the corresponding tool first")
+
+
+def cmake_generator():
+    """CMake generator arguments: Visual Studio (multi-configuration) on Windows, Ninja elsewhere."""
+    if os.name == "nt":
+        return ["-G", "Visual Studio 17 2022", "-A", "x64"]
+    return ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"]
+
+
+def run_check_program(folder, name):
+    """Configure, build (Release) and run the CMake check program `name` written to folder."""
+    build = Path(folder) / "build"
+    subprocess.run(["cmake", "-S", str(folder), "-B", str(build), *cmake_generator()], check=True,
+                   stdout=subprocess.DEVNULL)
+    subprocess.run(["cmake", "--build", str(build), "--config", "Release"], check=True)
+    subprocess.run([str(build / "Release" / (name + ".exe") if os.name == "nt" else build / name)], check=True)
 
 
 def check_game():
@@ -61,10 +77,10 @@ def fetch():
 def configure(name, source, extra=()):
     build = ROOT / "build" / name
     build.mkdir(parents=True, exist_ok=True)
-    if name == "moderngekko":
+    if os.name == "nt" and name == "moderngekko":
         (build / "Release").mkdir(exist_ok=True)
-    run(["cmake", "-S", source, "-B", build, "-G", "Visual Studio 17 2022", "-A", "x64",
-         "-DDOLRECOMP_ENABLE_LLVM=OFF", *extra], "configure-" + name)
+    run(["cmake", "-S", source, "-B", build, *cmake_generator(), "-DDOLRECOMP_ENABLE_LLVM=OFF", *extra],
+        "configure-" + name)
 
 
 def tools(jobs):
@@ -116,9 +132,9 @@ def main():
     parser.add_argument("stage", choices=["check", "fetch", "tools", "extract", "audit", "translate", "module-main"])
     parser.add_argument("--iso", type=Path)
     parser.add_argument("--jobs", type=int, default=8)
-    parser.add_argument("--toolchain", choices=("msvc", "clang"), default="msvc",
+    parser.add_argument("--toolchain", choices=("msvc", "clang"), default="msvc" if os.name == "nt" else "clang",
                         help="module-main compiler (clang tolerates build paths over 260 characters; "
-                             "needs clang on PATH and the MSVC x64 environment)")
+                             "needs clang on PATH and, on Windows, the MSVC x64 environment)")
     args = parser.parse_args()
     if args.jobs < 1:
         parser.error("--jobs must be positive")
@@ -126,7 +142,11 @@ def main():
         for name in ("git", "cmake", "ctest", "ninja"):
             print(name, shutil.which(name) or "NOT FOUND")
         print("Python", sys.version.split()[0])
-        print("Windows builds need Visual Studio 2022 C++ tools. Use an x64 developer prompt for module-main.")
+        if os.name == "nt":
+            print("Windows builds need Visual Studio 2022 C++ tools. Use an x64 developer prompt for module-main.")
+        else:
+            print("Linux builds need clang, Ninja, ModernGekko's Linux dependencies (its .github/workflows/build.yml)\n"
+                  "and the wayland-client, wayland-egl, egl and xkbcommon development files for the Wayland window.")
     elif args.stage == "fetch":
         fetch()
     elif args.stage == "tools":
@@ -145,9 +165,9 @@ def main():
         # CMake refresh those dependencies, then publish the newly linked DLL.
         for module_build in (ROOT / "build/modules" / CONFIG["disc_id"]).glob("*/module-build"):
             run(["cmake", "--build", module_build, "--parallel", str(args.jobs)], "refresh-module-main")
-            linked = module_build / ("g" + CONFIG["disc_id"] + "_recomp.dll")
+            linked = module_build / ("g" + CONFIG["disc_id"] + "_recomp" + (".dll" if os.name == "nt" else ".so"))
             if not linked.is_file():
-                raise SystemExit("Expected linked Windows module is absent")
+                raise SystemExit("Expected linked module is absent")
             shutil.copy2(linked, module_build.parent / linked.name)
         print("Main module compiled. This stage alone does not establish full REL coverage or accuracy.")
 

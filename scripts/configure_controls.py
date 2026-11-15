@@ -131,6 +131,7 @@ def migrate(user):
         'updated':updated,'kept_custom':kept}
 
 def xinput_slots():
+    if not hasattr(ctypes,'WinDLL'):return []  # XInput is Windows-only
     try:dll=ctypes.WinDLL('xinput1_4.dll')
     except OSError:return []
     dll.XInputGetState.argtypes=[ctypes.c_uint,ctypes.c_void_p]

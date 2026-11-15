@@ -17,7 +17,8 @@ parser.add_argument("--vectors", action="store_true", help="Include verified phy
 parser.add_argument("--clean", action="store_true", help="Emit the uninstrumented main-plus-REL port DLL without instruction-count instrumentation")
 parser.add_argument("--clang", action="store_true",
                     help="Compile with LLVM clang-cl + Ninja into build/module-<variant>-clang/ (same /O2 /fp:strict flags; "
-                         "~1.75x faster generated code than MSVC in measured gameplay)")
+                         "~1.75x faster generated code than MSVC in measured gameplay). On Linux: clang from PATH "
+                         "instead of the default C compiler")
 parser.add_argument("--clang-cl", default="C:/Program Files/LLVM/bin/clang-cl.exe")
 parser.add_argument("--pgo-generate", action="store_true",
                     help="With --clang: build an instrumented module (-fprofile-instr-generate) into module-<variant>-clang-pgogen")
@@ -1119,6 +1120,15 @@ if not vectors:
     cmake = cmake.replace(' "${GENERATED_DIR}/vectors/*/chunks/*.c"', '')
     cmake = cmake.replace(' "${GENERATED_DIR}/vector_bridge_*.c"', '')
 (template / "CMakeLists.txt").write_text(cmake)
+# Linux links the module with this version script, which hides everything not listed. The runtime
+# finds the wario_* exports by name (wario_runtime_pc_module switches StaticRecompCore to runtime
+# REL addresses; without it every icache invalidation rescans RAM for REL headers), and the menu
+# writes its audio, cheat and frame-rate controls through them.
+exports = (template / "module.exports").read_text()
+journal_export = "    ppc_set_mem_write_journal;\n"
+if exports.count(journal_export) != 1:
+    raise SystemExit("module-template/module.exports changed upstream; add the wario_* exports by hand")
+(template / "module.exports").write_text(exports.replace(journal_export, journal_export + "    wario_*;\n"))
 def vcvars64():
     for edition in (sorted(Path("C:/Program Files (x86)/Microsoft Visual Studio/2022").glob("*")) +
                     sorted(Path("C:/Program Files/Microsoft Visual Studio/2022").glob("*"))):
@@ -1155,6 +1165,19 @@ def pgo_flags(clang, build):
 common = ["-DGAME_ID=GWWE01", "-DGENERATED_DIR=" + str(destination), "-DGXRUNTIME_DIR=" + str(upstream / "GXRuntime"),
           "-DCHASSIS_ABI_DIR=" + str(upstream / "Source/Core/Core/PowerPC/StaticRecomp")]
 print("Bundle instruction sites:", sites, "REL chunks:", len(new_chunks), flush=True)
+if os.name != "nt":
+    if args.pgo_generate or args.pgo_use:
+        raise SystemExit("PGO builds use clang-cl flags and are Windows-only")
+    build = ROOT / "build" / (args.build_dir or ("module-" + variant + ("-clang" if args.clang else "")))
+    compilers = ["-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++"] if args.clang else []
+    with (ROOT / f"reports/build-rel-bundle-{build.name}.log").open("w") as log:
+        subprocess.run(["cmake", "-S", template, "-B", build, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
+                        "-DRECOMPCORE_MODULE_ENABLE_IPO=OFF", *compilers, *common],
+                       check=True, stdout=log, stderr=subprocess.STDOUT)
+        subprocess.run(["cmake", "--build", build, "--parallel", str(args.jobs)],
+                       check=True, stdout=log, stderr=subprocess.STDOUT)
+    print(build / "gGWWE01_recomp.so")
+    raise SystemExit(0)
 if args.clang:
     suffix = "-clang-pgogen" if args.pgo_generate else "-clang-pgo" if args.pgo_use else "-clang"
     build = ROOT / "build" / (args.build_dir or ("module-" + variant + suffix))

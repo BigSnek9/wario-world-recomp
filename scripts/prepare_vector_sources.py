@@ -8,7 +8,7 @@ import json
 import struct
 import subprocess
 from audit_game import parse_dol
-from build import check_game
+from build import check_game, executable
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -45,7 +45,7 @@ def prepare():
     dol = (ROOT / "original/GWWE01/sys/main.dol").read_bytes()
     out = ROOT / "generated/vector-sources"
     out.mkdir(parents=True, exist_ok=True)
-    compiler = ROOT / "build/moderngekko/Release/dolrecomp.exe"
+    compiler = executable("moderngekko", "dolrecomp")
     manifest = []
     with (ROOT / "reports/translate-vectors.log").open("w") as log:
         for name, address, code in vector_images(dol):

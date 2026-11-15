@@ -19,6 +19,9 @@ Errors are shown in a message box.
 
 In a copy made by the installer (install.json at its root) everything is relative to the install
 folder: runtime/, module/, game/GWWE01, user/ (saves and settings) and data/ (logs, sessions).
+
+On Linux (`python3 launcher/wario_launcher.pyw` from a source build) the runner opens a Wayland
+window with Vulkan, the only backend available there, and errors are printed instead of shown.
 """
 import configparser
 import ctypes
@@ -45,7 +48,7 @@ if INSTALLED:
     TEXTURE_OUT = ROOT / "Extracted Textures"
     WINDOW_TITLE = "Wario World Recomp"
     ICON = ROOT / "WarioWorld.ico"  # made by the installer from the player's own disc banner
-else:
+elif os.name == "nt":
     RUNNER = ROOT / "build/moderngekko/Release/moderngekko-run.exe"
     GAME = ROOT / "original/GWWE01"
     USER = ROOT / "private/playtest-user"
@@ -54,6 +57,19 @@ else:
     CONTROL = ROOT / "private/launcher-control"
     MODULES = (ROOT / "build/module-full-vectors-clang-pgo/gGWWE01_recomp.dll",
                ROOT / "build/module-full-vectors-clang/gGWWE01_recomp.dll")
+    TEXTURE_OUT = ROOT.parent / "Extracted Textures"
+    WINDOW_TITLE = "Wario World Recomp - Test Build"
+    ICON = None
+else:
+    # Linux source build: Ninja puts the runner beside its build folder; build_rel_bundle.py
+    # --vectors --clean --clang writes the module.
+    RUNNER = ROOT / "build/moderngekko/moderngekko-run"
+    GAME = ROOT / "original/GWWE01"
+    USER = ROOT / "private/playtest-user"
+    DATA = ROOT / "private"
+    LOG = ROOT / "private/playtest-last.log"
+    CONTROL = ROOT / "private/launcher-control"
+    MODULES = (ROOT / "build/module-full-vectors-clang/gGWWE01_recomp.so",)
     TEXTURE_OUT = ROOT.parent / "Extracted Textures"
     WINDOW_TITLE = "Wario World Recomp - Test Build"
     ICON = None
@@ -72,7 +88,10 @@ TOOL_MODULES = ("numpy", "PIL", "xxhash")  # needed by scripts/extract_textures.
 
 
 def message(text, error=True):
-    ctypes.windll.user32.MessageBoxW(None, text, TITLE, 0x10 if error else 0x40)
+    if os.name == "nt":
+        ctypes.windll.user32.MessageBoxW(None, text, TITLE, 0x10 if error else 0x40)
+    else:
+        print(text, file=sys.stderr if error else sys.stdout)
 
 
 def python_console():
@@ -211,7 +230,8 @@ def set_window_icon(pid, icon, timeout=60.0):
 
 def run_once(module, env):
     menu = read_menu_settings()
-    backend = "Vulkan" if migrate_backend(menu) == "vulkan" else "OpenGL"
+    # Linux: ModernGekko builds Dolphin without EGL, so OpenGL has no Wayland context.
+    backend = "Vulkan" if os.name != "nt" or migrate_backend(menu) == "vulkan" else "OpenGL"
     # Performance mode (menu, applies after "Restart now"): Dolphin's dual core, the GPU emulation
     # on its own thread. Off = the accurate single-thread default.
     texture_tools._set(USER / "Config/Dolphin.ini",
@@ -238,7 +258,7 @@ def run_once(module, env):
             process = subprocess.Popen(
                 [str(RUNNER), "--game", str(GAME), "--module", str(module), "--user-dir", str(USER),
                  "--graphics", backend, "--no-mods", "--automation-dir", str(CONTROL),
-                 "--title", WINDOW_TITLE],
+                 "--title", WINDOW_TITLE, *([] if os.name == "nt" else ["--wayland"])],
                 cwd=RUNNER.parent, stdout=log, stderr=subprocess.STDOUT, env=env, creationflags=NO_WINDOW)
             if ICON and ICON.is_file():
                 threading.Thread(target=set_window_icon, args=(process.pid, ICON), daemon=True).start()
@@ -247,10 +267,26 @@ def run_once(module, env):
         tracker.stop()
 
 
+def single_instance():
+    """One starter at a time (a second double-click while playing does nothing). Returns the
+    handle to keep while playing, or None when another starter already runs."""
+    if os.name == "nt":
+        mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "WarioWorldRecompStarter")
+        return None if ctypes.windll.kernel32.GetLastError() == 183 else mutex  # ERROR_ALREADY_EXISTS
+    import fcntl
+    DATA.mkdir(parents=True, exist_ok=True)
+    lock = (DATA / "starter.lock").open("w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock.close()
+        return None
+    return lock
+
+
 def main():
-    # One starter at a time (a second double-click while playing does nothing).
-    mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "WarioWorldRecompStarter")
-    if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+    instance = single_instance()
+    if instance is None:
         return
     module = next((path for path in MODULES if path.is_file()), MODULES[0])
     for path, what in ((RUNNER, "runtime"), (module, "game module"), (GAME / "sys/main.dol", "extracted game")):
@@ -272,7 +308,10 @@ def main():
         if code != 0:
             message(f"The game exited with code {code}.\n\nThe log is in:\n{LOG}\n\nPlease send it to Claude.")
         break
-    ctypes.windll.kernel32.CloseHandle(mutex)
+    if os.name == "nt":
+        ctypes.windll.kernel32.CloseHandle(instance)
+    else:
+        instance.close()
 
 
 if __name__ == "__main__":

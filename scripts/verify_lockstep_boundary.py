@@ -1,6 +1,6 @@
 """Compile the actual patched loop-boundary detector and test synthetic PPC CFGs."""
 from pathlib import Path
-import subprocess
+from build import run_check_program
 
 root = Path(__file__).resolve().parents[1]
 source_path = root / "third_party/ModernGekko/vendor/dolphin/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompLockstep_Check.cpp"
@@ -54,6 +54,4 @@ int main() {
 '''.replace("ACTUAL_FUNCTION", function)
 (folder / "test.cpp").write_text(test)
 (folder / "CMakeLists.txt").write_text('cmake_minimum_required(VERSION 3.16)\nproject(loop_boundary CXX)\nadd_executable(loop_boundary test.cpp)\nset_property(TARGET loop_boundary PROPERTY CXX_STANDARD 17)\n')
-subprocess.run(["cmake", "-S", str(folder), "-B", str(folder / "build"), "-G", "Visual Studio 17 2022", "-A", "x64"], check=True, stdout=subprocess.DEVNULL)
-subprocess.run(["cmake", "--build", str(folder / "build"), "--config", "Release"], check=True, stdout=subprocess.DEVNULL)
-subprocess.run([str(folder / "build/Release/loop_boundary.exe")], check=True)
+run_check_program(folder, "loop_boundary")
