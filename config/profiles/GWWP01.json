@@ -1,0 +1,29 @@
+{
+  "disc_id": "GWWP01",
+  "revision": 0,
+  "region": "PAL",
+  "profile_status": "metadata_only_not_yet_recompiled",
+  "iso_size": 275240820,
+  "iso_sha256": "6D9C7A4460C13A2066C4A1CEDC4DCEF899C7A032227C37CA95E43605F49EEEDE",
+  "dol_sha256": "DC1136BE0C47FE3E35551FCE2F0E715FEC9B488B9F6E5D3BE27A9342D6034C13",
+  "cpu": "gekko",
+  "semantics": "exact",
+  "backend": "c",
+  "framerate_patches": [],
+  "rel_sha256": {
+    "files/dll/WWEUED.rel": "001227C3CA05E71E4B1DAE07BBEF9C08B302A5772167B9AA75C9D7065840B78E",
+    "files/dll/WWEUOP.rel": "E1C29F721BAD72484E56D1D583E5B3212A9086A34911143A922B5C85AB157318",
+    "files/dll/WWEUPF.rel": "4FDE0E4C212D721625579261212B61D790F54202A7F70C1D0D68F6073D812257",
+    "files/dll/WWEUS1.rel": "8E2288023B353443AC127E62835071C5BDCB77AE8C6B1362D604909EEDFA00F3",
+    "files/dll/WWEUS2.rel": "EC009FE3523A625AA8E800D3944A2C7C4F26027478D481F84A5A6CDAD5C70823",
+    "files/dll/WWEUS4.rel": "82D29800A9C032971004F6AA520E9F72077A7C98BF117010B0B5B2590B94AB90",
+    "files/dll/WWEUS5.rel": "3627C018738891E9A71A1151D682DFCBD736BDB5D3EB05DC5EFE062FF694F41A",
+    "files/dll/WWEUTT.rel": "00E105E83D67579A50A1A53A5916F476AD667A10FBEF1AF3F972E68DF38B2628"
+  },
+  "notes": [
+    "Hashes identify the user's local GWWP01 revision 0 dump; they do not imply that a PAL recompilation exists.",
+    "The ISO is a trimmed 275240820-byte image. The current USA launcher expects a full-size image, so it cannot validate this PAL image yet.",
+    "PAL main.dol and REL modules must be independently analyzed and recompiled before runtime support can be claimed.",
+    "Do not copy USA addresses, symbols, generated code, or module hashes into the PAL build without verification."
+  ]
+}
