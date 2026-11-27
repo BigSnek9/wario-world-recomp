@@ -92,3 +92,20 @@ Connector annotation parameters use JSON POST; old README form examples are
 stale. /get_functions accepts comma-separated addresses and a fields list.
 Raw private evidence: reports/ghidra-bootstrap, ghidra-connector-bootstrap.json,
 ghidra-loader-timing.json. scripts/import_ghidra.py reproduces main import.
+
+
+## Regional support continuation (2026-11-24)
+
+A separate metadata profile for the user's local PAL GWWP01 revision 0 dump
+was added at `config/profiles/GWWP01.json` on branch
+`feature/pal-region-support`. The implementation plan and known blockers are
+in [REGIONAL_SUPPORT.md](REGIONAL_SUPPORT.md).
+
+This is metadata only, not PAL support. The existing build remains pinned to
+USA GWWE01: `scripts/build.py` uses a single `config/project.json` and
+`original/GWWE01`; `scripts/build_rel_bundle.py` hardcodes GWWE01 paths and
+module identity; the native launcher embeds one USA pin set, checks a full-size
+ISO, and selects `gGWWE01_recomp.dll`. PAL DOL/REL analysis, translation,
+module integration, launcher selection, and runtime tests have not been done.
+Do not loosen the region check or claim compatibility until a distinct PAL
+build is verified. Preserve the USA path and all existing private/playtest data.

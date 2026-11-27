@@ -87,3 +87,16 @@ python scripts/make_release.py --version X.Y --build-launcher       # see ../PUB
 
 Progressed-save seed: private/seeds/progress-save. Play-tracker states for
 every area: private/play-sessions. All tests hidden and muted (../../AGENTS.md).
+
+
+## Regional support status (2026-11-24)
+
+**PAL GWWP01 is not yet supported.** A metadata-only profile for the user's
+local PAL revision 0 dump now exists at `config/profiles/GWWP01.json` on the
+`feature/pal-region-support` branch. See [../REGIONAL_SUPPORT.md](../REGIONAL_SUPPORT.md)
+and [../HANDOFF.md](../HANDOFF.md) for the implementation plan and handoff.
+
+The build and launcher still target USA GWWE01 only. PAL DOL/REL analysis,
+translation, a distinct PAL native module, profile-aware launcher validation,
+and hidden boot/gameplay regression tests remain outstanding. Do not describe
+the metadata profile as playable regional support.
